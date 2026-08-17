@@ -152,7 +152,7 @@ import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
 import { RightPanelTabs, type PullRequestTabStatus } from "./RightPanelTabs";
 import { AgentsPanel } from "./AgentsPanel";
-import { WorkflowsPanel } from "./WorkflowsPanel";
+import { WorkflowsPanel } from "./workflows/WorkflowsPanel";
 import {
   deriveAgentPanelModel,
   foldSubagentActivities,
@@ -6232,7 +6232,7 @@ function ChatViewContent(props: ChatViewProps) {
         threadId={activeThreadRef?.threadId ?? null}
       />
     ) : activeRightPanelSurface === null || activeRightPanelSurface.kind === "workflows" ? (
-      <WorkflowsPanel />
+      <WorkflowsPanel projectRef={activeProjectRef} timestampFormat={timestampFormat} />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (
