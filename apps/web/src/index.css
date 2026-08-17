@@ -133,6 +133,16 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
+/* Fork wordmark face for the sidebar "Thund3r" brand. Bundled locally so it
+   works offline and over remote/tunnel connections. Never used for body text. */
+@font-face {
+  font-family: "Metal Mania";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./components/sidebar/fonts/MetalMania-Regular.woff2") format("woff2");
+}
+
 @theme inline {
   --color-zinc-25: oklch(99.2% 0 0);
   --animate-skeleton: skeleton 2s infinite linear;

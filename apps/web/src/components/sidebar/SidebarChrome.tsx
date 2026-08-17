@@ -64,6 +64,7 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
         )}
       />
       <SidebarBrand onBackdrop={backdropVariant !== null} />
+      <Thund3rWordmark />
       {pillLabel ? (
         <Badge
           className="relative z-10 ml-1 rounded-full px-1.5 text-muted-foreground"
@@ -114,6 +115,20 @@ function T3Wordmark() {
         fill="currentColor"
       />
     </svg>
+  );
+}
+
+// Fork marker: sits beside the T3 Code brand so it's obvious at a glance which build is
+// running. Purely decorative (the brand link carries the accessible name), and a sibling of
+// the link rather than a child so its tilt and shadow aren't clipped by the link's overflow.
+function Thund3rWordmark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none relative z-10 ml-2 hidden origin-left -rotate-4 select-none bg-[linear-gradient(180deg,#22d3ee_0%,#38bdf8_40%,#a855f7_78%,#7e22ce_100%)] bg-clip-text px-1 font-['Metal_Mania'] text-2xl leading-none tracking-wide text-transparent [filter:drop-shadow(0_0_5px_rgba(34,211,238,0.55))_drop-shadow(0_2px_0_#4c1d95)_drop-shadow(0_4px_8px_rgba(0,0,0,0.75))] md:inline-block"
+    >
+      Thund3r
+    </span>
   );
 }
 
