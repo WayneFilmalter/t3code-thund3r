@@ -227,6 +227,21 @@ describe("rightPanelStore", () => {
     ).toHaveLength(2);
   });
 
+  it("opens the workflows singleton and activates it", () => {
+    useRightPanelStore.getState().open(refA, "workflows");
+    useRightPanelStore.getState().open(refA, "diff");
+    useRightPanelStore.getState().open(refA, "workflows");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "workflows",
+      surfaces: [
+        { id: "workflows", kind: "workflows" },
+        { id: "diff", kind: "diff" },
+      ],
+    });
+  });
+
   it("reopening an inactive singleton activates its existing surface", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().open(refA, "agents");
