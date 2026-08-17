@@ -2,7 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { WorkflowDefinition, WorkflowRun } from "~/workflowsStore";
 
-import { deriveWorkflowSections } from "./workflowsPanel.logic";
+import { createSampleWorkflows } from "./sampleWorkflows";
+import { bubbleActionsFor, deriveWorkflowSections } from "./workflowsPanel.logic";
 
 function definition(overrides: Partial<WorkflowDefinition> & { id: string }): WorkflowDefinition {
   return {
@@ -21,6 +22,11 @@ function run(overrides: Partial<WorkflowRun> & { id: string }): WorkflowRun {
     status: "in-progress",
     startedAt: "2026-08-17T11:00:00.000Z",
     finishedAt: null,
+    pausedAt: null,
+    stage: null,
+    progress: null,
+    tokens: 0,
+    summary: null,
     ...overrides,
   };
 }
@@ -107,5 +113,47 @@ describe("deriveWorkflowSections", () => {
       "Nightly audit",
       "Deleted workflow",
     ]);
+  });
+
+  it("fills every section from the sample workflows", () => {
+    const sections = deriveWorkflowSections(createSampleWorkflows(Date.UTC(2026, 7, 17, 12)));
+    expect(sections.map((section) => section.id)).toEqual([
+      "workflows",
+      "scheduled",
+      "in-progress",
+      "review",
+      "stuck",
+      "done",
+    ]);
+    expect(sections.find((section) => section.id === "done")!.items.length).toBeGreaterThan(3);
+  });
+});
+
+describe("bubbleActionsFor", () => {
+  const item = { kind: "definition" as const, definition: definition({ id: "audit" }) };
+
+  it("offers schedule + start in the catalogue and unschedule + start in the queue", () => {
+    expect(bubbleActionsFor("workflows", item)).toEqual(["schedule", "start"]);
+    expect(bubbleActionsFor("scheduled", item)).toEqual(["unschedule", "start"]);
+  });
+
+  it("offers pause while running and resume once paused", () => {
+    expect(
+      bubbleActionsFor("in-progress", { kind: "run", run: run({ id: "r" }), name: "r" }),
+    ).toEqual(["pause"]);
+    expect(
+      bubbleActionsFor("in-progress", {
+        kind: "run",
+        run: run({ id: "r", pausedAt: "2026-08-17T11:30:00.000Z" }),
+        name: "r",
+      }),
+    ).toEqual(["resume"]);
+  });
+
+  it("offers view for review and done, restart for stuck", () => {
+    const runItem = { kind: "run" as const, run: run({ id: "r" }), name: "r" };
+    expect(bubbleActionsFor("review", runItem)).toEqual(["view"]);
+    expect(bubbleActionsFor("done", runItem)).toEqual(["view"]);
+    expect(bubbleActionsFor("stuck", runItem)).toEqual(["restart"]);
   });
 });

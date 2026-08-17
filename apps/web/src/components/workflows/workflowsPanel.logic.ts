@@ -21,6 +21,38 @@ export interface WorkflowSection {
   items: WorkflowSectionItem[];
 }
 
+export type WorkflowBubbleAction =
+  | "schedule"
+  | "unschedule"
+  | "start"
+  | "pause"
+  | "resume"
+  | "restart"
+  | "view";
+
+/**
+ * The buttons a bubble offers, decided by the section it sits in: the catalogue schedules or
+ * starts, the queue unschedules or starts now, a run pauses/resumes, is viewed, or restarts.
+ */
+export function bubbleActionsFor(
+  sectionId: WorkflowSectionId,
+  item: WorkflowSectionItem,
+): readonly WorkflowBubbleAction[] {
+  switch (sectionId) {
+    case "workflows":
+      return ["schedule", "start"];
+    case "scheduled":
+      return ["unschedule", "start"];
+    case "in-progress":
+      return item.kind === "run" && item.run.pausedAt !== null ? ["resume"] : ["pause"];
+    case "stuck":
+      return ["restart"];
+    case "review":
+    case "done":
+      return ["view"];
+  }
+}
+
 const DELETED_WORKFLOW_NAME = "Deleted workflow";
 
 const byNewest = (left: string, right: string) => right.localeCompare(left);
