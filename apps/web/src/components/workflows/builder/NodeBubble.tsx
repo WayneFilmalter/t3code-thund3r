@@ -6,7 +6,7 @@ import { cn } from "~/lib/utils";
 import { WORKFLOW_NODE_META, workflowNodeTitle } from "~/workflows/workflowNodeMeta";
 import type { WorkflowInstanceStatus, WorkflowNode } from "~/workflowsStore";
 
-import { NODE_ICONS } from "./nodeIcons";
+import { NODE_ICONS, PLAN_ICON } from "./nodeIcons";
 
 export const FAILED_ACCENT = "oklch(0.7 0.2 25)";
 const REVIEW_ACCENT = WORKFLOW_NODE_META.review.accent;
@@ -25,8 +25,9 @@ export function nodeChips(node: WorkflowNode): string[] {
     case "agent":
     case "linear-agent": {
       const chips: string[] = [];
+      if (node.kind === "agent" && node.interactionMode === "plan") chips.push("plan mode");
       if (node.kind === "linear-agent") chips.push(node.preset);
-      chips.push(node.modelSelection ? shortModel(node.modelSelection.model) : "default model");
+      chips.push(node.modelSelection ? shortModel(node.modelSelection.model) : "inherits model");
       chips.push(node.session === "continue" ? "↳ same agent" : "✦ new agent");
       if (node.envMode === "worktree") chips.push("worktree");
       if (node.output.kind !== "none") chips.push(`→ ${node.output.kind}`);
@@ -78,7 +79,10 @@ export function NodeBubble(props: {
   className?: string;
 }) {
   const meta = WORKFLOW_NODE_META[props.node.kind];
-  const Icon = NODE_ICONS[props.node.kind];
+  const Icon =
+    props.node.kind === "agent" && props.node.interactionMode === "plan"
+      ? PLAN_ICON
+      : NODE_ICONS[props.node.kind];
   const status = props.runState?.status ?? "idle";
   const hasIssue = (props.issues?.length ?? 0) > 0;
   const accent =

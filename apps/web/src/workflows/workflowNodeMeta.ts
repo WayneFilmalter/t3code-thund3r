@@ -90,16 +90,49 @@ export const WORKFLOW_NODE_CATEGORY_LABELS: Record<WorkflowNodeCategory, string>
   context: "Context",
 };
 
+/** One entry in the "add a step" palette; `id` doubles as the preset the builder creates. */
+export interface WorkflowPaletteItem {
+  id:
+    | "agent"
+    | "plan-agent"
+    | "linear-agent"
+    | "fan-out"
+    | "gate"
+    | "review"
+    | "action"
+    | "prompt-block";
+  kind: WorkflowNodeKind;
+  label: string;
+  blurb: string;
+}
+
 /** Palette order: agents first (the common case), then flow, actions, context. */
-export const WORKFLOW_PALETTE_KINDS: readonly WorkflowNodeKind[] = [
-  "agent",
-  "linear-agent",
-  "fan-out",
-  "gate",
-  "review",
-  "action",
-  "prompt-block",
+export const WORKFLOW_PALETTE_ITEMS: readonly WorkflowPaletteItem[] = [
+  { id: "agent", kind: "agent", label: "Agent", blurb: WORKFLOW_NODE_META.agent.blurb },
+  {
+    id: "plan-agent",
+    kind: "agent",
+    label: "Plan agent",
+    blurb: "Plans only, then hands the plan to the next step",
+  },
+  {
+    id: "linear-agent",
+    kind: "linear-agent",
+    label: "Linear",
+    blurb: WORKFLOW_NODE_META["linear-agent"].blurb,
+  },
+  { id: "fan-out", kind: "fan-out", label: "For each", blurb: WORKFLOW_NODE_META["fan-out"].blurb },
+  { id: "gate", kind: "gate", label: "Check", blurb: WORKFLOW_NODE_META.gate.blurb },
+  { id: "review", kind: "review", label: "Human review", blurb: WORKFLOW_NODE_META.review.blurb },
+  { id: "action", kind: "action", label: "Action", blurb: WORKFLOW_NODE_META.action.blurb },
+  {
+    id: "prompt-block",
+    kind: "prompt-block",
+    label: "Context",
+    blurb: WORKFLOW_NODE_META["prompt-block"].blurb,
+  },
 ];
+export type WorkflowPaletteItemId = WorkflowPaletteItem["id"];
 
 export const WORKFLOW_ACTION_PRESET_LABELS = {
   "commit-pr": "Commit & open PR",
@@ -130,7 +163,12 @@ export function workflowNodeTitle(node: WorkflowNode): string {
   switch (node.kind) {
     case "agent":
     case "linear-agent":
-      return node.title.trim() || WORKFLOW_NODE_META[node.kind].label;
+      return (
+        node.title.trim() ||
+        (node.kind === "agent" && node.interactionMode === "plan"
+          ? "Plan"
+          : WORKFLOW_NODE_META[node.kind].label)
+      );
     case "action":
       return WORKFLOW_ACTION_PRESET_LABELS[node.preset];
     case "fan-out":

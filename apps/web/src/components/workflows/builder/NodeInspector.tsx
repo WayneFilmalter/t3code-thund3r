@@ -42,11 +42,13 @@ export interface NodeInspectorProps {
   nodes: readonly WorkflowNode[];
   node: WorkflowNode;
   /** Start node edits the workflow-level fields too. */
-  definition: Pick<WorkflowDefinition, "description" | "sharedContext">;
+  definition: Pick<WorkflowDefinition, "description" | "sharedContext" | "defaultModelSelection">;
   issues: readonly string[];
   onUpdateNode: (nodeId: string, patch: Partial<WorkflowNode>) => void;
   onUpdateDefinition: (
-    patch: Partial<Pick<WorkflowDefinition, "description" | "sharedContext">>,
+    patch: Partial<
+      Pick<WorkflowDefinition, "description" | "sharedContext" | "defaultModelSelection">
+    >,
   ) => void;
   onMove: (nodeId: string, direction: -1 | 1) => void;
   onRemove: (nodeId: string) => void;
@@ -149,7 +151,7 @@ type Update<TNode extends WorkflowNode> = (patch: Partial<TNode>) => void;
 function StartEditor(props: {
   node: WorkflowStartNode;
   update: Update<WorkflowStartNode>;
-  definition: Pick<WorkflowDefinition, "description" | "sharedContext">;
+  definition: Pick<WorkflowDefinition, "description" | "sharedContext" | "defaultModelSelection">;
   onUpdateDefinition: NodeInspectorProps["onUpdateDefinition"];
 }) {
   const { node, update } = props;
@@ -173,6 +175,12 @@ function StartEditor(props: {
           onChange={(event) => props.onUpdateDefinition({ sharedContext: event.target.value })}
         />
       </InspectorField>
+      <ModelSelectionField
+        label="Default model"
+        hint="Every step runs on this unless it picks its own model. Off uses the project default."
+        value={props.definition.defaultModelSelection}
+        onChange={(defaultModelSelection) => props.onUpdateDefinition({ defaultModelSelection })}
+      />
       <label className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-muted-foreground">Loop (Ralph-style)</span>
         <Switch
@@ -265,6 +273,22 @@ function AgentEditor(props: { node: WorkflowAgentNode; update: Update<WorkflowAg
           />
         </InspectorField>
       ) : null}
+      {node.kind === "agent" ? (
+        <InspectorField
+          label="Mode"
+          hint="Plan runs in the provider's plan mode: it proposes a plan and changes nothing. The next step gets the plan as its input — pick a cheaper model there to carry it out."
+        >
+          <InspectorSelect
+            ariaLabel="Mode"
+            value={node.interactionMode}
+            options={[
+              { value: "default", label: "Build — do the work" },
+              { value: "plan", label: "Plan — plan only, hand off" },
+            ]}
+            onChange={(interactionMode) => update({ interactionMode })}
+          />
+        </InspectorField>
+      ) : null}
       <InspectorField label="Prompt" hint={TEMPLATE_HINT}>
         <Textarea
           value={node.prompt}
@@ -274,6 +298,7 @@ function AgentEditor(props: { node: WorkflowAgentNode; update: Update<WorkflowAg
         />
       </InspectorField>
       <ModelSelectionField
+        hint="Off inherits the workflow's default model."
         value={node.modelSelection}
         onChange={(modelSelection) => update({ modelSelection })}
       />

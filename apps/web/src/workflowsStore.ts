@@ -49,11 +49,14 @@ export interface WorkflowStartNode {
   pauseSeconds: number;
   doneWhen: WorkflowDoneWhen;
 }
+export type WorkflowInteractionMode = "default" | "plan";
 export interface WorkflowAgentNode {
   id: string;
   kind: "agent" | "linear-agent";
   title: string;
   prompt: string;
+  /** `plan` runs the turn in the provider's plan mode: it proposes a plan and changes nothing. */
+  interactionMode: WorkflowInteractionMode;
   /** Only meaningful for `linear-agent`; picks the baked Linear instructions. */
   preset: WorkflowLinearPreset;
   /** `null` runs on the project's default model. */
@@ -120,6 +123,8 @@ export interface WorkflowDefinition {
   color: string;
   /** Prepended to every agent prompt in the workflow: the "pre-injected" context. */
   sharedContext: string;
+  /** Model every step runs on unless it picks its own; `null` falls back to the project default. */
+  defaultModelSelection: ModelSelection | null;
   nodes: WorkflowNode[];
   createdAt: string;
   updatedAt: string;
@@ -180,7 +185,7 @@ export interface WorkflowRun {
   name: string;
   color: string;
   projectRef: ScopedProjectRef;
-  snapshot: Pick<WorkflowDefinition, "sharedContext" | "nodes">;
+  snapshot: Pick<WorkflowDefinition, "sharedContext" | "defaultModelSelection" | "nodes">;
   status: WorkflowRunStatus;
   /** Set while an in-progress run is paused: agents already running finish, no new step starts. */
   pausedAt: string | null;
@@ -255,6 +260,7 @@ export function createAgentNode(
     kind,
     title: kind === "linear-agent" ? "Linear" : "Agent",
     prompt: "",
+    interactionMode: "default",
     preset: kind === "linear-agent" ? "find" : "custom",
     modelSelection: null,
     runtimeMode: "full-access",
@@ -336,6 +342,7 @@ export interface WorkflowDefinitionInput {
   description?: string | null;
   color?: string;
   sharedContext?: string;
+  defaultModelSelection?: ModelSelection | null;
   nodes?: WorkflowNode[];
 }
 
@@ -423,6 +430,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
           description: input.description?.trim() || null,
           color: normalizeWorkflowColor(input.color),
           sharedContext: input.sharedContext ?? "",
+          defaultModelSelection: input.defaultModelSelection ?? null,
           nodes: input.nodes ?? createBlankNodes(),
           createdAt: now,
           updatedAt: now,
@@ -466,6 +474,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
           description: source.description,
           color: source.color,
           sharedContext: source.sharedContext,
+          defaultModelSelection: source.defaultModelSelection,
           nodes: cloneNodesWithFreshIds(source.nodes),
         });
       },
@@ -491,7 +500,11 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
           name: definition.name,
           color: definition.color,
           projectRef: ref,
-          snapshot: { sharedContext: definition.sharedContext, nodes: definition.nodes },
+          snapshot: {
+            sharedContext: definition.sharedContext,
+            defaultModelSelection: definition.defaultModelSelection,
+            nodes: definition.nodes,
+          },
           status: "in-progress",
           pausedAt: null,
           iteration: 0,
@@ -537,7 +550,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
     }),
     {
       name: "t3code:workflows-state:v1",
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
@@ -568,16 +581,38 @@ export function migratePersistedWorkflows(
         ...definition,
         color: normalizeWorkflowColor((definition as { color?: string }).color),
         sharedContext: (definition as { sharedContext?: string }).sharedContext ?? "",
+        defaultModelSelection:
+          (definition as { defaultModelSelection?: ModelSelection | null }).defaultModelSelection ??
+          null,
         nodes: Array.isArray((definition as { nodes?: unknown }).nodes)
-          ? (definition as WorkflowDefinition).nodes
+          ? sanitizeNodes((definition as WorkflowDefinition).nodes)
           : createBlankNodes(),
       })),
       runs: (project.runs ?? [])
         .filter((run) => run && typeof run === "object" && "instances" in run && "snapshot" in run)
-        .map((run) => ({ ...run, pausedAt: run.pausedAt ?? null })),
+        .map((run) => ({
+          ...run,
+          pausedAt: run.pausedAt ?? null,
+          snapshot: {
+            ...run.snapshot,
+            defaultModelSelection: run.snapshot.defaultModelSelection ?? null,
+            nodes: sanitizeNodes(run.snapshot.nodes),
+          },
+        })),
     };
   }
   return { byProjectKey };
+}
+
+/** Fills in fields added after a node shape was persisted. */
+function sanitizeNodes(nodes: readonly WorkflowNode[]): WorkflowNode[] {
+  return nodes.map((node) => {
+    if (node.kind === "agent" || node.kind === "linear-agent") {
+      return { ...node, interactionMode: node.interactionMode ?? "default" };
+    }
+    if (node.kind === "fan-out") return { ...node, lane: sanitizeNodes(node.lane) };
+    return node;
+  });
 }
 
 /** The project's workflows, or one shared empty state so a missing project never re-renders. */

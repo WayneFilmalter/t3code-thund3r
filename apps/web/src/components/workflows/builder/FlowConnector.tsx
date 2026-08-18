@@ -1,7 +1,8 @@
 import { PlusIcon } from "lucide-react";
 
+import type { WorkflowPaletteItemId } from "~/workflows/workflowNodeMeta";
+
 import { NodePaletteMenu } from "./NodePaletteMenu";
-import type { WorkflowNodeKind } from "~/workflowsStore";
 
 /**
  * The arrow between two bubbles: a short line with an arrowhead, and in edit mode a "+" in
@@ -9,7 +10,7 @@ import type { WorkflowNodeKind } from "~/workflowsStore";
  */
 export function FlowConnector(props: {
   accent: string;
-  onInsert?: ((kind: WorkflowNodeKind) => void) | undefined;
+  onInsert?: ((item: WorkflowPaletteItemId) => void) | undefined;
   /** Hidden lanes disable inserting nested fan-outs. */
   allowFanOut?: boolean;
 }) {

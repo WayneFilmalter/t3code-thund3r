@@ -27,6 +27,10 @@ import { InspectorField, InspectorSelect } from "./inspectorFields";
 export function ModelSelectionField(props: {
   value: ModelSelection | null;
   onChange: (value: ModelSelection | null) => void;
+  label?: string;
+  hint?: string;
+  /** Shown beside the switch while no explicit model is chosen. */
+  offLabel?: string;
 }) {
   const settings = usePrimarySettings();
   const providers = useAtomValue(primaryServerProvidersAtom);
@@ -67,7 +71,7 @@ export function ModelSelectionField(props: {
 
   return (
     <div className="flex flex-col gap-2">
-      <InspectorField label="Model">
+      <InspectorField label={props.label ?? "Model"} hint={props.hint}>
         <div className="flex items-center gap-2">
           <Switch
             checked={props.value !== null}
@@ -101,7 +105,7 @@ export function ModelSelectionField(props: {
               }
             />
           ) : (
-            <span className="text-xs text-muted-foreground">Project default</span>
+            <span className="text-xs text-muted-foreground">{props.offLabel ?? "Inherited"}</span>
           )}
         </div>
       </InspectorField>

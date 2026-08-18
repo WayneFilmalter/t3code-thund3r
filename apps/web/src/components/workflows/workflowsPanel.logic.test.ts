@@ -29,6 +29,7 @@ export function definition(
     description: null,
     color: "#22d3ee",
     sharedContext: "",
+    defaultModelSelection: null,
     nodes: [
       createStartNode({ id: `${overrides.id}-start` }),
       createEndNode({ id: `${overrides.id}-end` }),
@@ -46,7 +47,7 @@ export function run(overrides: Partial<WorkflowRun> & { id: string }): WorkflowR
     name: "Nightly audit",
     color: "#22d3ee",
     projectRef: PROJECT_REF,
-    snapshot: { sharedContext: "", nodes: [] },
+    snapshot: { sharedContext: "", defaultModelSelection: null, nodes: [] },
     status: "in-progress",
     pausedAt: null,
     iteration: 0,
@@ -172,7 +173,7 @@ describe("stuckReason / runProgress", () => {
     ];
     const current = run({
       id: "r",
-      snapshot: { sharedContext: "", nodes },
+      snapshot: { sharedContext: "", defaultModelSelection: null, nodes },
       instances: {
         "s:0": { key: "s:0", nodeId: "s", iteration: 0, status: "done" },
         "a:0": { key: "a:0", nodeId: "a", iteration: 0, status: "running" },
@@ -189,7 +190,7 @@ describe("stuckReason / runProgress", () => {
     ];
     const running = run({
       id: "r",
-      snapshot: { sharedContext: "", nodes },
+      snapshot: { sharedContext: "", defaultModelSelection: null, nodes },
       instances: {
         "s:0": { key: "s:0", nodeId: "s", iteration: 0, status: "done" },
         "a:0:0": { key: "a:0:0", nodeId: "a", iteration: 0, index: 0, status: "running" },

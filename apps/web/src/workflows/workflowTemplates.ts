@@ -28,9 +28,11 @@ Then, in Linear:
 - Add labels that reflect your findings (for example "needs-context" when context is missing, and a size label).
 - Leave one concise comment summarising what you found, what is missing, and a suggested approach.`;
 
-const IMPLEMENT_TICKET_PROMPT = `Implement ticket {{item.identifier}} ("{{item.title}}", {{item.url}}).
+const PLAN_TICKET_PROMPT = `Plan the change for ticket {{item.identifier}} ("{{item.title}}", {{item.url}}).
 
-Read the ticket and its comments in Linear first. Then make the change in this repository with focused, well-tested edits. Keep the scope to what the ticket asks for; if something is ambiguous, pick the smallest reasonable interpretation and say so in your final summary.`;
+Read the ticket and its comments in Linear, find the code it touches, and write a short, concrete plan: files to change, the approach, and how to verify it. Keep the scope to what the ticket asks for; if something is ambiguous, pick the smallest reasonable interpretation and say so.`;
+
+const IMPLEMENT_TICKET_PROMPT = `Implement the plan for ticket {{item.identifier}} in this repository with focused, well-tested edits. Stay within the plan; if it turns out to be wrong, say so in your final summary rather than improvising a bigger change.`;
 
 export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
@@ -137,7 +139,8 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
   {
     id: "implement-by-tag",
     label: "Implement by tag",
-    description: "Find 5 tagged tickets, implement each on its own worktree, open PRs, comment",
+    description:
+      "Find 5 tagged tickets; per ticket plan, implement (same agent, any model), open a PR, comment",
     build: () => ({
       name: "Implement by tag",
       description: "Ship 5 tickets carrying a label",
@@ -155,7 +158,13 @@ export const WORKFLOW_TEMPLATES: readonly WorkflowTemplate[] = [
           laneEnvMode: "worktree",
           lane: [
             createAgentNode("agent", {
+              title: "Plan the change",
+              interactionMode: "plan",
+              prompt: PLAN_TICKET_PROMPT,
+            }),
+            createAgentNode("agent", {
               title: "Implement ticket",
+              session: "continue",
               prompt: IMPLEMENT_TICKET_PROMPT,
             }),
             createActionNode({ preset: "commit-pr" }),

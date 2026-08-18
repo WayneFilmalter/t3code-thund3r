@@ -36,8 +36,9 @@ export interface StartAgentRequest {
   instanceKey: string;
   title: string;
   prompt: string;
-  /** `null` runs on the project's default model. */
+  /** The step's own model, else the workflow default; `null` runs on the project default. */
   modelSelection: ModelSelection | null;
+  interactionMode: "default" | "plan";
   runtimeMode: RuntimeMode;
   envMode: WorkflowEnvMode;
   session: { kind: "new" } | { kind: "continue"; thread: WorkflowInstanceThread };
@@ -193,6 +194,8 @@ export function shortItemLabel(item: unknown, max = 40): string {
 export interface PromptVars {
   item?: unknown;
   prev?: WorkflowStepOutput | undefined;
+  /** Set when the previous step was a plan agent: its output is a plan to carry out. */
+  prevIsPlan?: boolean;
   iteration: number;
   /** Set on gate retries: why the previous check failed. */
   previousFailure?: string;
@@ -298,6 +301,11 @@ export function compileAgentPrompt(input: CompilePromptInput): string {
   let output: WorkflowOutputSpec = { kind: "none", hint: "" };
   switch (node.kind) {
     case "agent":
+      if (node.interactionMode === "plan") {
+        parts.push(
+          "Plan only: investigate and write a concrete, step-by-step plan for the task below. Do not change any files.",
+        );
+      }
       body = node.prompt;
       output = node.output;
       break;
@@ -336,7 +344,13 @@ export function compileAgentPrompt(input: CompilePromptInput): string {
   }
   if (vars.prev !== undefined && !templateReferences(body, "prev")) {
     const text = outputAsText(vars.prev).trim();
-    if (text) parts.push(`Input from the previous step:\n${text}`);
+    if (text) {
+      parts.push(
+        vars.prevIsPlan
+          ? `Plan from the previous step — carry it out:\n${text}`
+          : `Input from the previous step:\n${text}`,
+      );
+    }
   }
   for (const block of input.promptBlocks.after) if (block.trim()) parts.push(block.trim());
   const outputText = outputInstructions(output);
@@ -430,9 +444,13 @@ function agentRequestFor(
     node.kind === "gate" && attempt > 0
       ? (planner.instances[key]?.error ?? "the check did not pass")
       : undefined;
+  const prevIsPlan =
+    (prev?.node.kind === "agent" || prev?.node.kind === "linear-agent") &&
+    prev.node.interactionMode === "plan";
   const vars: PromptVars = {
     ...(scope.item !== undefined ? { item: scope.item } : {}),
     prev: prev?.instance.output,
+    ...(prevIsPlan ? { prevIsPlan: true } : {}),
     iteration: planner.run.iteration,
     ...(previousFailure ? { previousFailure } : {}),
   };
@@ -447,10 +465,15 @@ function agentRequestFor(
   const wantsContinue =
     node.kind === "gate" || node.kind === "end" ? true : node.session === "continue";
   const thread = wantsContinue ? previousThread(planner, chain, index, scope) : null;
-  const modelSelection =
+  const ownModel =
     node.kind === "agent" || node.kind === "linear-agent" || node.kind === "gate"
       ? node.modelSelection
       : null;
+  const modelSelection = ownModel ?? planner.run.snapshot.defaultModelSelection ?? null;
+  const interactionMode =
+    (node.kind === "agent" || node.kind === "linear-agent") && node.interactionMode === "plan"
+      ? "plan"
+      : "default";
   const runtimeMode: RuntimeMode =
     node.kind === "agent" || node.kind === "linear-agent" ? node.runtimeMode : "full-access";
   const envMode: WorkflowEnvMode =
@@ -466,6 +489,7 @@ function agentRequestFor(
     title,
     prompt,
     modelSelection,
+    interactionMode,
     runtimeMode,
     envMode,
     session: thread ? { kind: "continue", thread } : { kind: "new" },

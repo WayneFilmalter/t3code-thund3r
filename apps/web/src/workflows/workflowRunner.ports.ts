@@ -149,6 +149,25 @@ export function createAtomRunnerPorts(): RunnerPorts {
     if (request.session.kind === "continue") {
       const shell = readThreadShell(threadRef(request.session.thread));
       const afterTurnId = shell?.latestTurn?.turnId ?? request.session.thread.afterTurnId;
+      const previousModel = shell?.modelSelection;
+      if (
+        previousModel &&
+        (previousModel.instanceId !== modelSelection.instanceId ||
+          previousModel.model !== modelSelection.model)
+      ) {
+        const previousProvider = providers.find(
+          (candidate) => candidate.instanceId === previousModel.instanceId,
+        );
+        if (
+          previousProvider?.requiresNewThreadForModelChange === true ||
+          provider?.requiresNewThreadForModelChange === true
+        ) {
+          return {
+            ok: false,
+            error: `${provider?.displayName ?? "This provider"} cannot switch models mid-thread; make this step a new agent.`,
+          };
+        }
+      }
       const result = await runAtomCommand(
         appAtomRegistry,
         threadEnvironment.startTurn,
@@ -159,7 +178,7 @@ export function createAtomRunnerPorts(): RunnerPorts {
             message: { messageId: newMessageId(), role: "user", text, attachments: [] },
             modelSelection,
             runtimeMode: request.runtimeMode,
-            interactionMode: "default",
+            interactionMode: request.interactionMode,
             createdAt: now,
           },
         },
@@ -193,14 +212,14 @@ export function createAtomRunnerPorts(): RunnerPorts {
           modelSelection,
           titleSeed: request.title,
           runtimeMode: request.runtimeMode,
-          interactionMode: "default",
+          interactionMode: request.interactionMode,
           bootstrap: {
             createThread: {
               projectId: projectRef.projectId,
               title: request.title,
               modelSelection,
               runtimeMode: request.runtimeMode,
-              interactionMode: "default",
+              interactionMode: request.interactionMode,
               branch: currentBranch,
               worktreePath: null,
               createdAt: now,
@@ -304,8 +323,12 @@ export function createAtomRunnerPorts(): RunnerPorts {
         const checkpoint = latestTurn
           ? detail?.checkpoints.find((candidate) => candidate.turnId === latestTurn.turnId)
           : undefined;
+        // A plan-mode turn's deliverable is the proposed plan, not the chat message around it.
+        const plan = latestTurn
+          ? detail?.proposedPlans.find((candidate) => candidate.turnId === latestTurn.turnId)
+          : undefined;
         resolve({
-          text: message?.text ?? "",
+          text: plan?.planMarkdown ?? message?.text ?? "",
           files: (checkpoint?.files ?? []).map((file) => ({
             path: file.path,
             additions: file.additions,

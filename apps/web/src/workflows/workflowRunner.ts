@@ -110,6 +110,7 @@ export class WorkflowRunner {
       description: null,
       color: run.color,
       sharedContext: run.snapshot.sharedContext,
+      defaultModelSelection: run.snapshot.defaultModelSelection,
       nodes: run.snapshot.nodes,
       createdAt: run.startedAt,
       updatedAt: run.startedAt,

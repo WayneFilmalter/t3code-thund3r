@@ -1,4 +1,4 @@
-import type { ScopedProjectRef } from "@t3tools/contracts";
+import type { ModelSelection, ScopedProjectRef } from "@t3tools/contracts";
 import { ArrowLeftIcon, Maximize2Icon, Minimize2Icon, MousePointerClickIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -15,6 +15,7 @@ import {
   updateNode,
   type NodeSlot,
 } from "~/workflows/graphEdits";
+import type { WorkflowPaletteItemId } from "~/workflows/workflowNodeMeta";
 import { issuesByNode, validateWorkflow } from "~/workflows/workflowValidation";
 import {
   createActionNode,
@@ -28,7 +29,6 @@ import {
   type WorkflowDefinition,
   type WorkflowDefinitionInput,
   type WorkflowNode,
-  type WorkflowNodeKind,
 } from "~/workflowsStore";
 
 import { NodeInspector } from "./builder/NodeInspector";
@@ -45,27 +45,32 @@ interface Draft {
   description: string | null;
   color: string;
   sharedContext: string;
+  defaultModelSelection: ModelSelection | null;
   nodes: WorkflowNode[];
 }
 
 function draftFrom(target: WorkflowBuilderTarget): Draft {
   if (target.kind === "existing") {
-    const { name, description, color, sharedContext, nodes } = target.definition;
-    return { name, description, color, sharedContext, nodes };
+    const { name, description, color, sharedContext, defaultModelSelection, nodes } =
+      target.definition;
+    return { name, description, color, sharedContext, defaultModelSelection, nodes };
   }
   return {
     name: target.input.name,
     description: target.input.description ?? null,
     color: target.input.color ?? "#22d3ee",
     sharedContext: target.input.sharedContext ?? "",
+    defaultModelSelection: target.input.defaultModelSelection ?? null,
     nodes: target.input.nodes ?? [],
   };
 }
 
-function createNodeOfKind(kind: WorkflowNodeKind): WorkflowNode | null {
-  switch (kind) {
+function createNodeForPalette(item: WorkflowPaletteItemId): WorkflowNode {
+  switch (item) {
     case "agent":
       return createAgentNode("agent");
+    case "plan-agent":
+      return createAgentNode("agent", { title: "Plan", interactionMode: "plan" });
     case "linear-agent":
       return createAgentNode("linear-agent");
     case "fan-out":
@@ -78,9 +83,6 @@ function createNodeOfKind(kind: WorkflowNodeKind): WorkflowNode | null {
       return createActionNode();
     case "prompt-block":
       return createPromptBlockNode();
-    case "start":
-    case "end":
-      return null;
   }
 }
 
@@ -112,9 +114,8 @@ export function WorkflowBuilderPanel(props: {
   };
   const setNodes = (nodes: WorkflowNode[]) => patchDraft({ nodes });
 
-  const handleInsert = (slot: NodeSlot, kind: WorkflowNodeKind) => {
-    const node = createNodeOfKind(kind);
-    if (!node) return;
+  const handleInsert = (slot: NodeSlot, item: WorkflowPaletteItemId) => {
+    const node = createNodeForPalette(item);
     setNodes(insertNode(draft.nodes, slot, node));
     setSelectedNodeId(node.id);
   };

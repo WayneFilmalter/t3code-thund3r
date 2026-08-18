@@ -1,5 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -44,7 +44,7 @@ function makeRun(nodes: WorkflowNode[], overrides: Partial<WorkflowRun> = {}): W
     name: "Backlog",
     color: "#22d3ee",
     projectRef: PROJECT_REF,
-    snapshot: { sharedContext: "", nodes },
+    snapshot: { sharedContext: "", defaultModelSelection: null, nodes },
     status: "in-progress",
     pausedAt: null,
     iteration: 0,
@@ -237,6 +237,69 @@ describe("planRun: linear chains", () => {
     expect(plan.run.instances["c:0"]?.status).toBe("done");
     expect(startAgentEffects(plan.effects)[0]?.request.prompt.startsWith("Be terse.\n\nGo")).toBe(
       true,
+    );
+  });
+});
+
+describe("planRun: models and plan hand-off", () => {
+  const cheap = {
+    instanceId: ProviderInstanceId.make("claude"),
+    model: "claude-haiku-4-5-20251001",
+  };
+  const strong = { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-5" };
+
+  it("steps inherit the workflow default model unless they choose their own", () => {
+    const inherits = createAgentNode("agent", { id: "a", prompt: "x" });
+    const own = createAgentNode("agent", { id: "b", prompt: "y", modelSelection: strong });
+    const run = makeRun([createStartNode({ id: "s" }), inherits, own, createEndNode({ id: "e" })], {
+      snapshot: {
+        sharedContext: "",
+        defaultModelSelection: cheap,
+        nodes: [createStartNode({ id: "s" }), inherits, own, createEndNode({ id: "e" })],
+      },
+    });
+    let plan = planRun(run, NOW);
+    expect(startAgentEffects(plan.effects)[0]?.request.modelSelection).toEqual(cheap);
+    plan = planRun(settle(plan.run, "a:0", "done"), LATER);
+    expect(startAgentEffects(plan.effects)[0]?.request.modelSelection).toEqual(strong);
+    // No workflow default: null lets the project default decide.
+    expect(
+      startAgentEffects(
+        planRun(makeRun([createStartNode({ id: "s" }), inherits, createEndNode({ id: "e" })]), NOW)
+          .effects,
+      )[0]?.request.modelSelection,
+    ).toBeNull();
+  });
+
+  it("runs a plan agent in plan mode and hands its plan to the next step as a plan", () => {
+    const planner = createAgentNode("agent", {
+      id: "p",
+      title: "Plan",
+      prompt: "Plan the fix",
+      interactionMode: "plan",
+      modelSelection: strong,
+    });
+    const builder = createAgentNode("agent", {
+      id: "b",
+      prompt: "Do it",
+      session: "continue",
+      modelSelection: cheap,
+    });
+    let plan = planRun(
+      makeRun([createStartNode({ id: "s" }), planner, builder, createEndNode({ id: "e" })]),
+      NOW,
+    );
+    const first = startAgentEffects(plan.effects)[0]!;
+    expect(first.request.interactionMode).toBe("plan");
+    expect(first.request.prompt).toContain("Plan only");
+    expect(first.request.title).toBe("⟲ Backlog · Plan");
+    plan = planRun(settle(plan.run, "p:0", "# Plan\n1. Change x"), LATER);
+    const second = startAgentEffects(plan.effects)[0]!;
+    expect(second.request.interactionMode).toBe("default");
+    expect(second.request.modelSelection).toEqual(cheap);
+    expect(second.request.session).toMatchObject({ kind: "continue" });
+    expect(second.request.prompt).toContain(
+      "Plan from the previous step — carry it out:\n# Plan\n1. Change x",
     );
   });
 });

@@ -1,5 +1,6 @@
 import {
   Bot,
+  ClipboardList,
   Flag,
   GitFork,
   GitPullRequest,
@@ -12,6 +13,9 @@ import {
 } from "lucide-react";
 
 import type { WorkflowNodeKind } from "~/workflowsStore";
+
+/** Agents in plan mode swap the bot for a clipboard. */
+export const PLAN_ICON: LucideIcon = ClipboardList;
 
 export const NODE_ICONS: Record<WorkflowNodeKind, LucideIcon> = {
   start: Play,

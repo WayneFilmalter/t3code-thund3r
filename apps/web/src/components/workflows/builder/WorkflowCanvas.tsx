@@ -2,8 +2,8 @@ import { PlusIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 import type { NodeSlot } from "~/workflows/graphEdits";
-import { WORKFLOW_NODE_META } from "~/workflows/workflowNodeMeta";
-import type { WorkflowNode, WorkflowNodeKind } from "~/workflowsStore";
+import { WORKFLOW_NODE_META, type WorkflowPaletteItemId } from "~/workflows/workflowNodeMeta";
+import type { WorkflowNode } from "~/workflowsStore";
 
 import { FlowConnector } from "./FlowConnector";
 import { NodeBubble, type NodeBubbleRunState } from "./NodeBubble";
@@ -14,7 +14,7 @@ export interface WorkflowCanvasProps {
   selectedNodeId: string | null;
   onSelect: (nodeId: string) => void;
   /** Present in the builder; absent (read-only) in the run view. */
-  onInsert?: ((slot: NodeSlot, kind: WorkflowNodeKind) => void) | undefined;
+  onInsert?: ((slot: NodeSlot, item: WorkflowPaletteItemId) => void) | undefined;
   issuesByNode?: ReadonlyMap<string | null, string[]> | undefined;
   /** Run view: per-node instance state, keyed by node id. */
   runStateFor?: ((nodeId: string) => NodeBubbleRunState | undefined) | undefined;
@@ -56,7 +56,7 @@ function Chain(
                 allowFanOut={!inLane}
                 onInsert={
                   editable
-                    ? (kind) => props.onInsert!({ parentId: props.parentId, index }, kind)
+                    ? (item) => props.onInsert!({ parentId: props.parentId, index }, item)
                     : undefined
                 }
               />
@@ -75,7 +75,7 @@ function Chain(
       {inLane && editable && props.chain.length === 0 ? (
         <NodePaletteMenu
           allowFanOut={false}
-          onPick={(kind) => props.onInsert!({ parentId: props.parentId, index: 0 }, kind)}
+          onPick={(item) => props.onInsert!({ parentId: props.parentId, index: 0 }, item)}
         >
           <button
             type="button"
@@ -90,8 +90,8 @@ function Chain(
         <FlowConnector
           accent={WORKFLOW_NODE_META[props.chain[props.chain.length - 1]!.kind].accent}
           allowFanOut={false}
-          onInsert={(kind) =>
-            props.onInsert!({ parentId: props.parentId, index: props.chain.length }, kind)
+          onInsert={(item) =>
+            props.onInsert!({ parentId: props.parentId, index: props.chain.length }, item)
           }
         />
       ) : null}

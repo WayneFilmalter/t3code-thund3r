@@ -118,6 +118,7 @@ function definition(nodes: WorkflowNode[]): WorkflowDefinition {
     description: null,
     color: "#22d3ee",
     sharedContext: "",
+    defaultModelSelection: null,
     nodes,
     createdAt: "2026-08-17T10:00:00.000Z",
     updatedAt: "2026-08-17T10:00:00.000Z",
