@@ -46,6 +46,7 @@ function makeRun(nodes: WorkflowNode[], overrides: Partial<WorkflowRun> = {}): W
     projectRef: PROJECT_REF,
     snapshot: { sharedContext: "", nodes },
     status: "in-progress",
+    pausedAt: null,
     iteration: 0,
     nextIterationAt: null,
     instances: {},

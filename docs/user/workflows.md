@@ -28,7 +28,7 @@ Save is enabled once the workflow is valid; bubbles with a problem glow red and 
 
 Every saved workflow is a coloured bubble with a **▶ Start** button. Starting a run opens the run view: the same canvas, with each bubble showing whether that step is queued, running, done or failed, and lanes showing progress. Click a bubble to see its output, errors, and an **Open thread** link — every agent step is a real thread in the project's sidebar, titled `⟲ workflow · step · item`, so you can watch or intervene as usual.
 
-Runs list under **In progress**, **Review**, **Stuck** (failed or stopped, with the reason) and **Done**. **Stop** interrupts every running agent. A run only advances while the app is open; agents keep working on the server in the meantime and the run picks up where it left off when you come back.
+Runs list under **In progress**, **Review**, **Stuck** (failed or stopped, with the reason) and **Done**. Each bubble shows how far the current pass got, what the agents are doing right now, and the actions for its state: **Pause** (agents already working finish, nothing new starts) and **Resume**, **Stop** (interrupts every running agent), **Approve** / **Reject** for a review, **Restart** for a stuck run, and **View** to open the run. A run only advances while the app is open; agents keep working on the server in the meantime and the run picks up where it left off when you come back.
 
 ## Loops
 

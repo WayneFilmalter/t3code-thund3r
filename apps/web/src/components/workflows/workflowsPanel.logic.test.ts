@@ -10,7 +10,14 @@ import {
   type WorkflowRun,
 } from "~/workflowsStore";
 
-import { deriveWorkflowSections, runProgress, stuckReason } from "./workflowsPanel.logic";
+import {
+  bubbleActionsFor,
+  deriveWorkflowSections,
+  runProgress,
+  runStage,
+  runSummary,
+  stuckReason,
+} from "./workflowsPanel.logic";
 
 const PROJECT_REF = scopeProjectRef(EnvironmentId.make("env"), ProjectId.make("project"));
 
@@ -41,6 +48,7 @@ export function run(overrides: Partial<WorkflowRun> & { id: string }): WorkflowR
     projectRef: PROJECT_REF,
     snapshot: { sharedContext: "", nodes: [] },
     status: "in-progress",
+    pausedAt: null,
     iteration: 0,
     nextIterationAt: null,
     instances: {},
@@ -171,5 +179,53 @@ describe("stuckReason / runProgress", () => {
       },
     });
     expect(runProgress(current)).toEqual({ done: 1, total: 3 });
+  });
+
+  it("names the running steps as the stage and the outcome as the summary", () => {
+    const nodes = [
+      createStartNode({ id: "s" }),
+      createAgentNode("agent", { id: "a", title: "Research" }),
+      createEndNode({ id: "e" }),
+    ];
+    const running = run({
+      id: "r",
+      snapshot: { sharedContext: "", nodes },
+      instances: {
+        "s:0": { key: "s:0", nodeId: "s", iteration: 0, status: "done" },
+        "a:0:0": { key: "a:0:0", nodeId: "a", iteration: 0, index: 0, status: "running" },
+        "a:0:1": { key: "a:0:1", nodeId: "a", iteration: 0, index: 1, status: "running" },
+      },
+    });
+    expect(runStage(running)).toBe("Research ×2");
+    expect(runStage(run({ id: "p", pausedAt: "2026-08-17T12:00:00.000Z" }))).toBe("Paused");
+    expect(runStage(run({ id: "n" }))).toBe("Starting");
+    expect(runSummary(run({ id: "d", status: "done", result: "All good." }))).toBe("All good.");
+    expect(runSummary(run({ id: "f", status: "failed", lastError: "boom" }))).toBe("boom");
+    expect(
+      runSummary(
+        run({ id: "v", status: "review", review: { instanceKey: "r:0", summary: "Look" } }),
+      ),
+    ).toBe("Look");
+  });
+});
+
+describe("bubbleActionsFor", () => {
+  const item = (overrides: Partial<WorkflowRun>) =>
+    ({ kind: "run", run: run({ id: "x", ...overrides }), name: "x" }) as const;
+  it("offers the section's actions", () => {
+    expect(
+      bubbleActionsFor("workflows", { kind: "definition", definition: definition({ id: "d" }) }),
+    ).toEqual(["start"]);
+    expect(bubbleActionsFor("in-progress", item({}))).toEqual(["pause", "stop", "view"]);
+    expect(bubbleActionsFor("in-progress", item({ pausedAt: "2026-08-17T12:00:00.000Z" }))).toEqual(
+      ["resume", "stop", "view"],
+    );
+    expect(bubbleActionsFor("review", item({ status: "review" }))).toEqual([
+      "approve",
+      "reject",
+      "view",
+    ]);
+    expect(bubbleActionsFor("stuck", item({ status: "failed" }))).toEqual(["restart", "view"]);
+    expect(bubbleActionsFor("done", item({ status: "done" }))).toEqual(["view"]);
   });
 });

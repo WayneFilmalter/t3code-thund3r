@@ -61,8 +61,8 @@ describe("WorkflowsListView", () => {
         sections={sections}
         onCreate={noop}
         onViewHistory={noop}
-        onDefinitionAction={noop}
-        onRunAction={noop}
+        onAction={noop}
+        onMenuAction={noop}
       />,
     );
     expect(html).toContain('aria-label="Workflows"');
@@ -76,7 +76,10 @@ describe("WorkflowsListView", () => {
     expect(html).toContain("Sweep the repo for flaky tests");
     expect(html).toContain("#a78bfa");
     expect(html).toContain('aria-label="Start Nightly audit"');
-    expect(html).toContain('aria-label="Stop run"');
+    expect(html).toContain('aria-label="Pause Nightly audit"');
+    expect(html).toContain('aria-label="Stop Nightly audit"');
+    expect(html).toContain('aria-label="Workflow actions"');
+    expect(html).toMatch(/\d+\/\d+ steps · started/);
     expect(html).not.toContain("No workflows yet");
   });
 
@@ -92,7 +95,7 @@ describe("WorkflowsListView", () => {
         busyDefinitionIds={new Set(["audit"])}
         onCreate={noop}
         onViewHistory={noop}
-        onDefinitionAction={noop}
+        onAction={noop}
       />,
     );
     expect(html).toContain('aria-label="Already running"');
@@ -124,6 +127,7 @@ describe("WorkflowsListView", () => {
         items={sections.find((section) => section.id === "done")!.items}
         timestampFormat="24-hour"
         onBack={noop}
+        onAction={noop}
       />,
     );
     expect(history).toContain("History");

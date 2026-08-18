@@ -3,6 +3,8 @@ import {
   ExternalLinkIcon,
   Maximize2Icon,
   Minimize2Icon,
+  PauseIcon,
+  PlayIcon,
   SquareIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -142,6 +144,8 @@ export function WorkflowRunPanel(props: {
   onSetMaximized?: ((maximized: boolean) => void) | undefined;
   onBack: () => void;
   onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
   onApprove: () => void;
   onReject: () => void;
   onOpenThread: (thread: WorkflowInstanceThread) => void;
@@ -174,7 +178,11 @@ export function WorkflowRunPanel(props: {
           style={{ backgroundColor: run.color, boxShadow: `0 0 8px -1px ${run.color}` }}
         />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{run.name}</span>
-        <span className={cn("shrink-0 text-xs", statusColor)}>{RUN_STATUS_LABELS[run.status]}</span>
+        <span className={cn("shrink-0 text-xs", statusColor)}>
+          {run.status === "in-progress" && run.pausedAt !== null
+            ? "Paused"
+            : RUN_STATUS_LABELS[run.status]}
+        </span>
         {run.iteration > 0 || run.nextIterationAt ? (
           <span className="shrink-0 text-xs text-muted-foreground">⟲ {run.iteration + 1}</span>
         ) : null}
@@ -208,6 +216,19 @@ export function WorkflowRunPanel(props: {
               Reject
             </Button>
           </>
+        ) : null}
+        {run.status === "in-progress" ? (
+          run.pausedAt !== null ? (
+            <Button type="button" size="xs" onClick={props.onResume}>
+              <PlayIcon className="size-3" />
+              Resume
+            </Button>
+          ) : (
+            <Button type="button" size="xs" variant="outline" onClick={props.onPause}>
+              <PauseIcon className="size-3" />
+              Pause
+            </Button>
+          )
         ) : null}
         {active ? (
           <Button type="button" size="xs" variant="outline" onClick={props.onStop}>

@@ -182,6 +182,8 @@ export interface WorkflowRun {
   projectRef: ScopedProjectRef;
   snapshot: Pick<WorkflowDefinition, "sharedContext" | "nodes">;
   status: WorkflowRunStatus;
+  /** Set while an in-progress run is paused: agents already running finish, no new step starts. */
+  pausedAt: string | null;
   iteration: number;
   nextIterationAt: string | null;
   instances: Record<string, WorkflowNodeInstance>;
@@ -491,6 +493,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
           projectRef: ref,
           snapshot: { sharedContext: definition.sharedContext, nodes: definition.nodes },
           status: "in-progress",
+          pausedAt: null,
           iteration: 0,
           nextIterationAt: null,
           instances: {},
@@ -534,7 +537,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
     }),
     {
       name: "t3code:workflows-state:v1",
-      version: 2,
+      version: 3,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
@@ -545,19 +548,19 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
 );
 
 /**
- * v1 definitions had no graph or colour; give them a blank Start → End graph. v1 runs had no
- * instances or snapshot and cannot be resumed, so they are dropped.
+ * Older persisted state (v1, and v2 written before definitions carried a graph) has
+ * definitions without nodes/colour and runs without instances. Definitions get a blank
+ * Start → Report graph; such runs cannot be resumed and are dropped.
  */
 export function migratePersistedWorkflows(
   persisted: unknown,
-  version: number,
+  _version: number,
 ): { byProjectKey: Record<string, WorkflowProjectState> } {
   const source =
     persisted && typeof persisted === "object" && "byProjectKey" in persisted
       ? ((persisted as { byProjectKey?: Record<string, Partial<WorkflowProjectState>> })
           .byProjectKey ?? {})
       : {};
-  if (version >= 2) return { byProjectKey: source as Record<string, WorkflowProjectState> };
   const byProjectKey: Record<string, WorkflowProjectState> = {};
   for (const [projectKey, project] of Object.entries(source)) {
     byProjectKey[projectKey] = {
@@ -569,9 +572,9 @@ export function migratePersistedWorkflows(
           ? (definition as WorkflowDefinition).nodes
           : createBlankNodes(),
       })),
-      runs: (project.runs ?? []).filter(
-        (run) => run && typeof run === "object" && "instances" in run && "snapshot" in run,
-      ),
+      runs: (project.runs ?? [])
+        .filter((run) => run && typeof run === "object" && "instances" in run && "snapshot" in run)
+        .map((run) => ({ ...run, pausedAt: run.pausedAt ?? null })),
     };
   }
   return { byProjectKey };

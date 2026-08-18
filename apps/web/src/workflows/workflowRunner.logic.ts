@@ -784,7 +784,7 @@ export function planRun(input: WorkflowRun, now: string): PlanResult {
   if (input.status !== "in-progress" && input.status !== "review") {
     return { run: input, effects: [] };
   }
-  if (input.status === "review") {
+  if (input.status === "review" || input.pausedAt !== null) {
     return { run: input, effects: [] };
   }
   let run = input;
@@ -922,6 +922,17 @@ export function rejectReview(run: WorkflowRun, now: string): WorkflowRun {
   return instance
     ? withInstance(next, { ...instance, status: "failed", error: "Rejected", finishedAt: now })
     : next;
+}
+
+/** Pause: nothing new is dispatched until resumed; agents already running settle normally. */
+export function pauseRun(run: WorkflowRun, now: string): WorkflowRun {
+  if (run.status !== "in-progress" || run.pausedAt !== null) return run;
+  return { ...run, pausedAt: now };
+}
+
+export function resumeRun(run: WorkflowRun): WorkflowRun {
+  if (run.pausedAt === null) return run;
+  return { ...run, pausedAt: null };
 }
 
 /** Cancel: every unfinished instance is skipped/failed and the run is put away. */

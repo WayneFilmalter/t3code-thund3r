@@ -11,8 +11,9 @@ import {
 } from "~/components/ui/empty";
 import { formatDayAwareTimestamp, formatElapsedDurationLabel } from "~/timestampFormat";
 
+import { WorkflowBubble } from "./WorkflowBubble";
 import { WorkflowsSubheader } from "./WorkflowsSubheader";
-import type { WorkflowSectionItem } from "./workflowsPanel.logic";
+import type { WorkflowBubbleAction, WorkflowSectionItem } from "./workflowsPanel.logic";
 
 /** "Ran yesterday at 3:12 PM · 25m": when it ran and how long it took. */
 export function formatHistoryDetail(
@@ -36,10 +37,12 @@ export function WorkflowHistoryPanel({
   items,
   timestampFormat,
   onBack,
+  onAction,
 }: {
   items: readonly WorkflowSectionItem[];
   timestampFormat: TimestampFormat;
   onBack: () => void;
+  onAction: (item: WorkflowSectionItem, action: WorkflowBubbleAction) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -70,23 +73,13 @@ export function WorkflowHistoryPanel({
           <div className="flex flex-col gap-1.5">
             {items.map((item) =>
               item.kind === "run" ? (
-                <div
+                <WorkflowBubble
                   key={item.run.id}
-                  className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-card/40 px-3 py-2 dark:border-emerald-400/25"
-                >
-                  <span
-                    aria-hidden
-                    className="mt-1.5 size-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-400"
-                  />
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate text-sm font-medium text-foreground">
-                      {item.name}
-                    </span>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {formatHistoryDetail(item.run, timestampFormat)}
-                    </span>
-                  </div>
-                </div>
+                  item={item}
+                  sectionId="done"
+                  detail={formatHistoryDetail(item.run, timestampFormat)}
+                  onAction={(action) => onAction(item, action)}
+                />
               ) : null,
             )}
           </div>

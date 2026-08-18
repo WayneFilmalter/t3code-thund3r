@@ -12,18 +12,18 @@ import {
   useWorkflowsStore,
   type WorkflowDefinition,
   type WorkflowInstanceThread,
-  type WorkflowRun,
 } from "~/workflowsStore";
 
 import { WorkflowBuilderPanel, type WorkflowBuilderTarget } from "./WorkflowBuilderPanel";
+import type { WorkflowDefinitionMenuAction } from "./WorkflowBubble";
 import { WorkflowHistoryPanel } from "./WorkflowHistoryPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
+import { WorkflowsListView } from "./WorkflowsListView";
 import {
-  WorkflowsListView,
-  type WorkflowDefinitionAction,
-  type WorkflowRunAction,
-} from "./WorkflowsListView";
-import { deriveWorkflowSections } from "./workflowsPanel.logic";
+  deriveWorkflowSections,
+  type WorkflowBubbleAction,
+  type WorkflowSectionItem,
+} from "./workflowsPanel.logic";
 
 type PanelMode =
   | { kind: "list" }
@@ -86,19 +86,18 @@ export function WorkflowsPanel({
     if (mode.kind === "run" && activeRun === null) setMode({ kind: "list" });
   }, [mode, activeRun]);
 
-  const handleDefinitionAction = (
-    definition: WorkflowDefinition,
-    action: WorkflowDefinitionAction,
-  ) => {
+  const startDefinition = (definition: WorkflowDefinition) => {
     if (!projectRef) return;
+    const run = getWorkflowRunner().startRun(projectRef, definition);
+    if (run) enterWide({ kind: "run", runId: run.id });
+    else enterWide({ kind: "builder", target: { kind: "existing", definition } });
+  };
+
+  const handleMenuAction = (item: WorkflowSectionItem, action: WorkflowDefinitionMenuAction) => {
+    if (!projectRef || item.kind !== "definition") return;
+    const { definition } = item;
     const store = useWorkflowsStore.getState();
     switch (action) {
-      case "start": {
-        const run = getWorkflowRunner().startRun(projectRef, definition);
-        if (run) enterWide({ kind: "run", runId: run.id });
-        else enterWide({ kind: "builder", target: { kind: "existing", definition } });
-        return;
-      }
       case "edit":
         enterWide({ kind: "builder", target: { kind: "existing", definition } });
         return;
@@ -109,9 +108,7 @@ export function WorkflowsPanel({
         void (async () => {
           const confirmed = await requestConfirmDialog(
             `Delete the workflow "${definition.name}"?`,
-            {
-              variant: "destructive",
-            },
+            { variant: "destructive" },
           );
           if (confirmed === false) return;
           store.removeDefinition(projectRef, definition.id);
@@ -120,20 +117,46 @@ export function WorkflowsPanel({
     }
   };
 
-  const handleRunAction = (run: WorkflowRun, action: WorkflowRunAction) => {
+  const handleAction = (item: WorkflowSectionItem, action: WorkflowBubbleAction) => {
     const runner = getWorkflowRunner();
+    if (item.kind === "definition") {
+      if (action === "start") startDefinition(item.definition);
+      return;
+    }
+    const { run } = item;
     switch (action) {
-      case "open":
+      case "view":
         enterWide({ kind: "run", runId: run.id });
         return;
       case "stop":
         runner.cancelRun(run.id);
         return;
+      case "pause":
+        runner.pauseRun(run.id);
+        return;
+      case "resume":
+        runner.resumeRun(run.id);
+        return;
+      case "restart": {
+        // Prefer the definition as it is now; fall back to the graph the run was started with.
+        const current = project.definitions.find(
+          (definition) => definition.id === run.definitionId,
+        );
+        const next = current
+          ? projectRef
+            ? runner.startRun(projectRef, current)
+            : null
+          : runner.restartRun(run.id);
+        if (next) enterWide({ kind: "run", runId: next.id });
+        return;
+      }
       case "approve":
         runner.approveReview(run.id);
         return;
       case "reject":
         runner.rejectReview(run.id);
+        return;
+      case "start":
         return;
     }
   };
@@ -166,6 +189,8 @@ export function WorkflowsPanel({
         onSetMaximized={onSetMaximized}
         onBack={backToList}
         onStop={() => getWorkflowRunner().cancelRun(activeRun.id)}
+        onPause={() => getWorkflowRunner().pauseRun(activeRun.id)}
+        onResume={() => getWorkflowRunner().resumeRun(activeRun.id)}
         onApprove={() => getWorkflowRunner().approveReview(activeRun.id)}
         onReject={() => getWorkflowRunner().rejectReview(activeRun.id)}
         onOpenThread={openThread}
@@ -178,6 +203,7 @@ export function WorkflowsPanel({
         items={sections.find((section) => section.id === "done")?.items ?? []}
         timestampFormat={timestampFormat}
         onBack={() => setMode({ kind: "list" })}
+        onAction={handleAction}
       />
     );
   }
@@ -191,8 +217,8 @@ export function WorkflowsPanel({
         enterWide({ kind: "builder", target: { kind: "new", input: template.build() } });
       }}
       onViewHistory={() => setMode({ kind: "history" })}
-      onDefinitionAction={handleDefinitionAction}
-      onRunAction={handleRunAction}
+      onAction={handleAction}
+      onMenuAction={handleMenuAction}
     />
   );
 }

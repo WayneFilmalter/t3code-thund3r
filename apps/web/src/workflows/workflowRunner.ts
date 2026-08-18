@@ -23,8 +23,10 @@ import {
   cancelRun as cancelRunLogic,
   completeInstance,
   failInstance,
+  pauseRun as pauseRunLogic,
   planRun,
   rejectReview as rejectReviewLogic,
+  resumeRun as resumeRunLogic,
   runningThreads,
   type StartAgentRequest,
 } from "./workflowRunner.logic";
@@ -86,6 +88,34 @@ export class WorkflowRunner {
     this.write(runId, (current) => cancelRunLogic(current, this.ports.now()));
     for (const thread of threads) void this.ports.interrupt(thread);
     this.store.getState().pruneRuns(run.projectRef);
+  }
+
+  pauseRun(runId: string): void {
+    this.clearTimer(runId);
+    this.write(runId, (current) => pauseRunLogic(current, this.ports.now()));
+  }
+
+  resumeRun(runId: string): void {
+    this.write(runId, (current) => resumeRunLogic(current));
+    this.tick(runId);
+  }
+
+  /** Start a fresh run of the same graph a stuck run used; returns the new run. */
+  restartRun(runId: string): WorkflowRun | null {
+    const run = this.readRun(runId);
+    if (!run) return null;
+    const definition: WorkflowDefinition = {
+      id: run.definitionId,
+      name: run.name,
+      description: null,
+      color: run.color,
+      sharedContext: run.snapshot.sharedContext,
+      nodes: run.snapshot.nodes,
+      createdAt: run.startedAt,
+      updatedAt: run.startedAt,
+      scheduledFor: null,
+    };
+    return this.startRun(run.projectRef, definition);
   }
 
   approveReview(runId: string): void {
