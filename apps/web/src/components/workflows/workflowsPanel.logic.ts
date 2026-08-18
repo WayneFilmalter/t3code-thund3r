@@ -23,6 +23,24 @@ export interface WorkflowSection {
 
 const DELETED_WORKFLOW_NAME = "Deleted workflow";
 
+/** Why a run sits under Stuck: stopped by hand, failed, or waiting on something in a thread. */
+export function stuckReason(run: WorkflowRun): string {
+  if (run.status === "cancelled") return "Stopped";
+  if (run.status === "failed") return run.lastError ?? "Failed";
+  return run.lastError ?? "Needs attention";
+}
+
+/** How far the current iteration got: done executing nodes over total, ignoring lane children. */
+export function runProgress(run: WorkflowRun): { done: number; total: number } {
+  const executing = run.snapshot.nodes.filter((node) => node.kind !== "prompt-block");
+  let done = 0;
+  for (const node of executing) {
+    const instance = run.instances[`${node.id}:${run.iteration}`];
+    if (instance?.status === "done" || instance?.status === "skipped") done += 1;
+  }
+  return { done, total: executing.length };
+}
+
 const byNewest = (left: string, right: string) => right.localeCompare(left);
 
 /**
@@ -36,16 +54,16 @@ export function deriveWorkflowSections(project: WorkflowProjectState): WorkflowS
   const definitionItems = (definitions: readonly WorkflowDefinition[]): WorkflowSectionItem[] =>
     definitions.map((definition) => ({ kind: "definition", definition }));
   const runItems = (
-    status: WorkflowRun["status"],
+    statuses: readonly WorkflowRun["status"][],
     sortKey: (run: WorkflowRun) => string = (run) => run.startedAt,
   ): WorkflowSectionItem[] =>
     project.runs
-      .filter((run) => run.status === status)
+      .filter((run) => statuses.includes(run.status))
       .sort((left, right) => byNewest(sortKey(left), sortKey(right)))
       .map((run) => ({
         kind: "run",
         run,
-        name: nameById.get(run.definitionId) ?? DELETED_WORKFLOW_NAME,
+        name: nameById.get(run.definitionId) ?? run.name ?? DELETED_WORKFLOW_NAME,
       }));
 
   const sections: WorkflowSection[] = [
@@ -68,13 +86,17 @@ export function deriveWorkflowSections(project: WorkflowProjectState): WorkflowS
           .sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor)),
       ),
     },
-    { id: "in-progress", title: "In progress", items: runItems("in-progress") },
-    { id: "review", title: "Review", items: runItems("review") },
-    { id: "stuck", title: "Stuck", items: runItems("stuck") },
+    { id: "in-progress", title: "In progress", items: runItems(["in-progress"]) },
+    { id: "review", title: "Review", items: runItems(["review"]) },
+    {
+      id: "stuck",
+      title: "Stuck",
+      items: runItems(["stuck", "failed", "cancelled"], (run) => run.finishedAt ?? run.startedAt),
+    },
     {
       id: "done",
       title: "Done",
-      items: runItems("done", (run) => run.finishedAt ?? run.startedAt),
+      items: runItems(["done"], (run) => run.finishedAt ?? run.startedAt),
     },
   ];
   return sections.filter((section) => section.items.length > 0);

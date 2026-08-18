@@ -3494,6 +3494,13 @@ function ChatViewContent(props: ChatViewProps) {
       threadKey === routeThreadKey ? null : routeThreadKey,
     );
   }, [canMaximizeRightPanel, routeThreadKey]);
+  const setRightPanelMaximized = useCallback(
+    (maximized: boolean) => {
+      if (!canMaximizeRightPanel) return;
+      setMaximizedRightPanelThreadKey(maximized ? routeThreadKey : null);
+    },
+    [canMaximizeRightPanel, routeThreadKey],
+  );
   const cleanupRightPanelSurfaces = useCallback(
     (surfaces: readonly RightPanelSurface[]) => {
       if (!activeThreadRef) return;
@@ -6232,7 +6239,12 @@ function ChatViewContent(props: ChatViewProps) {
         threadId={activeThreadRef?.threadId ?? null}
       />
     ) : activeRightPanelSurface === null || activeRightPanelSurface.kind === "workflows" ? (
-      <WorkflowsPanel projectRef={activeProjectRef} timestampFormat={timestampFormat} />
+      <WorkflowsPanel
+        projectRef={activeProjectRef}
+        timestampFormat={timestampFormat}
+        maximized={rightPanelMaximized}
+        onSetMaximized={canMaximizeRightPanel ? setRightPanelMaximized : undefined}
+      />
     ) : (activeRightPanelSurface?.kind === "files" || activeRightPanelSurface?.kind === "file") &&
       activeProject &&
       activeWorkspaceRoot ? (

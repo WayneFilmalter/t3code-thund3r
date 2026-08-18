@@ -11,6 +11,7 @@ This is a living glossary for T3 Code. It explains what common terms mean in thi
 - [Orchestration](#orchestration)
 - [Provider runtime](#provider-runtime)
 - [Checkpointing](#checkpointing)
+- [Workflows](#workflows)
 
 ## Concepts
 
@@ -139,6 +140,26 @@ The patch difference between two checkpoints. Query logic lives in [CheckpointDi
 #### Turn diff
 
 The file patch and changed-file summary for one turn. It is usually computed in [CheckpointDiffQuery.ts][20], represented in [the contracts][1], and recorded into thread state by [projector.ts][4].
+
+### Workflows
+
+A workflow is a saved, project-scoped graph of steps the web client runs by spawning threads. Definitions and runs live in `apps/web/src/workflowsStore.ts` (client-local for now); the pure stepping engine is `apps/web/src/workflows/workflowRunner.logic.ts` and the atom-bound runner is `apps/web/src/workflows/workflowRunner.ts`.
+
+#### Workflow node
+
+One step of a workflow: `start`, `agent`, `linear-agent`, `fan-out`, `gate`, `review`, `action`, `prompt-block`, or `end`. Agent-like nodes execute as a `thread.turn.start`; the rest are control flow or prompt context.
+
+#### Lane
+
+The chain of nodes a `fan-out` node runs once per item of the previous list output, up to `maxParallel` lanes at once. Lane instances are keyed `${nodeId}:${iteration}:${laneIndex}`.
+
+#### Workflow run
+
+One execution of a definition. It freezes the definition's graph as a `snapshot`, tracks a `WorkflowNodeInstance` per executed node, and holds the run status shown in the panel (`in-progress`, `review`, `stuck`, `done`, `failed`, `cancelled`).
+
+#### Iteration
+
+One pass through the graph. A looping start node re-runs the graph with fresh instances until its done condition holds or `maxIterations` is reached; instances older than the previous iteration are pruned.
 
 ## Practical Shortcuts
 

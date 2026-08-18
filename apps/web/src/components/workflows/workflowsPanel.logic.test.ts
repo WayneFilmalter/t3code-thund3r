@@ -1,13 +1,31 @@
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { WorkflowDefinition, WorkflowRun } from "~/workflowsStore";
+import {
+  createAgentNode,
+  createEndNode,
+  createStartNode,
+  type WorkflowDefinition,
+  type WorkflowRun,
+} from "~/workflowsStore";
 
-import { deriveWorkflowSections } from "./workflowsPanel.logic";
+import { deriveWorkflowSections, runProgress, stuckReason } from "./workflowsPanel.logic";
 
-function definition(overrides: Partial<WorkflowDefinition> & { id: string }): WorkflowDefinition {
+const PROJECT_REF = scopeProjectRef(EnvironmentId.make("env"), ProjectId.make("project"));
+
+export function definition(
+  overrides: Partial<WorkflowDefinition> & { id: string },
+): WorkflowDefinition {
   return {
     name: overrides.id,
     description: null,
+    color: "#22d3ee",
+    sharedContext: "",
+    nodes: [
+      createStartNode({ id: `${overrides.id}-start` }),
+      createEndNode({ id: `${overrides.id}-end` }),
+    ],
     createdAt: "2026-08-17T10:00:00.000Z",
     updatedAt: "2026-08-17T10:00:00.000Z",
     scheduledFor: null,
@@ -15,12 +33,22 @@ function definition(overrides: Partial<WorkflowDefinition> & { id: string }): Wo
   };
 }
 
-function run(overrides: Partial<WorkflowRun> & { id: string }): WorkflowRun {
+export function run(overrides: Partial<WorkflowRun> & { id: string }): WorkflowRun {
   return {
     definitionId: "audit",
+    name: "Nightly audit",
+    color: "#22d3ee",
+    projectRef: PROJECT_REF,
+    snapshot: { sharedContext: "", nodes: [] },
     status: "in-progress",
+    iteration: 0,
+    nextIterationAt: null,
+    instances: {},
+    review: null,
+    result: null,
     startedAt: "2026-08-17T11:00:00.000Z",
     finishedAt: null,
+    lastError: null,
     ...overrides,
   };
 }
@@ -67,10 +95,17 @@ describe("deriveWorkflowSections", () => {
       definitions: [definition({ id: "audit", name: "Nightly audit" })],
       runs: [
         run({ id: "stuck-1", status: "stuck" }),
+        run({
+          id: "failed-1",
+          status: "failed",
+          finishedAt: "2026-08-17T13:00:00.000Z",
+          lastError: "boom",
+        }),
+        run({ id: "cancelled-1", status: "cancelled", finishedAt: "2026-08-17T12:30:00.000Z" }),
         run({ id: "review-1", status: "review", finishedAt: "2026-08-17T12:00:00.000Z" }),
         run({ id: "live-old", startedAt: "2026-08-17T09:00:00.000Z" }),
         run({ id: "live-new", startedAt: "2026-08-17T11:00:00.000Z" }),
-        run({ id: "orphan", status: "stuck", definitionId: "gone" }),
+        run({ id: "orphan", status: "stuck", definitionId: "gone", name: "Old name" }),
         run({
           id: "done-old",
           status: "done",
@@ -99,13 +134,42 @@ describe("deriveWorkflowSections", () => {
         .items.map((item) => (item.kind === "run" ? item.run.id : null));
     expect(runIds("in-progress")).toEqual(["live-new", "live-old"]);
     expect(runIds("review")).toEqual(["review-1"]);
-    expect(runIds("stuck")).toEqual(["stuck-1", "orphan"]);
+    // Failed and cancelled runs land under Stuck too, most recently finished first.
+    expect(runIds("stuck")).toEqual(["failed-1", "cancelled-1", "stuck-1", "orphan"]);
     // History orders by when a run finished, not when it started.
     expect(runIds("done")).toEqual(["done-new", "done-old"]);
     const stuck = sections.find((section) => section.id === "stuck")!.items;
+    // A run whose definition is gone keeps the name it was started with.
     expect(stuck.map((item) => (item.kind === "run" ? item.name : null))).toEqual([
       "Nightly audit",
-      "Deleted workflow",
+      "Nightly audit",
+      "Nightly audit",
+      "Old name",
     ]);
+  });
+});
+
+describe("stuckReason / runProgress", () => {
+  it("explains why a run sits under Stuck", () => {
+    expect(stuckReason(run({ id: "a", status: "cancelled" }))).toBe("Stopped");
+    expect(stuckReason(run({ id: "b", status: "failed", lastError: "boom" }))).toBe("boom");
+    expect(stuckReason(run({ id: "c", status: "stuck" }))).toBe("Needs attention");
+  });
+
+  it("counts done executing nodes of the current iteration", () => {
+    const nodes = [
+      createStartNode({ id: "s" }),
+      createAgentNode("agent", { id: "a" }),
+      createEndNode({ id: "e" }),
+    ];
+    const current = run({
+      id: "r",
+      snapshot: { sharedContext: "", nodes },
+      instances: {
+        "s:0": { key: "s:0", nodeId: "s", iteration: 0, status: "done" },
+        "a:0": { key: "a:0", nodeId: "a", iteration: 0, status: "running" },
+      },
+    });
+    expect(runProgress(current)).toEqual({ done: 1, total: 3 });
   });
 });
