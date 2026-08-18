@@ -190,6 +190,32 @@ describe("WorkflowRunner", () => {
     expect(readRun(run.id).lastError).toBe("no provider");
   });
 
+  it("fails the step instead of stalling when dispatch throws", async () => {
+    const fake = fakePorts();
+    const throwing: RunnerPorts = {
+      ...fake.ports,
+      startAgent: async () => {
+        throw new Error("atom exploded");
+      },
+    };
+    const runner = new WorkflowRunner(throwing);
+    const run = runner.startRun(
+      PROJECT_REF,
+      definition([
+        createStartNode({ id: "s" }),
+        createAgentNode("agent", { id: "a", prompt: "x" }),
+        createEndNode({ id: "e" }),
+      ]),
+    )!;
+    await flush();
+    await flush();
+    expect(readRun(run.id).status).toBe("failed");
+    expect(readRun(run.id).instances["a:0"]).toMatchObject({
+      status: "failed",
+      error: "atom exploded",
+    });
+  });
+
   it("reconciles on start: re-watches running threads and fails instances that never dispatched", async () => {
     const fake = fakePorts();
     // Simulate a persisted run mid-flight: agent a has a thread, agent b never got one.

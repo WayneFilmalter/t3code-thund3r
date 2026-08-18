@@ -179,7 +179,13 @@ export class WorkflowRunner {
   private async dispatchAgent(runId: string, request: StartAgentRequest): Promise<void> {
     const run = this.readRun(runId);
     if (!run || run.status !== "in-progress") return;
-    const result = await this.ports.startAgent(request, run.projectRef);
+    let result: Awaited<ReturnType<RunnerPorts["startAgent"]>>;
+    try {
+      result = await this.ports.startAgent(request, run.projectRef);
+    } catch (error) {
+      // A throwing dispatch must not leave the step spinning forever.
+      result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
     if (!result.ok) {
       this.write(runId, (current) =>
         failInstance(current, request.instanceKey, result.error, this.ports.now()),

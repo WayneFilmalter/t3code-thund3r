@@ -2,11 +2,7 @@
  * The runner's only door to the outside world: dispatching turns, watching threads, timers.
  * `createAtomRunnerPorts` binds it to the app's atom registry; tests pass a fake.
  */
-import {
-  executeAtomQuery,
-  runAtomCommand,
-  squashAtomCommandFailure,
-} from "@t3tools/client-runtime/state/runtime";
+import { runAtomCommand, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { connectionProjectionPhase } from "@t3tools/client-runtime/connection";
 import type { EnvironmentProject, EnvironmentThread } from "@t3tools/client-runtime/state/shell";
 import type {
@@ -21,7 +17,7 @@ import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { applyClaudePromptEffortPrefix, resolvePromptInjectedEffort } from "@t3tools/shared/model";
 import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
 import * as Option from "effect/Option";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult, type Atom } from "effect/unstable/reactivity";
 
 import { getComposerProviderState } from "~/components/chat/composerProviderState";
 import { readT3ProjectFileDefaultThreadEnvMode } from "~/lib/t3ProjectFileDefaults";
@@ -119,16 +115,46 @@ async function resolveEnvMode(
   });
 }
 
+/** How long a pre-dispatch read may wait for a live atom before the step goes on without it. */
+const ATOM_READ_TIMEOUT_MS = 8_000;
+
+/**
+ * First value a stream-backed atom offers, or null after the timeout. Subscription atoms never
+ * "complete", so `executeAtomQuery`'s wait-until-settled would hang on them forever.
+ */
+function firstAtomValue<A, E>(
+  atom: Atom.Atom<AsyncResult.AsyncResult<A, E>>,
+  timeoutMs = ATOM_READ_TIMEOUT_MS,
+): Promise<A | null> {
+  const read = () => Option.getOrNull(AsyncResult.value(appAtomRegistry.get(atom)));
+  const current = read();
+  if (current !== null) return Promise.resolve(current);
+  return new Promise((resolve) => {
+    let done = false;
+    let unsubscribe = () => {};
+    const finish = (value: A | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      unsubscribe();
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    unsubscribe = appAtomRegistry.subscribe(atom, (result) => {
+      const value = Option.getOrNull(AsyncResult.value(result));
+      if (value !== null) finish(value);
+    });
+    const again = read();
+    if (again !== null) finish(again);
+  });
+}
+
 async function readCurrentBranch(
   environmentId: EnvironmentId,
   cwd: string,
 ): Promise<string | null> {
-  const result = await executeAtomQuery(
-    appAtomRegistry,
-    vcsEnvironment.status({ environmentId, input: { cwd } }),
-    { reportDefect: false, reportFailure: false },
-  );
-  return result._tag === "Success" ? (result.value.refName ?? null) : null;
+  const status = await firstAtomValue(vcsEnvironment.status({ environmentId, input: { cwd } }));
+  return status?.refName ?? null;
 }
 
 export function createAtomRunnerPorts(): RunnerPorts {
