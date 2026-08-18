@@ -13,6 +13,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "~/compone
 import { cn } from "~/lib/utils";
 import { WORKFLOW_TEMPLATES } from "~/workflows/workflowTemplates";
 
+import { TaskBubble } from "./TaskBubble";
 import { WorkflowBubble, type WorkflowDefinitionMenuAction } from "./WorkflowBubble";
 import { WorkflowsSubheader } from "./WorkflowsSubheader";
 import { SECTION_TONES } from "./workflowTones";
@@ -130,7 +131,8 @@ function WorkflowsEmptyState(props: {
         <EmptyTitle>No workflows yet</EmptyTitle>
         <EmptyDescription>
           Build a workflow for this project and start it from here. Running, finished, and stuck
-          workflows show up in their own sections.
+          workflows show up in their own sections — and so do this project&apos;s threads while they
+          work.
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
@@ -170,27 +172,36 @@ export function WorkflowsListView(props: WorkflowsListViewProps) {
                 {(section.id === "done"
                   ? section.items.slice(0, DONE_PREVIEW_COUNT)
                   : section.items
-                ).map((item) => (
-                  <WorkflowBubble
-                    key={
-                      item.kind === "run"
-                        ? `run:${item.run.id}`
-                        : `definition:${item.definition.id}`
-                    }
-                    item={item}
-                    sectionId={section.id}
-                    busy={
-                      item.kind === "definition" &&
-                      (props.busyDefinitionIds?.has(item.definition.id) ?? false)
-                    }
-                    onAction={(action) => props.onAction?.(item, action)}
-                    onMenuAction={
-                      props.onMenuAction
-                        ? (action) => props.onMenuAction?.(item, action)
-                        : undefined
-                    }
-                  />
-                ))}
+                ).map((item) =>
+                  item.kind === "task" ? (
+                    <TaskBubble
+                      key={`task:${item.task.ref.threadId}`}
+                      task={item.task}
+                      sectionId={section.id}
+                      onAction={(action) => props.onAction?.(item, action)}
+                    />
+                  ) : (
+                    <WorkflowBubble
+                      key={
+                        item.kind === "run"
+                          ? `run:${item.run.id}`
+                          : `definition:${item.definition.id}`
+                      }
+                      item={item}
+                      sectionId={section.id}
+                      busy={
+                        item.kind === "definition" &&
+                        (props.busyDefinitionIds?.has(item.definition.id) ?? false)
+                      }
+                      onAction={(action) => props.onAction?.(item, action)}
+                      onMenuAction={
+                        props.onMenuAction
+                          ? (action) => props.onMenuAction?.(item, action)
+                          : undefined
+                      }
+                    />
+                  ),
+                )}
               </div>
             </section>
           ))}

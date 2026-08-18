@@ -34,6 +34,10 @@ Every saved workflow is a coloured bubble with a **▶ Start** button. Starting 
 
 Runs list under **In progress**, **Review**, **Stuck** (failed or stopped, with the reason) and **Done**. Each bubble shows how far the current pass got, what the agents are doing right now, and the actions for its state: **Pause** (agents already working finish, nothing new starts) and **Resume**, **Stop** (interrupts every running agent), **Approve** / **Reject** for a review, **Restart** for a stuck run, and **View** to open the run. A run only advances while the app is open; agents keep working on the server in the meantime and the run picks up where it left off when you come back.
 
+## Tasks: your threads, tracked here too
+
+The same panel tracks the project's own threads as **tasks**, so what the main chats and their agents are doing sits next to the workflow runs. A task is not saved anywhere — it is a live view of a thread: **In progress** while its turn works (with the provider's current plan step and an "agents working" tag when subagents are busy), **Review** when it needs your approval, an answer, or has a plan ready to implement, **Stuck** when it was stopped or errored, and **Done** for a day after it finished. **Stop** interrupts the turn, **Resume** sends "Continue where you left off" on the same thread, and **Open** jumps to it. Threads a workflow started are not listed as tasks; their run already tracks them.
+
 ## Loops
 
 Turn on **Loop** in the Start step to run Ralph-style: after the Report, the workflow starts over with fresh agents until the first list step returns nothing, a check passes, or the maximum number of iterations is reached — with an optional pause between iterations. _Whole backlog sweep_ is exactly this: triage ten tickets, then ten more, until the backlog is empty.

@@ -2,6 +2,8 @@ import { workflowNodeTitle } from "~/workflows/workflowNodeMeta";
 import { findNode } from "~/workflows/workflowRunner.logic";
 import type { WorkflowDefinition, WorkflowProjectState, WorkflowRun } from "~/workflowsStore";
 
+import type { TaskItem, TaskStatus } from "./taskItems";
+
 export type WorkflowSectionId =
   | "workflows"
   | "scheduled"
@@ -15,7 +17,8 @@ export const DONE_PREVIEW_COUNT = 3;
 
 export type WorkflowSectionItem =
   | { kind: "definition"; definition: WorkflowDefinition }
-  | { kind: "run"; run: WorkflowRun; name: string };
+  | { kind: "run"; run: WorkflowRun; name: string }
+  | { kind: "task"; task: TaskItem };
 
 export interface WorkflowSection {
   id: WorkflowSectionId;
@@ -42,6 +45,18 @@ export function bubbleActionsFor(
   sectionId: WorkflowSectionId,
   item: WorkflowSectionItem,
 ): readonly WorkflowBubbleAction[] {
+  if (item.kind === "task") {
+    switch (item.task.status) {
+      case "running":
+        return ["stop", "view"];
+      case "stopped":
+      case "failed":
+        return ["resume", "view"];
+      case "attention":
+      case "done":
+        return ["view"];
+    }
+  }
   switch (sectionId) {
     case "workflows":
     case "scheduled":
@@ -128,7 +143,18 @@ const byNewest = (left: string, right: string) => right.localeCompare(left);
  * The panel's sections in display order, empty ones dropped. An empty result means the
  * project has nothing to list and the panel shows its empty state instead.
  */
-export function deriveWorkflowSections(project: WorkflowProjectState): WorkflowSection[] {
+const TASK_SECTION: Record<TaskStatus, WorkflowSectionId> = {
+  running: "in-progress",
+  attention: "review",
+  stopped: "stuck",
+  failed: "stuck",
+  done: "done",
+};
+
+export function deriveWorkflowSections(
+  project: WorkflowProjectState,
+  tasks: ReadonlyArray<TaskItem> = [],
+): WorkflowSection[] {
   const nameById = new Map(
     project.definitions.map((definition) => [definition.id, definition.name]),
   );
@@ -146,6 +172,11 @@ export function deriveWorkflowSections(project: WorkflowProjectState): WorkflowS
         run,
         name: nameById.get(run.definitionId) ?? run.name ?? DELETED_WORKFLOW_NAME,
       }));
+
+  const taskItems = (sectionId: WorkflowSectionId): WorkflowSectionItem[] =>
+    tasks
+      .filter((task) => TASK_SECTION[task.status] === sectionId)
+      .map((task) => ({ kind: "task", task }));
 
   const sections: WorkflowSection[] = [
     {
@@ -167,17 +198,27 @@ export function deriveWorkflowSections(project: WorkflowProjectState): WorkflowS
           .sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor)),
       ),
     },
-    { id: "in-progress", title: "In progress", items: runItems(["in-progress"]) },
-    { id: "review", title: "Review", items: runItems(["review"]) },
+    {
+      id: "in-progress",
+      title: "In progress",
+      items: [...runItems(["in-progress"]), ...taskItems("in-progress")],
+    },
+    { id: "review", title: "Review", items: [...runItems(["review"]), ...taskItems("review")] },
     {
       id: "stuck",
       title: "Stuck",
-      items: runItems(["stuck", "failed", "cancelled"], (run) => run.finishedAt ?? run.startedAt),
+      items: [
+        ...runItems(["stuck", "failed", "cancelled"], (run) => run.finishedAt ?? run.startedAt),
+        ...taskItems("stuck"),
+      ],
     },
     {
       id: "done",
       title: "Done",
-      items: runItems(["done"], (run) => run.finishedAt ?? run.startedAt),
+      items: [
+        ...runItems(["done"], (run) => run.finishedAt ?? run.startedAt),
+        ...taskItems("done"),
+      ],
     },
   ];
   return sections.filter((section) => section.items.length > 0);

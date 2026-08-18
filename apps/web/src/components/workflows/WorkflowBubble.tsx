@@ -38,6 +38,9 @@ import {
 
 export type WorkflowDefinitionMenuAction = "edit" | "duplicate" | "delete";
 
+/** The bubble draws definitions and runs; tasks have their own, lighter bubble. */
+export type WorkflowBubbleItem = Exclude<WorkflowSectionItem, { kind: "task" }>;
+
 const ACTION_VISUALS: Record<
   WorkflowBubbleAction,
   { label: string; icon: ComponentType<{ className?: string }>; variant: "outline" | "ghost-muted" }
@@ -69,7 +72,7 @@ export function definitionSummary(definition: WorkflowDefinition): string {
 }
 
 /** The line under the title: what a run is up to, or what a definition is for. */
-function itemDetail(item: WorkflowSectionItem, sectionId: WorkflowSectionId): string | null {
+function itemDetail(item: WorkflowBubbleItem, sectionId: WorkflowSectionId): string | null {
   if (item.kind === "run") {
     const run = item.run;
     if (sectionId === "done" && run.finishedAt)
@@ -88,7 +91,7 @@ function itemDetail(item: WorkflowSectionItem, sectionId: WorkflowSectionId): st
  * Top-right corner: a bar with percent while a run works, a spinner before its first step,
  * and a state glyph once it is paused, awaiting review, done, stuck, or queued.
  */
-function BubbleProgress(props: { item: WorkflowSectionItem; sectionId: WorkflowSectionId }) {
+function BubbleProgress(props: { item: WorkflowBubbleItem; sectionId: WorkflowSectionId }) {
   const tone = SECTION_TONES[props.sectionId];
   if (props.item.kind === "definition") {
     return props.sectionId === "scheduled" ? (
@@ -144,7 +147,7 @@ function ProgressBar(props: { fraction: number; label: string }) {
  * take the tone of the section they sit in and carry a dot in their workflow's colour.
  */
 export function WorkflowBubble(props: {
-  item: WorkflowSectionItem;
+  item: WorkflowBubbleItem;
   sectionId: WorkflowSectionId;
   /** Overrides the line under the title (history shows "Ran … · 20m" instead). */
   detail?: string | null;

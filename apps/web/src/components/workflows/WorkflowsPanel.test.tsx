@@ -1,5 +1,5 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ProjectId } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -133,6 +133,39 @@ describe("WorkflowsListView", () => {
     expect(history).toContain("History");
     expect(history.match(/>Nightly audit</g)?.length).toBe(4);
     expect(history).toContain("· 20m");
+  });
+
+  it("renders a task bubble for a tracked thread with Stop and Open", () => {
+    const sections = deriveWorkflowSections({ definitions: [], runs: [] }, [
+      {
+        ref: { environmentId: EnvironmentId.make("env"), threadId: ThreadId.make("t-1") },
+        title: "Fix the flaky test",
+        status: "running",
+        attention: null,
+        startedAt: "2026-08-17T11:00:00.000Z",
+        finishedAt: null,
+        progress: { step: "Running tests", completed: 1, total: 4 },
+        background: "working",
+        updatedAt: "2026-08-17T11:05:00.000Z",
+      },
+    ]);
+    const html = renderToStaticMarkup(
+      <WorkflowsListView
+        hasProject
+        sections={sections}
+        onCreate={noop}
+        onViewHistory={noop}
+        onAction={noop}
+      />,
+    );
+    expect(html).toContain('aria-label="In progress"');
+    expect(html).toContain("Fix the flaky test");
+    expect(html).toContain(">Task<");
+    expect(html).toContain("Running tests");
+    expect(html).toContain('aria-valuenow="25"');
+    expect(html).toContain('aria-label="Stop Fix the flaky test"');
+    expect(html).toContain('aria-label="Open Fix the flaky test"');
+    expect(html).not.toContain("Pause");
   });
 
   it("summarises a definition's shape", () => {

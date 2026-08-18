@@ -3,6 +3,11 @@ import type { TimestampFormat } from "@t3tools/contracts/settings";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { newMessageId } from "~/lib/utils";
+import { useThreadShellsForProjectRefs } from "~/state/entities";
+import { threadEnvironment } from "~/state/threads";
+import { useAtomCommand } from "~/state/use-atom-command";
+
 import { requestConfirmDialog } from "~/confirmDialog";
 import { findWorkflowTemplate } from "~/workflows/workflowTemplates";
 import { getWorkflowRunner } from "~/workflows/workflowRunnerSingleton";
@@ -19,6 +24,7 @@ import type { WorkflowDefinitionMenuAction } from "./WorkflowBubble";
 import { WorkflowHistoryPanel } from "./WorkflowHistoryPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 import { WorkflowsListView } from "./WorkflowsListView";
+import { deriveTasks, workflowThreadIds, type TaskItem } from "./taskItems";
 import {
   deriveWorkflowSections,
   type WorkflowBubbleAction,
@@ -56,7 +62,16 @@ export function WorkflowsPanel({
   const activeRun = useWorkflowsStore((state) =>
     mode.kind === "run" ? findWorkflowRun(state.byProjectKey, mode.runId) : null,
   );
-  const sections = useMemo(() => deriveWorkflowSections(project), [project]);
+  const projectRefs = useMemo(() => (projectRef ? [projectRef] : []), [projectRef]);
+  const shells = useThreadShellsForProjectRefs(projectRefs);
+  const tasks = useMemo(
+    () =>
+      deriveTasks(shells, { nowMs: Date.now(), excludeThreadIds: workflowThreadIds(project.runs) }),
+    [shells, project.runs],
+  );
+  const sections = useMemo(() => deriveWorkflowSections(project, tasks), [project, tasks]);
+  const interruptTurn = useAtomCommand(threadEnvironment.interruptTurn, { reportFailure: false });
+  const startTurn = useAtomCommand(threadEnvironment.startTurn);
   const busyDefinitionIds = useMemo(
     () =>
       new Set(
@@ -117,8 +132,48 @@ export function WorkflowsPanel({
     }
   };
 
+  const handleTaskAction = (task: TaskItem, action: WorkflowBubbleAction) => {
+    const { environmentId, threadId } = task.ref;
+    switch (action) {
+      case "view":
+        void navigate({ to: "/$environmentId/$threadId", params: { environmentId, threadId } });
+        return;
+      case "stop":
+        void interruptTurn({ environmentId, input: { threadId } });
+        return;
+      case "resume": {
+        // A follow-up turn on the thread with what it already had: same model, mode, permissions.
+        const shell = shells.find((candidate) => candidate.id === threadId);
+        if (!shell) return;
+        void startTurn({
+          environmentId,
+          input: {
+            threadId,
+            message: {
+              messageId: newMessageId(),
+              role: "user",
+              text: "Continue where you left off.",
+              attachments: [],
+            },
+            modelSelection: shell.modelSelection,
+            runtimeMode: shell.runtimeMode,
+            interactionMode: shell.interactionMode,
+            createdAt: new Date().toISOString(),
+          },
+        });
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
   const handleAction = (item: WorkflowSectionItem, action: WorkflowBubbleAction) => {
     const runner = getWorkflowRunner();
+    if (item.kind === "task") {
+      handleTaskAction(item.task, action);
+      return;
+    }
     if (item.kind === "definition") {
       if (action === "start") startDefinition(item.definition);
       return;
