@@ -443,6 +443,9 @@ describe("children", () => {
       compacted: false,
       model: null,
       detail: null,
+      effort: null,
+      toolCount: null,
+      preview: null,
       lastActivityAtMs: null,
       satellites: [],
       tasks: [{ id: "t", label: "Shell ×2", category: "shell", count: 2, durationMs: 10 }],
@@ -495,6 +498,9 @@ describe("assignChildFeeds", () => {
           compacted: false,
           model: null,
           detail: null,
+          effort: null,
+          toolCount: null,
+          preview: null,
           lastActivityAtMs: null,
           satellites: [],
           tasks: [],
@@ -556,6 +562,60 @@ describe("feed", () => {
     const [titled, untitled] = model.root.children;
     expect(titled).toMatchObject({ model: "gpt-5.4", detail: "Explore auth flow" });
     expect(untitled).toMatchObject({ model: null, detail: "Read the tests" });
+  });
+
+  it("carries effort, tool counts, and a result or progress preview", () => {
+    const finished = subagent({
+      id: "done",
+      status: "completed",
+      completedAt: at(9_000),
+      title: "Subagent: Explore auth flow",
+      result: "Found   three\nentry points",
+      modelSelection: {
+        instanceId: "claude",
+        model: "claude-opus-5-5",
+        options: [{ id: "effort", value: "medium" }],
+      } as never,
+    });
+    const working = subagent({
+      id: "live",
+      progress: "Reading routes",
+      modelSelection: {
+        instanceId: "codex",
+        model: "gpt-5.4",
+        options: [{ id: "reasoningEffort", value: "high" }],
+      } as never,
+    });
+    const feed = {
+      projection: projection({ runs: [run("r", "completed")], threadId: "child-done" }),
+      items: [
+        tool("a", "Read", { runId: "r" }),
+        edit("b", { runId: "r" }),
+        shell("c", { runId: "r" }),
+      ],
+    };
+    const model = derive({
+      projection: projection({ subagents: [finished, working] }),
+      items: [
+        tool("main-read", "Read"),
+        item({
+          id: "say",
+          type: "assistant_message",
+          text: "  All   done here ",
+          streaming: false,
+        }),
+      ],
+      children: new Map([["child-done", feed]]),
+    })!;
+    expect(model.root).toMatchObject({ toolCount: 1, preview: "All done here" });
+    const [done, live] = model.root.children;
+    expect(done).toMatchObject({
+      detail: "Explore auth flow",
+      effort: "medium",
+      toolCount: 3,
+      preview: "Found three entry points",
+    });
+    expect(live).toMatchObject({ effort: "high", toolCount: null, preview: "Reading routes" });
   });
 
   it("lists the main agent, then working subagents, then finished ones, newest first", () => {

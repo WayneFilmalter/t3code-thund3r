@@ -15,6 +15,11 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive, orchestrationV2RunWorkStartedAt } from "@t3tools/contracts";
+import {
+  formatSubagentDisplayTitle,
+  subagentDetailPreview,
+} from "@t3tools/client-runtime/state/subagent-display";
+import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
 import { classifyToolActivity } from "@t3tools/shared/toolActivity";
 import * as DateTime from "effect/DateTime";
 
@@ -67,6 +72,12 @@ export interface AgentBubble {
   readonly model: string | null;
   /** What the agent was asked to do, untruncated, for the feed. */
   readonly detail: string | null;
+  /** Reasoning effort the agent runs at, when the provider takes one. */
+  readonly effort: string | null;
+  /** Tool calls made so far, when known. */
+  readonly toolCount: number | null;
+  /** Live: its latest progress; settled: its result. Compacted for one line. */
+  readonly preview: string | null;
   /** Last time anything about this agent changed; the feed sorts by it. */
   readonly lastActivityAtMs: number | null;
   readonly satellites: ReadonlyArray<AgentMapSatellite>;
@@ -89,6 +100,7 @@ export interface SettledChildSnapshot {
   readonly status: AgentBubbleStatus;
   readonly tokens: number | null;
   readonly elapsedMs: number | null;
+  readonly toolCount: number | null;
   readonly tasks: ReadonlyArray<AgentMapTask>;
 }
 
@@ -139,6 +151,12 @@ interface BubbleSkeleton {
   readonly model: string | null;
   /** What the agent was asked to do, untruncated, for the feed. */
   readonly detail: string | null;
+  /** Reasoning effort the agent runs at, when the provider takes one. */
+  readonly effort: string | null;
+  /** Tool calls made so far, when known. */
+  readonly toolCount: number | null;
+  /** Live: its latest progress; settled: its result. Compacted for one line. */
+  readonly preview: string | null;
   /** Elapsed time that no longer moves, plus the moment the live part started. */
   readonly settledElapsedMs: number | null;
   readonly liveSinceMs: number | null;
@@ -419,12 +437,42 @@ function isRunSettled(run: OrchestrationV2Run): boolean {
 function childIdentity(subagent: OrchestrationV2Subagent): {
   model: string | null;
   detail: string | null;
+  effort: string | null;
+  preview: string | null;
 } {
   const prompt = subagent.prompt.trim().split("\n")[0]?.trim() ?? "";
+  const described = subagent.title ?? (prompt.length > 0 ? prompt : null);
   return {
     model: subagent.model ?? subagent.modelSelection?.model ?? null,
-    detail: subagent.title ?? (prompt.length > 0 ? prompt : null),
+    detail: described === null ? null : formatSubagentDisplayTitle(described),
+    effort: effortOf(subagent.modelSelection),
+    preview: subagentDetailPreview({
+      status: subagent.status,
+      result: subagent.result,
+      progress: subagent.progress,
+    }),
   };
+}
+
+/** Claude names the option `effort`; Codex and the others `reasoningEffort`. */
+function effortOf(selection: OrchestrationV2Subagent["modelSelection"]): string | null {
+  return (
+    getModelSelectionStringOptionValue(selection, "effort") ??
+    getModelSelectionStringOptionValue(selection, "reasoningEffort") ??
+    null
+  );
+}
+
+/** The main agent's latest words, compacted to one preview line. */
+function latestAssistantPreview(items: ReadonlyArray<Item>): string | null {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.type !== "assistant_message") continue;
+    const compact = item.text.replace(/\s+/gu, " ").trim();
+    if (compact.length === 0) continue;
+    return compact.length > 280 ? `${compact.slice(0, 280).trimEnd()}…` : compact;
+  }
+  return null;
 }
 
 /** A finished child is named by what it was asked to do; its tasks show as cells. */
@@ -452,6 +500,7 @@ function deriveChildFromFeed(
     contextFraction: null,
     compacted: false,
     ...childIdentity(subagent),
+    toolCount: items.filter(isToolItem).length,
     settledElapsedMs: live ? null : childElapsed(subagent),
     liveSinceMs: live ? ms(subagent.startedAt) : null,
     lastActivityAtMs: lastActivityAt(items, ms(subagent.updatedAt)),
@@ -481,6 +530,7 @@ function deriveChildFromSnapshot(
     contextFraction: null,
     compacted: false,
     ...childIdentity(subagent),
+    toolCount: snapshot.toolCount,
     settledElapsedMs: snapshot.elapsedMs ?? childElapsed(subagent),
     liveSinceMs: null,
     lastActivityAtMs: ms(subagent.updatedAt),
@@ -505,6 +555,7 @@ function deriveChildFromRecord(subagent: OrchestrationV2Subagent): BubbleSkeleto
     contextFraction: null,
     compacted: false,
     ...childIdentity(subagent),
+    toolCount: null,
     settledElapsedMs: live ? null : childElapsed(subagent),
     liveSinceMs: live ? ms(subagent.startedAt) : null,
     lastActivityAtMs: ms(subagent.updatedAt),
@@ -589,6 +640,11 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
       model:
         (activeRun ?? latestRun)?.modelSelection.model ?? projection.thread.modelSelection.model,
       detail: projection.thread.title,
+      effort: effortOf(
+        (activeRun ?? latestRun)?.modelSelection ?? projection.thread.modelSelection,
+      ),
+      toolCount: allItems.filter(isToolItem).length,
+      preview: latestAssistantPreview(allItems),
       status,
       subtitle: deriveSubtitle(status, live ? activeItems : allItems, projection.runs.length),
       tokens: deriveThreadTokens(projection),
@@ -652,6 +708,9 @@ function resolveBubble(skeleton: BubbleSkeleton, nowMs: number): AgentBubble {
     compacted: skeleton.compacted,
     model: skeleton.model,
     detail: skeleton.detail,
+    effort: skeleton.effort,
+    toolCount: skeleton.toolCount,
+    preview: skeleton.preview,
     lastActivityAtMs: skeleton.lastActivityAtMs,
     satellites,
     tasks: skeleton.tasks,
@@ -686,6 +745,7 @@ export function snapshotSettledChild(bubble: AgentBubble): SettledChildSnapshot 
     status: bubble.status === "stalled" ? "done" : bubble.status,
     tokens: bubble.tokens,
     elapsedMs: bubble.elapsedMs,
+    toolCount: bubble.toolCount,
     tasks: bubble.tasks,
   };
 }

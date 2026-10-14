@@ -1,8 +1,12 @@
 /**
- * The readable side of the map: one row per agent with its name, model, status, what it
- * is doing, its tokens and time, and the work it has finished as coloured chips.
+ * The readable side of the map, laid out like the app's subagent list: a title, a
+ * preview of the latest progress or result, and a metadata line (model, effort,
+ * tokens, tools), with elapsed time on the right. On top of that each row carries
+ * the agent's map name and colour, and its finished work as coloured task chips.
  */
+import { formatModelSlugName } from "@t3tools/shared/model";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
+import { CheckIcon, XIcon } from "lucide-react";
 
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { cn } from "~/lib/utils";
@@ -16,7 +20,7 @@ import {
 } from "./agentMap.logic";
 import { AGENT_MAP_ACCENTS, AGENT_MAP_CATEGORY_ACCENTS } from "./agentMapColors";
 
-const ACTIVE = new Set<AgentBubbleStatus>(["tool", "thinking", "waiting"]);
+const WORKING = new Set<AgentBubbleStatus>(["tool", "thinking", "waiting", "stalled"]);
 
 function rowAccent(bubble: AgentBubble): string {
   if (bubble.status === "failed") return AGENT_MAP_ACCENTS.failed;
@@ -24,23 +28,72 @@ function rowAccent(bubble: AgentBubble): string {
   return bubble.kind === "main" ? AGENT_MAP_ACCENTS.main : AGENT_MAP_ACCENTS.subagent;
 }
 
+function metadataLine(bubble: AgentBubble): string {
+  return [
+    bubble.model ? formatModelSlugName(bubble.model) : null,
+    bubble.effort,
+    bubble.tokens === null ? null : `${formatContextWindowTokens(bubble.tokens)} tok`,
+    bubble.toolCount === null
+      ? null
+      : `${bubble.toolCount} ${bubble.toolCount === 1 ? "tool" : "tools"}`,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+}
+
+/** Live rows lead with what is happening now; settled rows with their outcome. */
+function previewLine(bubble: AgentBubble): string {
+  if (WORKING.has(bubble.status) && bubble.subtitle) return `▸ ${bubble.subtitle}`;
+  return bubble.preview ?? AGENT_STATUS_LABELS[bubble.status];
+}
+
 export function AgentActivityFeed(props: { readonly model: AgentMapModel }) {
-  const rows = orderAgentFeed(props.model);
-  const working = rows.filter((bubble) => ACTIVE.has(bubble.status)).length;
-  const done = rows.filter((bubble) => bubble.status === "done").length;
+  const [main, ...subagents] = orderAgentFeed(props.model);
+  const working = subagents.filter((bubble) => WORKING.has(bubble.status)).length;
+  const settled = subagents.filter(
+    (bubble) => bubble.status === "done" || bubble.status === "failed",
+  ).length;
+  const totalTokens = [main, ...subagents].reduce(
+    (total, bubble) => total + (bubble?.tokens ?? 0),
+    0,
+  );
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-1.5">
-        <span className="text-xs font-semibold text-foreground">Activity</span>
-        <span className="text-2xs tabular-nums text-muted-foreground">
-          {rows.length} {rows.length === 1 ? "agent" : "agents"} · {working} working · {done} done
-        </span>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 py-1.5">
+        {main ? (
+          <section>
+            <SectionHeading>Main agent</SectionHeading>
+            <FeedRow bubble={main} />
+          </section>
+        ) : null}
+        {subagents.length > 0 ? (
+          <section className="mt-1.5">
+            <SectionHeading>Subagents</SectionHeading>
+            {subagents.map((bubble) => (
+              <FeedRow key={bubble.id} bubble={bubble} />
+            ))}
+          </section>
+        ) : null}
       </div>
-      <ul className="min-h-0 flex-1 divide-y divide-border overflow-y-auto">
-        {rows.map((bubble) => (
-          <FeedRow key={bubble.id} bubble={bubble} />
-        ))}
-      </ul>
+      <footer className="flex items-center justify-between border-t border-border/60 px-3 py-1.5 font-mono text-2xs text-muted-foreground">
+        <span className="flex items-center gap-2">
+          {working > 0 ? (
+            <span className="text-foreground">
+              <span style={{ color: AGENT_MAP_ACCENTS.subagent }}>●</span> {working} working
+            </span>
+          ) : null}
+          {settled > 0 ? <span>{settled} settled</span> : null}
+        </span>
+        <span className="tabular-nums">Σ {formatContextWindowTokens(totalTokens)} tok</span>
+      </footer>
+    </div>
+  );
+}
+
+function SectionHeading(props: { readonly children: string }) {
+  return (
+    <div className="px-1.5 pt-1 pb-0.5 text-3xs font-medium uppercase tracking-wider text-muted-foreground">
+      {props.children}
     </div>
   );
 }
@@ -48,68 +101,67 @@ export function AgentActivityFeed(props: { readonly model: AgentMapModel }) {
 function FeedRow(props: { readonly bubble: AgentBubble }) {
   const { bubble } = props;
   const accent = rowAccent(bubble);
-  const active = ACTIVE.has(bubble.status);
-  const tokens =
-    bubble.tokens === null ? null : `${formatContextWindowTokens(bubble.tokens)} tokens`;
-  const elapsed = bubble.elapsedMs === null ? null : formatDuration(bubble.elapsedMs);
-  const doing = active || bubble.status === "stalled" ? bubble.subtitle : null;
+  const working = WORKING.has(bubble.status);
+  const title = bubble.detail ?? bubble.name;
+  const metadata = metadataLine(bubble);
   return (
-    <li className="flex flex-col gap-1 px-3 py-2">
-      <div className="flex min-w-0 items-center gap-2">
+    <div className="grid grid-cols-[0.5rem_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-1.5">
+      <span
+        aria-hidden
+        className="size-2 rounded-full"
+        style={{ background: accent, boxShadow: working ? `0 0 6px ${accent}` : undefined }}
+      />
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className="min-w-0 truncate text-sm font-medium text-foreground">{title}</span>
         <span
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ background: accent, boxShadow: active ? `0 0 6px ${accent}` : undefined }}
-        />
-        <span className="truncate text-sm font-semibold text-foreground">{bubble.name}</span>
-        {bubble.kind === "main" ? (
-          <span className="shrink-0 text-2xs text-muted-foreground">main</span>
-        ) : null}
-        {bubble.model ? (
-          <span className="min-w-0 truncate rounded bg-muted px-1.5 py-px font-mono text-2xs text-muted-foreground">
-            {bubble.model}
-          </span>
-        ) : null}
-        <span
-          className={cn(
-            "ml-auto shrink-0 rounded-full border px-2 py-px text-2xs font-medium",
-            active ? "text-foreground" : "text-muted-foreground",
-          )}
+          className="shrink-0 rounded-sm border px-1 font-mono text-3xs font-semibold text-foreground"
           style={{
-            borderColor: `color-mix(in oklch, ${accent} 55%, transparent)`,
-            background: `color-mix(in oklch, ${accent} ${active ? 22 : 10}%, transparent)`,
+            borderColor: `color-mix(in oklch, ${accent} 60%, transparent)`,
+            background: `color-mix(in oklch, ${accent} 18%, transparent)`,
           }}
         >
-          {AGENT_STATUS_LABELS[bubble.status]}
+          {bubble.name}
         </span>
-      </div>
-      {bubble.detail ? (
-        <p className="line-clamp-2 pl-4.5 text-xs text-foreground/85">{bubble.detail}</p>
-      ) : null}
-      {doing && doing !== bubble.detail ? (
-        <p className="truncate pl-4.5 text-xs text-muted-foreground">
-          <span className="text-foreground/70">Now: </span>
-          {doing}
-        </p>
-      ) : null}
-      <div className="flex flex-wrap items-center gap-1 pl-4.5">
-        {bubble.tasks.map((task) => (
-          <span
-            key={task.id}
-            className="rounded-full border px-1.5 py-px text-2xs text-foreground"
-            style={{
-              borderColor: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 60%, transparent)`,
-              background: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 16%, transparent)`,
-            }}
-          >
-            {task.label}
-          </span>
-        ))}
-        {tokens || elapsed ? (
-          <span className="ml-auto text-2xs tabular-nums text-muted-foreground">
-            {[tokens, elapsed].filter(Boolean).join(" · ")}
-          </span>
+      </span>
+      <span className="inline-flex items-center gap-1 font-mono text-2xs tabular-nums text-muted-foreground">
+        {bubble.elapsedMs === null ? null : formatDuration(bubble.elapsedMs)}
+        {bubble.status === "done" ? (
+          <CheckIcon aria-hidden className="size-3 text-success" />
         ) : null}
-      </div>
-    </li>
+        {bubble.status === "failed" ? (
+          <XIcon aria-hidden className="size-3 text-destructive-foreground" />
+        ) : null}
+      </span>
+      <span
+        className={cn(
+          "col-start-2 col-end-4 truncate text-xs",
+          bubble.status === "failed" ? "text-destructive-foreground" : "text-muted-foreground",
+        )}
+      >
+        {previewLine(bubble)}
+      </span>
+      {metadata ? (
+        <span className="col-start-2 col-end-4 truncate font-mono text-2xs tabular-nums text-muted-foreground/75">
+          {metadata}
+        </span>
+      ) : null}
+      {bubble.tasks.length > 0 ? (
+        <span className="col-start-2 col-end-4 flex flex-wrap gap-1 pt-0.5">
+          {bubble.tasks.map((task) => (
+            <span
+              key={task.id}
+              className="rounded-full border px-1.5 text-3xs leading-4 text-foreground"
+              style={{
+                borderColor: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 60%, transparent)`,
+                background: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 16%, transparent)`,
+              }}
+            >
+              {task.label}
+            </span>
+          ))}
+        </span>
+      ) : null}
+      <span className="sr-only">{AGENT_STATUS_LABELS[bubble.status]}</span>
+    </div>
   );
 }
