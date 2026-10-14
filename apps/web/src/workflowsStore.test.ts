@@ -164,9 +164,11 @@ describe("workflowsStore", () => {
     expect(project.runs).toEqual([]);
   });
 
-  it("fills in interactionMode and default model on graphs persisted before they existed", () => {
+  it("fills in interactionMode, report format and default model on graphs persisted before they existed", () => {
     const agent = { ...createAgentNode("agent", { prompt: "x" }) } as Record<string, unknown>;
     delete agent.interactionMode;
+    const end = { ...createEndNode({ reportPrompt: "Summarise" }) } as Record<string, unknown>;
+    delete end.format;
     const migrated = migratePersistedWorkflows(
       {
         byProjectKey: {
@@ -178,7 +180,7 @@ describe("workflowsStore", () => {
                 description: null,
                 color: "#a3e635",
                 sharedContext: "",
-                nodes: [createStartNode(), agent, createEndNode()],
+                nodes: [createStartNode(), agent, end],
                 createdAt: "2026-08-17T10:00:00.000Z",
                 updatedAt: "2026-08-17T10:00:00.000Z",
                 scheduledFor: null,
@@ -193,6 +195,11 @@ describe("workflowsStore", () => {
     const definition = migrated.byProjectKey["environment-1:project-1"]!.definitions[0]!;
     expect(definition.defaultModelSelection).toBeNull();
     expect(definition.nodes[1]).toMatchObject({ kind: "agent", interactionMode: "default" });
+    expect(definition.nodes[2]).toMatchObject({
+      kind: "end",
+      format: "summary",
+      reportPrompt: "Summarise",
+    });
   });
 
   it("persists definitions per project and restores them", async () => {

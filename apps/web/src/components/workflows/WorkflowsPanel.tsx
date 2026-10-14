@@ -21,6 +21,7 @@ import {
 
 import { WorkflowBuilderPanel, type WorkflowBuilderTarget } from "./WorkflowBuilderPanel";
 import type { WorkflowDefinitionMenuAction } from "./WorkflowBubble";
+import { WorkflowDescribePanel } from "./WorkflowDescribePanel";
 import { WorkflowHistoryPanel } from "./WorkflowHistoryPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 import { WorkflowsListView } from "./WorkflowsListView";
@@ -34,6 +35,7 @@ import {
 type PanelMode =
   | { kind: "list" }
   | { kind: "history" }
+  | { kind: "describe" }
   | { kind: "builder"; target: WorkflowBuilderTarget }
   | { kind: "run"; runId: string };
 
@@ -236,6 +238,16 @@ export function WorkflowsPanel({
       />
     );
   }
+  if (mode.kind === "describe" && projectRef) {
+    return (
+      <WorkflowDescribePanel
+        projectRef={projectRef}
+        onBack={backToList}
+        onDrafted={(input) => enterWide({ kind: "builder", target: { kind: "new", input } })}
+        onOpenThread={openThread}
+      />
+    );
+  }
   if (mode.kind === "run" && activeRun) {
     return (
       <WorkflowRunPanel
@@ -271,6 +283,7 @@ export function WorkflowsPanel({
         const template = findWorkflowTemplate(templateId) ?? findWorkflowTemplate("blank")!;
         enterWide({ kind: "builder", target: { kind: "new", input: template.build() } });
       }}
+      onDescribe={() => enterWide({ kind: "describe" })}
       onViewHistory={() => setMode({ kind: "history" })}
       onAction={handleAction}
       onMenuAction={handleMenuAction}

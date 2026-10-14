@@ -1,4 +1,4 @@
-import { ChevronRightIcon, PlusIcon, Workflow } from "lucide-react";
+import { ChevronRightIcon, PlusIcon, SparklesIcon, Workflow } from "lucide-react";
 
 import { Button } from "~/components/ui/button";
 import {
@@ -32,6 +32,8 @@ export interface WorkflowsListViewProps {
   /** Definitions with a run in progress or in review; their Start is disabled. */
   busyDefinitionIds?: ReadonlySet<string> | undefined;
   onCreate: (templateId: string) => void;
+  /** Opens the "describe it to an agent" drafting view. */
+  onDescribe: () => void;
   /** Opens the full Done history; the Done section only previews the latest few. */
   onViewHistory: () => void;
   onAction?: ((item: WorkflowSectionItem, action: WorkflowBubbleAction) => void) | undefined;
@@ -40,7 +42,11 @@ export interface WorkflowsListViewProps {
     | undefined;
 }
 
-function NewWorkflowMenu(props: { disabled: boolean; onCreate: (templateId: string) => void }) {
+function NewWorkflowMenu(props: {
+  disabled: boolean;
+  onCreate: (templateId: string) => void;
+  onDescribe: () => void;
+}) {
   return (
     <Menu>
       <MenuTrigger
@@ -58,6 +64,18 @@ function NewWorkflowMenu(props: { disabled: boolean; onCreate: (templateId: stri
         <PlusIcon />
       </MenuTrigger>
       <MenuPopup align="end" className="w-64">
+        <MenuItem onClick={props.onDescribe}>
+          <span className="flex min-w-0 flex-col">
+            <span className="flex items-center gap-1.5 text-sm">
+              <SparklesIcon className="size-3.5" />
+              Describe it to an agent…
+            </span>
+            <span className="text-xs text-muted-foreground">
+              An agent drafts it; you review and save
+            </span>
+          </span>
+        </MenuItem>
+        <MenuSeparator />
         {WORKFLOW_TEMPLATES.map((template, index) => (
           <div key={template.id}>
             {index === 2 ? <MenuSeparator /> : null}
@@ -108,6 +126,7 @@ function WorkflowSectionHeader(props: {
 function WorkflowsEmptyState(props: {
   hasProject: boolean;
   onCreate: (templateId: string) => void;
+  onDescribe: () => void;
 }) {
   if (!props.hasProject) {
     return (
@@ -136,10 +155,16 @@ function WorkflowsEmptyState(props: {
         </EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
-        <Button size="sm" onClick={() => props.onCreate("blank")}>
-          <PlusIcon className="size-3.5" />
-          New workflow
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => props.onCreate("blank")}>
+            <PlusIcon className="size-3.5" />
+            New workflow
+          </Button>
+          <Button size="sm" variant="outline" onClick={props.onDescribe}>
+            <SparklesIcon className="size-3.5" />
+            Describe it to an agent
+          </Button>
+        </div>
       </EmptyContent>
     </Empty>
   );
@@ -156,10 +181,18 @@ export function WorkflowsListView(props: WorkflowsListViewProps) {
         <span className="min-w-0 flex-1 truncate px-1 text-xs font-medium text-muted-foreground">
           Workflows
         </span>
-        <NewWorkflowMenu disabled={!props.hasProject} onCreate={props.onCreate} />
+        <NewWorkflowMenu
+          disabled={!props.hasProject}
+          onCreate={props.onCreate}
+          onDescribe={props.onDescribe}
+        />
       </WorkflowsSubheader>
       {props.sections.length === 0 ? (
-        <WorkflowsEmptyState hasProject={props.hasProject} onCreate={props.onCreate} />
+        <WorkflowsEmptyState
+          hasProject={props.hasProject}
+          onCreate={props.onCreate}
+          onDescribe={props.onDescribe}
+        />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {props.sections.map((section) => (

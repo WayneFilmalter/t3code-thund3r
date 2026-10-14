@@ -20,6 +20,7 @@ import type {
   WorkflowNode,
   WorkflowNodeInstance,
   WorkflowOutputSpec,
+  WorkflowReportFormat,
   WorkflowRun,
   WorkflowStartNode,
   WorkflowStepOutput,
@@ -270,6 +271,50 @@ const ACTION_INSTRUCTIONS = {
 
 export const GATE_SCHEMA_HINT = '{ "verdict": "pass" | "fail", "reason": string }';
 
+export const REPORT_FORMAT_INSTRUCTIONS: Record<WorkflowReportFormat, string> = {
+  detailed:
+    "Report format: detailed. Cover what was done, what was found, the decisions made, and anything left open or needing a human. Include file paths, identifiers and links where relevant.",
+  summary:
+    "Report format: summary. A few sentences or a short list: the outcome and anything that needs a human. No preamble.",
+  caveman:
+    'Report format: caveman. Fragments only. Drop articles, filler, pleasantries and hedging. Fewest words that still carry the outcome. Keep code, paths, commands and identifiers exact. Example: "Fixed login bug. Two files. Tests pass. PR open: <url>."',
+};
+
+/** The report spec an agent is asked to end with: the format rule plus any notes, rendered. */
+export function reportInstructions(node: WorkflowEndNode, vars: PromptVars): string {
+  const notes = renderTemplate(node.reportPrompt, vars).trim();
+  return [REPORT_FORMAT_INSTRUCTIONS[node.format], notes].filter(Boolean).join("\n");
+}
+
+/**
+ * True when Report can ride on this node's turn instead of running its own: a free-text agent
+ * turn whose reply *is* the result. Plan agents hand off a plan and JSON steps end in a fenced
+ * block, so neither can carry a report.
+ */
+export function reportRidesOn(node: WorkflowNode): node is WorkflowAgentNode | WorkflowActionNode {
+  if (node.kind === "action") return true;
+  if (node.kind !== "agent" && node.kind !== "linear-agent") return false;
+  return node.interactionMode === "default" && node.output.kind === "none";
+}
+
+/**
+ * The Report node this step carries: the next producing node in the chain is Report, with only
+ * context blocks or a human review in between.
+ */
+export function carriedReport(
+  chain: readonly WorkflowNode[],
+  index: number,
+): WorkflowEndNode | null {
+  const node = chain[index];
+  if (!node || !reportRidesOn(node)) return null;
+  for (let cursor = index + 1; cursor < chain.length; cursor += 1) {
+    const candidate = chain[cursor]!;
+    if (candidate.kind === "prompt-block" || candidate.kind === "review") continue;
+    return candidate.kind === "end" ? candidate : null;
+  }
+  return null;
+}
+
 export function outputInstructions(spec: WorkflowOutputSpec): string {
   if (spec.kind === "none") return "";
   const shape =
@@ -286,6 +331,8 @@ export interface CompilePromptInput {
   vars: PromptVars;
   /** Skill names to invoke, rendered as `/name` on the first lines. */
   skills: readonly string[];
+  /** Set when Report rides on this turn: the reply must end with the report. */
+  report?: WorkflowEndNode | undefined;
 }
 
 /** The full message text for an agent turn. Sections are joined by blank lines. */
@@ -331,6 +378,7 @@ export function compileAgentPrompt(input: CompilePromptInput): string {
     case "end":
       parts.push(
         `Write the final report for this workflow run. Do not make further changes; summarise.`,
+        REPORT_FORMAT_INSTRUCTIONS[node.format],
       );
       body = node.reportPrompt;
       break;
@@ -346,13 +394,18 @@ export function compileAgentPrompt(input: CompilePromptInput): string {
     const text = outputAsText(vars.prev).trim();
     if (text) {
       parts.push(
-        vars.prevIsPlan
+        vars.prevIsPlan && node.kind !== "end"
           ? `Plan from the previous step — carry it out:\n${text}`
           : `Input from the previous step:\n${text}`,
       );
     }
   }
   for (const block of input.promptBlocks.after) if (block.trim()) parts.push(block.trim());
+  if (input.report) {
+    parts.push(
+      `When you are done, end your reply with the final report for this workflow run.\n${reportInstructions(input.report, vars)}`,
+    );
+  }
   const outputText = outputInstructions(output);
   if (outputText) parts.push(outputText);
   return parts.join("\n\n").trim();
@@ -374,7 +427,21 @@ function collectPromptBlocks(chain: readonly WorkflowNode[], index: number) {
   return { before, after };
 }
 
-/** The nearest previous node in the chain that has run, with its instance. */
+/** Context blocks between `index` and the Report it carries, folded into its "after" blocks. */
+function trailingPromptBlocks(chain: readonly WorkflowNode[], index: number): string[] {
+  const blocks: string[] = [];
+  for (let cursor = index + 1; cursor < chain.length; cursor += 1) {
+    const candidate = chain[cursor]!;
+    if (candidate.kind !== "prompt-block") break;
+    blocks.push(candidate.text);
+  }
+  return blocks;
+}
+
+/**
+ * The nearest previous node in the chain that produced output, with its instance. Context
+ * blocks, Start and Human review are looked through: a review is a pause, not a producer.
+ */
 function previousDone(
   planner: Planner,
   chain: readonly WorkflowNode[],
@@ -383,7 +450,13 @@ function previousDone(
 ): { node: WorkflowNode; instance: WorkflowNodeInstance } | null {
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
     const candidate = chain[cursor]!;
-    if (candidate.kind === "prompt-block" || candidate.kind === "start") continue;
+    if (
+      candidate.kind === "prompt-block" ||
+      candidate.kind === "start" ||
+      candidate.kind === "review"
+    ) {
+      continue;
+    }
     const instance = planner.instances[scope.keyOf(candidate.id)];
     if (instance && (instance.status === "done" || instance.status === "skipped")) {
       return { node: candidate, instance };
@@ -455,12 +528,16 @@ function agentRequestFor(
     ...(previousFailure ? { previousFailure } : {}),
   };
   const skills = node.kind === "agent" || node.kind === "linear-agent" ? node.skills : [];
+  const report = carriedReport(chain, index);
+  const promptBlocks = collectPromptBlocks(chain, index);
+  if (report) promptBlocks.after.push(...trailingPromptBlocks(chain, index));
   const prompt = compileAgentPrompt({
     node,
     sharedContext: planner.run.snapshot.sharedContext,
-    promptBlocks: collectPromptBlocks(chain, index),
+    promptBlocks,
     vars,
     skills,
+    ...(report ? { report } : {}),
   });
   const wantsContinue =
     node.kind === "gate" || node.kind === "end" ? true : node.session === "continue";
@@ -701,9 +778,16 @@ function stepChain(
         return { state: "running" };
       }
       case "end": {
-        if (!node.reportPrompt.trim()) {
-          const prev = previousDone(planner, chain, index, scope);
-          const text = truncate(outputAsText(prev?.instance.output), RESULT_TEXT_CAP);
+        // The previous free-text turn already ended with the report, so its reply is the
+        // result; an empty list (nothing found, nothing ran) has nothing to report either.
+        const prev = previousDone(planner, chain, index, scope);
+        if (
+          prev &&
+          (reportRidesOn(prev.node) || outputAsList(prev.instance.output)?.length === 0)
+        ) {
+          const text = reportRidesOn(prev.node)
+            ? truncate(outputAsText(prev.instance.output), RESULT_TEXT_CAP)
+            : "";
           setInstance(planner, {
             ...baseInstance(planner, node, scope),
             status: "done",

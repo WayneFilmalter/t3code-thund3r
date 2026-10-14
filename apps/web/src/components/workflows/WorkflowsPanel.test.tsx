@@ -23,7 +23,13 @@ const PROJECT_REF = scopeProjectRef(EnvironmentId.make("env"), ProjectId.make("p
 describe("WorkflowsListView", () => {
   it("asks for a project when the thread has none", () => {
     const html = renderToStaticMarkup(
-      <WorkflowsListView hasProject={false} sections={[]} onCreate={noop} onViewHistory={noop} />,
+      <WorkflowsListView
+        hasProject={false}
+        sections={[]}
+        onCreate={noop}
+        onDescribe={noop}
+        onViewHistory={noop}
+      />,
     );
     expect(html).toContain("No project selected");
     expect(html).toContain('aria-label="New workflow"');
@@ -32,7 +38,13 @@ describe("WorkflowsListView", () => {
 
   it("shows only the empty state and create button when the project has no workflows", () => {
     const html = renderToStaticMarkup(
-      <WorkflowsListView hasProject sections={[]} onCreate={noop} onViewHistory={noop} />,
+      <WorkflowsListView
+        hasProject
+        sections={[]}
+        onCreate={noop}
+        onDescribe={noop}
+        onViewHistory={noop}
+      />,
     );
     expect(html).toContain("No workflows yet");
     expect(html).toContain('aria-label="New workflow"');
@@ -60,6 +72,7 @@ describe("WorkflowsListView", () => {
         hasProject
         sections={sections}
         onCreate={noop}
+        onDescribe={noop}
         onViewHistory={noop}
         onAction={noop}
         onMenuAction={noop}
@@ -94,6 +107,7 @@ describe("WorkflowsListView", () => {
         sections={sections}
         busyDefinitionIds={new Set(["audit"])}
         onCreate={noop}
+        onDescribe={noop}
         onViewHistory={noop}
         onAction={noop}
       />,
@@ -116,7 +130,13 @@ describe("WorkflowsListView", () => {
     });
 
     const html = renderToStaticMarkup(
-      <WorkflowsListView hasProject sections={sections} onCreate={noop} onViewHistory={noop} />,
+      <WorkflowsListView
+        hasProject
+        sections={sections}
+        onCreate={noop}
+        onDescribe={noop}
+        onViewHistory={noop}
+      />,
     );
     expect(html).toContain('aria-label="Done"');
     expect(html).toContain("View all");
@@ -154,6 +174,7 @@ describe("WorkflowsListView", () => {
         hasProject
         sections={sections}
         onCreate={noop}
+        onDescribe={noop}
         onViewHistory={noop}
         onAction={noop}
       />,

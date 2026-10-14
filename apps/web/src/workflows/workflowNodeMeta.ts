@@ -76,7 +76,7 @@ export const WORKFLOW_NODE_META: Record<WorkflowNodeKind, WorkflowNodeMeta> = {
   },
   end: {
     label: "Report",
-    blurb: "What the final feedback should look like",
+    blurb: "How the final result should read",
     category: "flow",
     accent: "oklch(0.86 0.24 130)",
     insertable: false,
@@ -145,6 +145,20 @@ export const WORKFLOW_LINEAR_PRESET_LABELS = {
   find: "Find tickets",
   update: "Update tickets",
   custom: "Custom",
+} as const;
+
+export const WORKFLOW_REPORT_FORMAT_LABELS = {
+  detailed: "Detailed",
+  summary: "Summary",
+  caveman: "Caveman",
+} as const;
+
+/** One line under the format pills explaining what the chosen report looks like. */
+export const WORKFLOW_REPORT_FORMAT_HINTS = {
+  detailed:
+    "Everything: what was done, what was found, decisions, open questions, paths and links.",
+  summary: "A few sentences or a short list: the outcome and anything that needs you.",
+  caveman: "Fragments only, no filler — the fewest words that still carry the outcome.",
 } as const;
 
 /** True for node kinds that execute as an agent turn on a thread. */

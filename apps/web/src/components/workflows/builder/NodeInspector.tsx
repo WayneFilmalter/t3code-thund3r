@@ -5,11 +5,14 @@ import { Input } from "~/components/ui/input";
 import { NumberField, NumberFieldGroup, NumberFieldInput } from "~/components/ui/number-field";
 import { Switch } from "~/components/ui/switch";
 import { Textarea } from "~/components/ui/textarea";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { canMoveNode } from "~/workflows/graphEdits";
 import {
   WORKFLOW_ACTION_PRESET_LABELS,
   WORKFLOW_LINEAR_PRESET_LABELS,
   WORKFLOW_NODE_META,
+  WORKFLOW_REPORT_FORMAT_HINTS,
+  WORKFLOW_REPORT_FORMAT_LABELS,
 } from "~/workflows/workflowNodeMeta";
 import type {
   WorkflowActionNode,
@@ -20,6 +23,7 @@ import type {
   WorkflowGateNode,
   WorkflowNode,
   WorkflowPromptBlockNode,
+  WorkflowReportFormat,
   WorkflowReviewNode,
   WorkflowStartNode,
 } from "~/workflowsStore";
@@ -539,18 +543,44 @@ function PromptBlockEditor(props: {
   );
 }
 
+const REPORT_FORMATS = Object.keys(WORKFLOW_REPORT_FORMAT_LABELS) as WorkflowReportFormat[];
+
 function EndEditor(props: { node: WorkflowEndNode; update: Update<WorkflowEndNode> }) {
+  const { node, update } = props;
   return (
-    <InspectorField
-      label="Report"
-      hint="What the final feedback should look like. Leave empty to show the last step's output as the result."
-    >
-      <Textarea
-        value={props.node.reportPrompt}
-        rows={5}
-        className="font-mono text-xs"
-        onChange={(event) => props.update({ reportPrompt: event.target.value })}
-      />
-    </InspectorField>
+    <>
+      <InspectorField
+        label="Format"
+        hint={`${WORKFLOW_REPORT_FORMAT_HINTS[node.format]} Rides on the last step's turn when it can; after a For each or Check a short follow-up turn writes it.`}
+      >
+        <ToggleGroup
+          aria-label="Report format"
+          value={[node.format]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (typeof next === "string" && next in WORKFLOW_REPORT_FORMAT_LABELS) {
+              update({ format: next as WorkflowReportFormat });
+            }
+          }}
+        >
+          {REPORT_FORMATS.map((format) => (
+            <Toggle key={format} value={format} aria-label={WORKFLOW_REPORT_FORMAT_LABELS[format]}>
+              {WORKFLOW_REPORT_FORMAT_LABELS[format]}
+            </Toggle>
+          ))}
+        </ToggleGroup>
+      </InspectorField>
+      <InspectorField
+        label="Also include"
+        hint="Optional: anything specific the report must cover."
+      >
+        <Textarea
+          value={node.reportPrompt}
+          rows={3}
+          className="font-mono text-xs"
+          onChange={(event) => update({ reportPrompt: event.target.value })}
+        />
+      </InspectorField>
+    </>
   );
 }

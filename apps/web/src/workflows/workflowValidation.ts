@@ -99,8 +99,13 @@ function validateChain(
         validateChain(node.lane, issues, "lane");
         break;
       }
-      case "review":
       case "prompt-block":
+        // Top level always ends in Report, which absorbs trailing context; lanes have no such sink.
+        if (scope === "lane" && index === chain.length - 1) {
+          issues.push({ nodeId: node.id, message: "Context needs a step after it." });
+        }
+        break;
+      case "review":
         break;
     }
   });
@@ -128,8 +133,8 @@ export function validateWorkflow(
   const executing = definition.nodes.filter(
     (node) => node.kind !== "start" && node.kind !== "end" && node.kind !== "prompt-block",
   );
-  if (executing.length === 0 && !ends[0]?.reportPrompt.trim()) {
-    issues.push({ nodeId: null, message: "Add at least one step, or give Report a prompt." });
+  if (executing.length === 0) {
+    issues.push({ nodeId: null, message: "Add at least one step." });
   }
   validateChain(definition.nodes, issues, "top");
   return issues;

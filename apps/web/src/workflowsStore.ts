@@ -99,9 +99,13 @@ export interface WorkflowPromptBlockNode {
   text: string;
   placement: "before" | "after";
 }
+/** How the final report should read; `caveman` is the terse fragments style of the caveman agent skill. */
+export type WorkflowReportFormat = "detailed" | "summary" | "caveman";
 export interface WorkflowEndNode {
   id: string;
   kind: "end";
+  format: WorkflowReportFormat;
+  /** Optional notes on what the report must cover, on top of the format. */
   reportPrompt: string;
 }
 export type WorkflowNode =
@@ -248,7 +252,13 @@ export function createStartNode(
 export function createEndNode(
   overrides: Partial<Omit<WorkflowEndNode, "kind">> = {},
 ): WorkflowEndNode {
-  return { id: newWorkflowNodeId(), kind: "end", reportPrompt: "", ...overrides };
+  return {
+    id: newWorkflowNodeId(),
+    kind: "end",
+    format: "summary",
+    reportPrompt: "",
+    ...overrides,
+  };
 }
 
 export function createAgentNode(
@@ -550,7 +560,7 @@ export const useWorkflowsStore = create<WorkflowsStoreState>()(
     }),
     {
       name: "t3code:workflows-state:v1",
-      version: 4,
+      version: 5,
       storage: createJSONStorage(() =>
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
@@ -611,6 +621,7 @@ function sanitizeNodes(nodes: readonly WorkflowNode[]): WorkflowNode[] {
       return { ...node, interactionMode: node.interactionMode ?? "default" };
     }
     if (node.kind === "fan-out") return { ...node, lane: sanitizeNodes(node.lane) };
+    if (node.kind === "end") return { ...node, format: node.format ?? "summary" };
     return node;
   });
 }

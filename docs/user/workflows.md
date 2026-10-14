@@ -4,7 +4,9 @@ Workflows turn the agent processes you run by hand — "find ten backlog tickets
 
 ## Building a workflow
 
-Press **+** in the Workflows tab and pick a starting point: **Blank**, **Single prompt**, or one of the ready-made flows (**Backlog follow-up**, **Whole backlog sweep**, **Implement by tag**). The builder opens with the panel maximized.
+Press **+** in the Workflows tab and pick a starting point: **Blank**, **Single prompt**, or one of the ready-made flows (**Backlog follow-up**, **Whole backlog sweep**, **Implement by tag**). The builder opens with the panel maximized. The simplest workflow is one **Agent** step with a prompt between Start and Report.
+
+Or pick **Describe it to an agent…**, say what the workflow should do, and press **Draft with agent**. An agent drafts the workflow on a fresh thread in the project and the builder opens with the result for you to review and save; anything it got wrong glows red like any other validation problem. **Open thread** shows the drafting agent at work.
 
 The canvas is a top-down flow of bubbles joined by arrows. Press the **+** on any arrow to insert a step; click a bubble to edit it in the inspector below (or beside, when the panel is maximized). Every step has its own colour:
 
@@ -18,7 +20,7 @@ The canvas is a top-down flow of bubbles joined by arrows. Press the **+** on an
 | **Human review** | Pauses the run under **Review** until you approve or reject.                                                                                                                                                                                                                                                                                                    |
 | **Action**       | A preset follow-up on the same agent: commit & open PR, commit, comment on the ticket, or custom instructions.                                                                                                                                                                                                                                                  |
 | **Context**      | Not a step of its own — text injected into the next agent's prompt, before or after it.                                                                                                                                                                                                                                                                         |
-| **Report**       | What the final feedback should look like. Leave it empty to show the last step's output as the result.                                                                                                                                                                                                                                                          |
+| **Report**       | How the final result should read: **Detailed**, **Summary**, or **Caveman** (fragments only, no filler, just enough words to get the outcome), plus optional notes on what it must cover. When the last step is a plain agent or action, the report is part of that step's reply; after a For each, Check, or plan step a short follow-up turn writes it.       |
 
 ### Models
 
@@ -46,4 +48,5 @@ Turn on **Loop** in the Start step to run Ralph-style: after the Report, the wor
 
 - Workflows are stored on this device for now; a run needs a web or desktop client open to move from one step to the next.
 - Structured hand-off works by asking the agent to end its reply with a fenced ` ```json ` block. If a step is set to return a list or object and the agent does not, the run stops there and tells you why.
+- Drafting a workflow with an agent needs the Workflows tab to stay on the describe view; if you leave, the agent's thread keeps going but the draft is not picked up, so send the description again.
 - Scheduling is not available yet — runs start when you press Start.

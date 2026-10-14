@@ -272,9 +272,16 @@ describe("WorkflowRunner", () => {
     fake.settle("old-thread", "lane one done");
     await flush();
     await flush();
+    const collected = readRun(run.id);
+    expect(collected.instances["each:0"]?.status).toBe("done");
+    // Lane results are a list, so Report takes a fresh thread to write them up.
+    expect(fake.waiting()).toEqual(["thread-1"]);
+    fake.settle("thread-1", "One lane done.");
+    await flush();
+    await flush();
     const done = readRun(run.id);
-    expect(done.instances["each:0"]?.status).toBe("done");
     expect(done.status).toBe("done");
+    expect(done.result).toBe("One lane done.");
   });
 
   it("defers planning until the environment is ready", async () => {

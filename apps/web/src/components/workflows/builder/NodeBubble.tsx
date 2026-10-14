@@ -3,7 +3,11 @@ import type { CSSProperties } from "react";
 
 import { Spinner } from "~/components/ui/spinner";
 import { cn } from "~/lib/utils";
-import { WORKFLOW_NODE_META, workflowNodeTitle } from "~/workflows/workflowNodeMeta";
+import {
+  WORKFLOW_NODE_META,
+  WORKFLOW_REPORT_FORMAT_LABELS,
+  workflowNodeTitle,
+} from "~/workflows/workflowNodeMeta";
 import type { WorkflowInstanceStatus, WorkflowNode } from "~/workflowsStore";
 
 import { NODE_ICONS, PLAN_ICON } from "./nodeIcons";
@@ -57,7 +61,10 @@ export function nodeChips(node: WorkflowNode): string[] {
     case "prompt-block":
       return [node.placement === "before" ? "before prompt" : "after prompt"];
     case "end":
-      return node.reportPrompt.trim() ? ["report"] : ["last output"];
+      return [
+        WORKFLOW_REPORT_FORMAT_LABELS[node.format].toLowerCase(),
+        ...(node.reportPrompt.trim() ? ["+ notes"] : []),
+      ];
   }
 }
 

@@ -25,6 +25,7 @@ import {
   failInstance,
   instanceKeyFor,
   planRun,
+  REPORT_FORMAT_INSTRUCTIONS,
   rejectReview,
   renderTemplate,
   runningThreads,
@@ -203,10 +204,13 @@ describe("planRun: linear chains", () => {
     });
     expect(second?.request.prompt).toContain("Commit the work");
     expect(second?.request.prompt).toContain("Input from the previous step:\nAll built.");
+    // The action is the last free-text turn, so Report rides on it.
+    expect(second?.request.prompt).toContain(REPORT_FORMAT_INSTRUCTIONS.summary);
+    expect(first?.request.prompt).not.toContain("Report format");
 
     run = settle(plan.run, "b:0", "Committed as abc123.", "a:0");
     plan = planRun(run, LATER);
-    // Report has no prompt: it takes the previous output as the result and the run is done.
+    // Report rode on the action: its reply is the result and the run is done without another turn.
     expect(plan.run.status).toBe("done");
     expect(plan.run.result).toBe("Committed as abc123.");
     expect(plan.effects).toEqual([{ type: "run-finished", status: "done" }]);
@@ -225,6 +229,67 @@ describe("planRun: linear chains", () => {
     const plan = planRun(run, LATER);
     expect(plan.run.status).toBe("failed");
     expect(plan.run.lastError).toMatch(/fenced/);
+  });
+
+  it("runs a one-prompt workflow as a single turn that ends with the report", () => {
+    const agent = createAgentNode("agent", { id: "a", prompt: "Fix the flaky test" });
+    const trailing = createPromptBlockNode({ id: "c", text: "Mention the test name." });
+    const end = createEndNode({ id: "e", format: "caveman", reportPrompt: "Include the PR link." });
+    let run = makeRun([createStartNode({ id: "s" }), agent, trailing, end]);
+    let plan = planRun(run, NOW);
+    const [only] = startAgentEffects(plan.effects);
+    expect(plan.effects).toHaveLength(1);
+    const prompt = only!.request.prompt;
+    expect(prompt.indexOf("Fix the flaky test")).toBeLessThan(
+      prompt.indexOf("Mention the test name."),
+    );
+    expect(prompt.indexOf("Mention the test name.")).toBeLessThan(
+      prompt.indexOf(REPORT_FORMAT_INSTRUCTIONS.caveman),
+    );
+    expect(prompt).toContain("Include the PR link.");
+
+    run = settle(plan.run, "a:0", "Fixed. One file. PR open.");
+    plan = planRun(run, LATER);
+    expect(startAgentEffects(plan.effects)).toEqual([]);
+    expect(plan.run.instances["c:0"]?.status).toBe("done");
+    expect(plan.run.status).toBe("done");
+    expect(plan.run.result).toBe("Fixed. One file. PR open.");
+    expect(plan.run.instances["e:0"]?.output).toEqual({
+      kind: "text",
+      text: "Fixed. One file. PR open.",
+    });
+  });
+
+  it("gives Report its own turn after a JSON step, a plan agent, or a fan-out", () => {
+    const listAgent = createAgentNode("agent", {
+      id: "a",
+      prompt: "List",
+      output: { kind: "list", hint: "" },
+    });
+    let run = makeRun([createStartNode({ id: "s" }), listAgent, createEndNode({ id: "e" })]);
+    expect(startAgentEffects(planRun(run, NOW).effects)[0]?.request.prompt).not.toContain(
+      "Report format",
+    );
+    run = settle(planRun(run, NOW).run, "a:0", "```json\n[1]\n```");
+    let plan = planRun(run, LATER);
+    const [report] = startAgentEffects(plan.effects);
+    expect(report?.request.instanceKey).toBe("e:0");
+    expect(report?.request.session).toMatchObject({
+      kind: "continue",
+      thread: { threadId: "a:0" },
+    });
+    expect(report?.request.prompt).toContain("Write the final report");
+    expect(report?.request.prompt).toContain(REPORT_FORMAT_INSTRUCTIONS.summary);
+    expect(report?.request.prompt).toContain("Input from the previous step:\n[\n  1\n]");
+
+    const planner = createAgentNode("agent", { id: "p", prompt: "Plan", interactionMode: "plan" });
+    run = makeRun([createStartNode({ id: "s" }), planner, createEndNode({ id: "e" })]);
+    run = settle(planRun(run, NOW).run, "p:0", "1. Do this");
+    plan = planRun(run, LATER);
+    const [afterPlan] = startAgentEffects(plan.effects);
+    expect(afterPlan?.request.instanceKey).toBe("e:0");
+    expect(afterPlan?.request.prompt).toContain("Input from the previous step:\n1. Do this");
+    expect(afterPlan?.request.prompt).not.toContain("carry it out");
   });
 
   it("uses context blocks for the next agent only", () => {
@@ -337,7 +402,15 @@ describe("planRun: fan-out", () => {
         { item: { id: 3 }, output: "done three" },
       ],
     });
+    // Lane results are a JSON list, so Report writes them up in its own turn.
+    const [report] = startAgentEffects(plan.effects);
+    expect(report?.request.instanceKey).toBe("e:0");
+    expect(report?.request.session).toEqual({ kind: "new" });
+    expect(report?.request.prompt).toContain('"output": "done one"');
+    run = settle(plan.run, "e:0", "Three done.");
+    plan = planRun(run, LATER);
     expect(plan.run.status).toBe("done");
+    expect(plan.run.result).toBe("Three done.");
   });
 
   it("finishes with an empty list when the source has nothing", () => {
@@ -345,7 +418,10 @@ describe("planRun: fan-out", () => {
     run = settle(run, "find:0", "```json\n[]\n```");
     const plan = planRun(run, LATER);
     expect(plan.run.instances["each:0"]?.status).toBe("done");
+    // Nothing ran, so there is nothing to report: no extra turn and no result.
+    expect(startAgentEffects(plan.effects)).toEqual([]);
     expect(plan.run.status).toBe("done");
+    expect(plan.run.result).toBeNull();
   });
 
   it("keeps other lanes going when one lane fails, and records the failure in the collection", () => {
@@ -449,6 +525,9 @@ describe("planRun: gate, review, loop, cancel", () => {
     const find = createAgentNode("linear-agent", { id: "find", prompt: "find" });
     let run = planRun(makeRun([start, find, createEndNode({ id: "e" })]), NOW).run;
     run = settle(run, "find:0", '```json\n[{"id":1}]\n```');
+    // The list step cannot carry the report, so Report takes a turn on the same thread first.
+    expect(startAgentEffects(planRun(run, LATER).effects)[0]?.request.instanceKey).toBe("e:0");
+    run = settle(planRun(run, LATER).run, "e:0", "One ticket.", "find:0");
     let plan = planRun(run, LATER);
     expect(shouldIterate(run)).toBe(true);
     expect(plan.run.iteration).toBe(1);

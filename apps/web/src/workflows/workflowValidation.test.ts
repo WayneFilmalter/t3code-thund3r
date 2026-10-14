@@ -6,6 +6,7 @@ import {
   createEndNode,
   createFanOutNode,
   createGateNode,
+  createPromptBlockNode,
   createStartNode,
   type WorkflowNode,
 } from "~/workflowsStore";
@@ -38,10 +39,10 @@ describe("validateWorkflow", () => {
     ).toEqual([]);
   });
 
-  it("requires a name, one Start, one Report, and something to run", () => {
+  it("requires a name, one Start, one Report, and at least one step", () => {
     expect(messages([createStartNode(), createEndNode()], "  ")).toEqual([
       "Name the workflow.",
-      "Add at least one step, or give Report a prompt.",
+      "Add at least one step.",
     ]);
     expect(messages([createAgentNode("agent", { prompt: "x" })])).toContain(
       "Exactly one Start node.",
@@ -49,7 +50,34 @@ describe("validateWorkflow", () => {
     expect(messages([createAgentNode("agent", { prompt: "x" })])).toContain(
       "Exactly one Report node.",
     );
-    expect(messages([createStartNode(), createEndNode({ reportPrompt: "Summarise" })])).toEqual([]);
+    // Report notes are not a step: the one prompt lives on an agent.
+    expect(messages([createStartNode(), createEndNode({ reportPrompt: "Summarise" })])).toEqual([
+      "Add at least one step.",
+    ]);
+  });
+
+  it("accepts context before Report at the top level but not at the end of a lane", () => {
+    expect(
+      messages([
+        createStartNode(),
+        createAgentNode("agent", { prompt: "go" }),
+        createPromptBlockNode({ text: "Be brief." }),
+        createEndNode(),
+      ]),
+    ).toEqual([]);
+    const trailing = createPromptBlockNode({ id: "ctx", text: "Be brief." });
+    const issues = issuesByNode(
+      validateWorkflow({
+        name: "Flow",
+        nodes: [
+          createStartNode(),
+          createAgentNode("linear-agent", { prompt: "find them" }),
+          createFanOutNode({ lane: [createAgentNode("agent", { prompt: "x" }), trailing] }),
+          createEndNode(),
+        ],
+      }),
+    );
+    expect(issues.get("ctx")).toEqual(["Context needs a step after it."]);
   });
 
   it("flags empty prompts, orphaned continues, unfed fan-outs and empty lanes by node", () => {
