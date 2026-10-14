@@ -28,7 +28,7 @@ import {
   latestProviderTurnTokenUsage,
 } from "~/lib/contextWindow";
 
-import type { AgentMapCategory } from "./agentMapColors";
+import { AGENT_MAP_CATEGORY_LABELS, type AgentMapCategory } from "./agentMapColors";
 import { agentName } from "./agentMapNames";
 
 export type AgentBubbleStatus =
@@ -117,8 +117,6 @@ export const AGENT_MAP_STALL_MS = 20_000;
 export const AGENT_MAP_SATELLITE_FADE_MS = 15_000;
 export const AGENT_MAP_SATELLITE_DROP_MS = 20_000;
 export const AGENT_MAP_MAX_SATELLITES = 40;
-export const AGENT_MAP_MAX_TASKS_PER_RUN = 8;
-export const AGENT_MAP_MAX_DOCKED_TASKS = 24;
 const SUBTITLE_MAX_LENGTH = 28;
 
 const ACTIVE_RUN_STATUSES = new Set<OrchestrationV2Run["status"]>([
@@ -221,16 +219,6 @@ export function toolItemCategory(item: Item): AgentMapCategory {
   }
 }
 
-const TASK_LABELS: Record<AgentMapCategory, string> = {
-  read: "Research",
-  search: "Research",
-  edit: "Edit",
-  shell: "Shell",
-  web: "Web",
-  plan: "Plan",
-  other: "Tool",
-};
-
 /** Read and search share a task bubble; everything else groups by its own category. */
 function taskCategory(category: AgentMapCategory): AgentMapCategory {
   return category === "search" ? "read" : category;
@@ -247,47 +235,40 @@ function truncate(text: string, max: number): string {
   return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max - 1)}…`;
 }
 
-/** Consecutive same-category tool calls become one labelled bubble, capped per run. */
-export function groupTasks(items: ReadonlyArray<Item>, idPrefix: string): AgentMapTask[] {
+function itemTaskCategory(item: Item): AgentMapCategory | null {
+  if (item.type === "proposed_plan") return "plan";
+  if (item.type === "user_input_request") return "question";
+  return isToolItem(item) ? taskCategory(toolItemCategory(item)) : null;
+}
+
+/**
+ * One task per category for an owner, in first-seen order, counting every call. Ids are
+ * keyed by category so a growing count updates the same bubble instead of budding a new one.
+ */
+export function groupTasks(items: ReadonlyArray<Item>, ownerId: string): AgentMapTask[] {
   const ordered = [...items].sort((left, right) => left.ordinal - right.ordinal);
-  const groups: Array<{ category: AgentMapCategory; count: number; durationMs: number }> = [];
+  const groups = new Map<AgentMapCategory, { count: number; durationMs: number }>();
   for (const item of ordered) {
-    const category =
-      item.type === "proposed_plan"
-        ? "plan"
-        : isToolItem(item)
-          ? taskCategory(toolItemCategory(item))
-          : null;
+    const category = itemTaskCategory(item);
     if (category === null) continue;
-    const last = groups.at(-1);
-    if (last && last.category === category) {
-      last.count += 1;
-      last.durationMs += itemDurationMs(item);
+    const group = groups.get(category);
+    if (group) {
+      group.count += 1;
+      group.durationMs += itemDurationMs(item);
     } else {
-      groups.push({ category, count: 1, durationMs: itemDurationMs(item) });
+      groups.set(category, { count: 1, durationMs: itemDurationMs(item) });
     }
   }
-  const tasks = groups.map((group, index) => ({
-    id: `${idPrefix}:${index}`,
-    category: group.category,
+  return [...groups].map(([category, group]) => ({
+    id: `${ownerId}:${category}`,
+    category,
     count: group.count,
     label:
-      group.category === "plan" || group.count === 1
-        ? TASK_LABELS[group.category]
-        : `${TASK_LABELS[group.category]} ×${group.count}`,
+      group.count === 1
+        ? AGENT_MAP_CATEGORY_LABELS[category]
+        : `${AGENT_MAP_CATEGORY_LABELS[category]} ×${group.count}`,
     durationMs: group.durationMs,
   }));
-  if (tasks.length <= AGENT_MAP_MAX_TASKS_PER_RUN) return tasks;
-  const kept = tasks.slice(0, AGENT_MAP_MAX_TASKS_PER_RUN - 1);
-  const rest = tasks.slice(AGENT_MAP_MAX_TASKS_PER_RUN - 1);
-  kept.push({
-    id: `${idPrefix}:more`,
-    category: "other",
-    count: rest.reduce((total, task) => total + task.count, 0),
-    label: `+${rest.length} more`,
-    durationMs: rest.reduce((total, task) => total + task.durationMs, 0),
-  });
-  return kept;
 }
 
 function isWaitingItem(item: Item): boolean {
@@ -579,30 +560,11 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
   const status = deriveStatus(activeItems, live, failed);
 
   const settledRuns = projection.runs.filter(isRunSettled);
-  const tasks: AgentMapTask[] = [];
-  for (const run of settledRuns) {
-    tasks.push(
-      ...groupTasks(
-        allItems.filter((item) => item.runId === run.id),
-        run.id,
-      ),
-    );
-  }
-  const dockedTasks =
-    tasks.length <= AGENT_MAP_MAX_DOCKED_TASKS
-      ? tasks
-      : [
-          {
-            id: `${projection.thread.id}:earlier`,
-            category: "other" as const,
-            count: tasks
-              .slice(0, tasks.length - AGENT_MAP_MAX_DOCKED_TASKS + 1)
-              .reduce((total, task) => total + task.count, 0),
-            label: `+${tasks.length - AGENT_MAP_MAX_DOCKED_TASKS + 1} earlier`,
-            durationMs: 0,
-          },
-          ...tasks.slice(tasks.length - AGENT_MAP_MAX_DOCKED_TASKS + 1),
-        ];
+  const settledRunIds = new Set(settledRuns.map((run) => run.id));
+  const tasks = groupTasks(
+    allItems.filter((item) => item.runId !== null && settledRunIds.has(item.runId)),
+    projection.thread.id,
+  );
 
   let settledElapsedMs = 0;
   let sawSettled = false;
@@ -660,7 +622,7 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
         activeRun === null ? null : ms(activeRun.startedAt),
       ),
       satellites: live ? deriveSatellites(activeItems) : [],
-      tasks: dockedTasks,
+      tasks,
       children,
     },
   };

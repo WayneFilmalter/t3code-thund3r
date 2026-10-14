@@ -86,8 +86,9 @@ export function childRadius(tokens: number | null, rootTokens: number | null): n
   return 30 + 10 * Math.sqrt(share);
 }
 
+/** Grows a step each time the count doubles, so ×2 and ×20 read differently, up to ×16. */
 export function taskRadius(count: number): number {
-  return Math.min(18, 12 + 2 * Math.sqrt(Math.max(1, count)));
+  return Math.min(24, 12 + 3 * Math.log2(Math.max(1, count)));
 }
 
 function isDocked(bubble: AgentBubble): boolean {

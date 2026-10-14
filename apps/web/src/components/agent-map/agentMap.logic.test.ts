@@ -9,8 +9,6 @@ import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  AGENT_MAP_MAX_DOCKED_TASKS,
-  AGENT_MAP_MAX_TASKS_PER_RUN,
   assignChildFeeds,
   deriveAgentMapModel,
   groupTasks,
@@ -231,58 +229,62 @@ describe("deriveAgentMapModel status", () => {
 });
 
 describe("tasks and satellites", () => {
-  it("groups consecutive calls and merges read with search", () => {
+  it("merges every call of a category into one task, read with search", () => {
     const tasks = groupTasks(
       [
         tool("a", "Read"),
-        tool("b", "Grep"),
-        tool("c", "Read"),
-        edit("d"),
+        edit("b"),
+        tool("c", "Grep"),
+        shell("d"),
         edit("e"),
-        shell("f"),
-        web("g"),
+        web("f"),
+        tool("g", "Read"),
       ],
       "run-1",
     );
-    expect(tasks.map((task) => task.label)).toEqual(["Research ×3", "Edit ×2", "Shell", "Web"]);
-    expect(tasks.map((task) => task.category)).toEqual(["read", "edit", "shell", "web"]);
-    expect(tasks.map((task) => task.count)).toEqual([3, 2, 1, 1]);
+    expect(tasks.map((task) => [task.id, task.count, task.label])).toEqual([
+      ["run-1:read", 3, "Research ×3"],
+      ["run-1:edit", 2, "Edit ×2"],
+      ["run-1:shell", 1, "Shell"],
+      ["run-1:web", 1, "Web"],
+    ]);
   });
 
-  it("folds tasks beyond the per-run cap into one more bubble", () => {
-    const items: OrchestrationV2TurnItem[] = [];
-    for (let index = 0; index < 12; index += 1) {
-      items.push(index % 2 === 0 ? tool(`r${index}`, "Read") : edit(`e${index}`));
-    }
-    const tasks = groupTasks(items, "run-1");
-    expect(tasks).toHaveLength(AGENT_MAP_MAX_TASKS_PER_RUN);
-    expect(tasks.at(-1)?.label).toBe("+5 more");
+  it("counts questions and plans as their own tasks", () => {
+    const tasks = groupTasks(
+      [
+        item({ id: "ask", type: "user_input_request", questions: [] }),
+        item({ id: "plan", type: "proposed_plan", text: "" }),
+        item({ id: "ask-2", type: "user_input_request", questions: [] }),
+        item({ id: "say", type: "assistant_message", text: "" }),
+      ],
+      "run-1",
+    );
+    expect(tasks.map((task) => [task.category, task.count])).toEqual([
+      ["question", 2],
+      ["plan", 1],
+    ]);
   });
 
-  it("docks tasks from settled runs while a new run is live, capped with an earlier chip", () => {
-    const runs = [run("run-1", "completed"), run("run-2", "running", { ordinal: 2 })];
+  it("docks one task per category across settled runs while a new run is live", () => {
+    const runs = [
+      run("run-1", "completed"),
+      run("run-2", "completed", { ordinal: 2 }),
+      run("run-3", "running", { ordinal: 3 }),
+    ];
     const items = [
       tool("a", "Read"),
       edit("b"),
-      tool("c", "Read", { runId: "run-2", status: "running" }),
+      tool("c", "Read", { runId: "run-2" }),
+      edit("d", { runId: "run-2" }),
+      tool("e", "Read", { runId: "run-3", status: "running" }),
     ];
     const model = derive({ projection: projection({ runs }), items });
-    expect(model?.root.tasks.map((task) => task.label)).toEqual(["Research", "Edit"]);
-    expect(model?.root.satellites.map((satellite) => satellite.id)).toEqual(["c"]);
-
-    const manyRuns: OrchestrationV2Run[] = [];
-    const manyItems: OrchestrationV2TurnItem[] = [];
-    for (let index = 0; index < 15; index += 1) {
-      manyRuns.push(run(`run-${index}`, "completed", { ordinal: index + 1 }));
-      manyItems.push(
-        tool(`r${index}`, "Read", { runId: `run-${index}` }),
-        edit(`e${index}`, { runId: `run-${index}` }),
-      );
-    }
-    const docked = derive({ projection: projection({ runs: manyRuns }), items: manyItems })?.root
-      .tasks;
-    expect(docked).toHaveLength(AGENT_MAP_MAX_DOCKED_TASKS);
-    expect(docked?.[0]?.label).toBe("+7 earlier");
+    expect(model?.root.tasks.map((task) => [task.id, task.count])).toEqual([
+      [`${model?.root.id}:read`, 2],
+      [`${model?.root.id}:edit`, 2],
+    ]);
+    expect(model?.root.satellites.map((satellite) => satellite.id)).toEqual(["e"]);
   });
 
   it("fades completed satellites and drops them at 20s; failed ones stay", () => {

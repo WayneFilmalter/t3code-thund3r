@@ -5,7 +5,9 @@ export function AgentMapLegend() {
     <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-2xs text-muted-foreground">
       {AGENT_MAP_LEGEND.map((entry) => (
         <li key={entry.label} className="flex items-center gap-1.5">
-          {entry.label === "Context used" ? (
+          {entry.icon ? (
+            <entry.icon aria-hidden className="size-3" style={{ color: entry.accent }} />
+          ) : entry.line ? (
             <span
               className="inline-block h-0.5 w-4 rounded-full"
               style={{ background: entry.accent }}

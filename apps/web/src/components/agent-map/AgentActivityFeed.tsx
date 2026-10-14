@@ -8,6 +8,7 @@ import { formatModelSlugName } from "@t3tools/shared/model";
 import { formatDuration } from "@t3tools/shared/orchestrationTiming";
 import { CheckIcon, XIcon } from "lucide-react";
 
+import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { cn } from "~/lib/utils";
 
@@ -18,7 +19,11 @@ import {
   type AgentBubbleStatus,
   type AgentMapModel,
 } from "./agentMap.logic";
-import { AGENT_MAP_ACCENTS, AGENT_MAP_CATEGORY_ACCENTS } from "./agentMapColors";
+import {
+  AGENT_MAP_ACCENTS,
+  AGENT_MAP_CATEGORY_ACCENTS,
+  AGENT_MAP_CATEGORY_ICONS,
+} from "./agentMapColors";
 
 const WORKING = new Set<AgentBubbleStatus>(["tool", "thinking", "waiting", "stalled"]);
 
@@ -147,18 +152,30 @@ function FeedRow(props: { readonly bubble: AgentBubble }) {
       ) : null}
       {bubble.tasks.length > 0 ? (
         <span className="col-start-2 col-end-4 flex flex-wrap gap-1 pt-0.5">
-          {bubble.tasks.map((task) => (
-            <span
-              key={task.id}
-              className="rounded-full border px-1.5 text-3xs leading-4 text-foreground"
-              style={{
-                borderColor: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 60%, transparent)`,
-                background: `color-mix(in oklch, ${AGENT_MAP_CATEGORY_ACCENTS[task.category]} 16%, transparent)`,
-              }}
-            >
-              {task.label}
-            </span>
-          ))}
+          {bubble.tasks.map((task) => {
+            const accent = AGENT_MAP_CATEGORY_ACCENTS[task.category];
+            const Icon = AGENT_MAP_CATEGORY_ICONS[task.category];
+            return (
+              <Tooltip key={task.id}>
+                <TooltipTrigger
+                  render={
+                    <span
+                      className="inline-flex items-center gap-0.5 rounded-full border px-1.5 text-3xs leading-4 tabular-nums text-foreground"
+                      style={{
+                        borderColor: `color-mix(in oklch, ${accent} 60%, transparent)`,
+                        background: `color-mix(in oklch, ${accent} 16%, transparent)`,
+                      }}
+                    />
+                  }
+                >
+                  <Icon aria-hidden className="size-2.5" style={{ color: accent }} />
+                  {task.count > 1 ? <span aria-hidden>×{task.count}</span> : null}
+                  <span className="sr-only">{task.label}</span>
+                </TooltipTrigger>
+                <TooltipPopup>{task.label}</TooltipPopup>
+              </Tooltip>
+            );
+          })}
         </span>
       ) : null}
       <span className="sr-only">{AGENT_STATUS_LABELS[bubble.status]}</span>

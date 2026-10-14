@@ -19,7 +19,7 @@ import type { AgentBubble, AgentBubbleStatus, AgentMapTask } from "./agentMap.lo
 import {
   AGENT_MAP_ACCENTS,
   AGENT_MAP_CATEGORY_ACCENTS,
-  type AgentMapCategory,
+  AGENT_MAP_CATEGORY_ICONS,
 } from "./agentMapColors";
 import { hashedAngle, type PackedCell, type PackedTask } from "./agentMapLayout";
 
@@ -245,35 +245,22 @@ export function AgentCell(props: {
   );
 }
 
-const SHORT_LABELS: Record<AgentMapCategory, string> = {
-  read: "Read",
-  search: "Read",
-  edit: "Edit",
-  shell: "Shell",
-  web: "Web",
-  plan: "Plan",
-  other: "Tool",
-};
-
 function isFolded(task: AgentMapTask): boolean {
   return task.label.startsWith("+");
 }
 
-function taskShortLabel(task: AgentMapTask): string {
-  return isFolded(task) ? (task.label.split(" ")[0] ?? task.label) : SHORT_LABELS[task.category];
-}
-
-/** A small cell clinging to its owner; it buds in once when the work lands. */
+/** A small cell clinging to its owner, showing its category's icon; it buds in once when the work lands. */
 function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) {
   const { task, r } = props.task;
   const accent = AGENT_MAP_CATEGORY_ACCENTS[task.category];
   const duration = task.durationMs > 0 ? ` · ${formatDuration(task.durationMs)}` : "";
+  const Icon = AGENT_MAP_CATEGORY_ICONS[task.category];
   return (
     <CellTooltip
       label={`${task.label}${duration}`}
       trigger={
         <div
-          className="agent-cell-bud absolute flex flex-col items-center justify-center rounded-full border text-center leading-none"
+          className="agent-cell-bud absolute flex items-center justify-center gap-px whitespace-nowrap rounded-full border text-center leading-none"
           style={{
             ...membraneStyle(accent, 0.9),
             ...labelInk(accent),
@@ -285,18 +272,28 @@ function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) 
         />
       }
     >
-      {r >= 12 ? (
+      {r < 12 ? null : isFolded(task) ? (
+        <span className="font-bold" style={{ fontSize: clamp(8, r * 0.6, 10.5) }}>
+          {task.label.split(" ")[0]}
+        </span>
+      ) : (
         <>
-          <span className="font-bold" style={{ fontSize: clamp(8, r * 0.6, 10.5) }}>
-            {taskShortLabel(task)}
-          </span>
-          {task.count > 1 && !isFolded(task) ? (
-            <span className="font-semibold tabular-nums" style={{ fontSize: 7.5 }}>
+          <Icon
+            aria-hidden
+            className="shrink-0"
+            strokeWidth={2.25}
+            style={{
+              width: clamp(10, r * (task.count > 1 ? 0.7 : 0.9), 20),
+              height: clamp(10, r * (task.count > 1 ? 0.7 : 0.9), 20),
+            }}
+          />
+          {task.count > 1 ? (
+            <span className="font-bold tabular-nums" style={{ fontSize: clamp(8, r * 0.5, 13) }}>
               ×{task.count}
             </span>
           ) : null}
         </>
-      ) : null}
+      )}
     </CellTooltip>
   );
 }
