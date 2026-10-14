@@ -323,6 +323,18 @@ const upsertSurface = (
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
 });
 
+/**
+ * Opening a thread's panel with no tabs shows the agents map rather than the empty
+ * launcher. The pull-request page's shared panel only ever holds pull requests.
+ */
+const openWithDefaultSurface = (
+  current: ThreadRightPanelState,
+  threadKey: string,
+): ThreadRightPanelState =>
+  current.surfaces.length === 0 && !isPullRequestsPanelKey(threadKey)
+    ? upsertSurface(current, singletonSurface("agent-map"))
+    : { ...current, isOpen: true };
+
 const updateThreadStateMap = (
   byThreadKey: Record<string, ThreadRightPanelState>,
   threadKey: string,
@@ -962,7 +974,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       show: (ref) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
-            current.isOpen ? current : { ...current, isOpen: true },
+            current.isOpen ? current : openWithDefaultSurface(current, scopedThreadKey(ref)),
           ),
         ),
       close: (ref) =>
@@ -982,10 +994,11 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       toggleVisibility: (ref) =>
         set((state) =>
-          userAction(state, scopedThreadKey(ref), (current) => ({
-            ...current,
-            isOpen: !current.isOpen,
-          })),
+          userAction(state, scopedThreadKey(ref), (current) =>
+            current.isOpen
+              ? { ...current, isOpen: false }
+              : openWithDefaultSurface(current, scopedThreadKey(ref)),
+          ),
         ),
       toggle: (ref, kind) =>
         set((state) =>

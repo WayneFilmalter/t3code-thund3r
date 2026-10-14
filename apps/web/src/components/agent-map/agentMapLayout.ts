@@ -8,6 +8,9 @@
  *
  * Only shape feeds the solver (ids, radii, docking, task counts). Elapsed time and
  * satellites change every second and never trigger a repack; see `createAgentMapPacker`.
+ *
+ * Packing happens in a fixed reference space with the root at the origin. The canvas
+ * scales that space to fit its box and applies zoom, so resizing never repacks.
  */
 import { fnv1a32 } from "~/lib/hash";
 
@@ -29,7 +32,6 @@ const CHILD_ITERATIONS = 120;
 const TASK_ITERATIONS = 70;
 /** Extra room when deciding which cells a mover could ever touch. */
 const REACH_SLACK = 24;
-const FIT_MARGIN = 6;
 const MAX_PULL_STEP = 3;
 
 export function hashedAngle(seed: string): number {
@@ -55,17 +57,25 @@ export interface PackedCell {
 }
 
 export interface AgentMapPacking {
-  readonly width: number;
-  readonly height: number;
-  /** Scale applied to fit; text sizes follow it. */
-  readonly scale: number;
+  /** Distance from the root's centre to the cluster's outermost edge. */
+  readonly extent: number;
   readonly root: PackedCell;
   /** In model order, so React keys and physics bodies stay put. */
   readonly children: ReadonlyArray<PackedCell>;
 }
 
-export function rootRadius(width: number, height: number): number {
-  return Math.min(72, Math.max(44, 0.17 * Math.min(width, height)));
+/** Reference-space root radius; the canvas scales everything to fit. */
+export const ROOT_RADIUS = 64;
+
+/** Scale that fits a packing in a box (grows and shrinks with it), before user zoom. */
+export function fitScale(
+  extent: number,
+  box: { readonly width: number; readonly height: number },
+  margin = 14,
+): number {
+  const available = Math.min(box.width, box.height) / 2 - margin;
+  if (available <= 0 || extent <= 0) return 1;
+  return Math.min(2.4, Math.max(0.3, available / extent));
 }
 
 export function childRadius(tokens: number | null, rootTokens: number | null): number {
@@ -77,7 +87,7 @@ export function childRadius(tokens: number | null, rootTokens: number | null): n
 }
 
 export function taskRadius(count: number): number {
-  return Math.min(16, 10 + 2 * Math.sqrt(Math.max(1, count)));
+  return Math.min(18, 12 + 2 * Math.sqrt(Math.max(1, count)));
 }
 
 function isDocked(bubble: AgentBubble): boolean {
@@ -126,6 +136,9 @@ export function limitVisibleChildren(model: AgentMapModel): AgentMapModel {
     elapsedMs: sum(folded.map((child) => child.elapsedMs)),
     contextFraction: null,
     compacted: false,
+    model: null,
+    detail: `${folded.length} earlier subagents`,
+    lastActivityAtMs: null,
     satellites: [],
     tasks: [],
     children: [],
@@ -338,14 +351,10 @@ function spreadSeats(seats: Seat[]): void {
   }
 }
 
-export function packAgentMap(
-  model: AgentMapModel,
-  size: { readonly width: number; readonly height: number },
-): AgentMapPacking {
-  const { width, height } = size;
-  const cx = width / 2;
-  const cy = height / 2;
-  const rootR = rootRadius(width, height);
+export function packAgentMap(model: AgentMapModel): AgentMapPacking {
+  const cx = 0;
+  const cy = 0;
+  const rootR = ROOT_RADIUS;
   const bodies: Body[] = [{ x: cx, y: cy, pinned: true, r: rootR, owner: -1, reach: 0 }];
 
   const children = model.root.children.map((child) => {
@@ -435,17 +444,10 @@ export function packAgentMap(
   // Phase two: tasks settle around their now fixed owners.
   solve(bodies, TASK_ITERATIONS);
 
-  // Fit: shrink the whole cluster around the root when it would spill out of the canvas.
   let extent = rootR;
   for (const body of bodies)
     extent = Math.max(extent, Math.hypot(body.x - cx, body.y - cy) + body.r);
-  const available = Math.min(width, height) / 2 - FIT_MARGIN;
-  const scale = extent > available ? available / extent : 1;
-  const at = (body: Body) => ({
-    x: cx + (body.x - cx) * scale,
-    y: cy + (body.y - cy) * scale,
-    r: body.r * scale,
-  });
+  const at = (body: Body) => ({ x: body.x, y: body.y, r: body.r });
   const tasksFor = (
     placed: ReadonlyArray<{ task: AgentMapTask; index: number }>,
     owner: Body,
@@ -454,17 +456,15 @@ export function packAgentMap(
       const body = bodies[index]!;
       return {
         task,
-        dx: (body.x - owner.x) * scale,
-        dy: (body.y - owner.y) * scale,
-        r: body.r * scale,
+        dx: body.x - owner.x,
+        dy: body.y - owner.y,
+        r: body.r,
       };
     });
 
   const rootBody = bodies[0]!;
   return {
-    width,
-    height,
-    scale,
+    extent,
     root: {
       id: model.root.id,
       kind: "root",
@@ -508,14 +508,11 @@ function taskKey(tasks: ReadonlyArray<AgentMapTask>): string {
 export function createAgentMapPacker() {
   let lastKey: string | null = null;
   let last: AgentMapPacking | null = null;
-  return (
-    model: AgentMapModel,
-    size: { readonly width: number; readonly height: number },
-  ): AgentMapPacking => {
-    const key = `${size.width}x${size.height}|${agentMapShapeKey(model)}`;
+  return (model: AgentMapModel): AgentMapPacking => {
+    const key = agentMapShapeKey(model);
     if (key !== lastKey || last === null) {
       lastKey = key;
-      last = packAgentMap(model, size);
+      last = packAgentMap(model);
     }
     return last;
   };

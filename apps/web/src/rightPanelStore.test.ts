@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { useClosedViewStore } from "./closedViewStore";
 import {
   migratePersistedRightPanelState,
+  PULL_REQUESTS_PANEL_REF,
   pullRequestSurface,
   pullRequestSurfaceId,
   selectActiveRightPanel,
@@ -917,16 +918,41 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("toggles empty panel visibility without creating a surface", () => {
+  it("opens an empty panel on the agents map and keeps it when hidden", () => {
     useRightPanelStore.getState().toggleVisibility(refA);
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
       isOpen: true,
-      activeSurfaceId: null,
-      surfaces: [],
+      activeSurfaceId: "agent-map",
+      surfaces: [{ id: "agent-map", kind: "agent-map" }],
     });
 
     useRightPanelStore.getState().toggleVisibility(refA);
-    expect(useRightPanelStore.getState().byThreadKey).toEqual({});
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: false,
+      activeSurfaceId: "agent-map",
+      surfaces: [{ id: "agent-map", kind: "agent-map" }],
+    });
+  });
+
+  it("reopens a panel with tabs as it was, without adding the agents map", () => {
+    useRightPanelStore.getState().open(refA, "diff");
+    useRightPanelStore.getState().close(refA);
+    useRightPanelStore.getState().show(refA);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "diff",
+      surfaces: [{ id: "diff", kind: "diff" }],
+    });
+  });
+
+  it("never puts the agents map in the pull-request page's shared panel", () => {
+    useRightPanelStore.getState().show(PULL_REQUESTS_PANEL_REF);
+    expect(
+      selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        PULL_REQUESTS_PANEL_REF,
+      ),
+    ).toEqual({ isOpen: true, activeSurfaceId: null, surfaces: [] });
   });
 
   it("toggle hides the panel without discarding the active surface", () => {

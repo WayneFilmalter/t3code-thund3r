@@ -567,11 +567,12 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
    physics writes translate3d on .agent-cell from JS only while something moves; the float
    and breathe wrappers drift in CSS (a signed-off exception to "no continuous animation",
    kept slow); bud, squish and neck play once. Under reduced motion cells only fade in. */
+/* No will-change here: it pins a layer's raster scale, which would blur cell text after
+   zooming the stage. Running CSS animations and translate3d still composite. */
 .agent-cell {
   position: absolute;
   left: 0;
   top: 0;
-  will-change: transform;
 }
 
 .agent-cell-float-a,
@@ -581,7 +582,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   position: relative;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
-  will-change: transform;
 }
 
 .agent-cell-float-a {
@@ -769,7 +769,6 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   .agent-cell-squish,
   .agent-cell-breathe {
     animation: none;
-    will-change: auto;
   }
   .agent-cell-bud {
     animation: agent-cell-fade-in 300ms ease-out both;

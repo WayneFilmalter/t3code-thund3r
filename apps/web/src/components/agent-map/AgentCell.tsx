@@ -67,7 +67,19 @@ export function membraneStyle(accent: string, energy: number): CSSProperties {
   };
 }
 
-const LABEL_SHADOW = "0 1px 2px rgb(0 0 0 / 0.55)";
+/**
+ * Label ink for a body in this accent. Pale accents (lime, yellow, teal) light up too
+ * bright for white text, so they get dark ink; deeper ones get white with a firm shadow.
+ */
+export function labelInk(accent: string): CSSProperties {
+  const lightness = Number(/oklch\(\s*([\d.]+)/.exec(accent)?.[1] ?? 0.7);
+  return lightness >= 0.82
+    ? { color: "oklch(0.2 0.03 260)", textShadow: "0 1px 1px rgb(255 255 255 / 0.35)" }
+    : {
+        color: "white",
+        textShadow: "0 1px 2px rgb(0 0 0 / 0.75), 0 0 6px rgb(0 0 0 / 0.35)",
+      };
+}
 
 /** Every body breathes on its own slow clock, so a still cluster never looks frozen. */
 function breatheStyle(id: string): CSSProperties {
@@ -132,8 +144,8 @@ export function AgentCell(props: {
   const isRoot = cell.kind === "root";
   const meta = metaLine(bubble);
   const live = !isRoot && !cell.docked;
-  const nameSize = clamp(9, r * (isRoot ? 0.3 : 0.32), 16);
-  const lineSize = clamp(8, r * 0.22, 11);
+  const nameSize = clamp(11, r * (isRoot ? 0.3 : 0.34), 20);
+  const lineSize = clamp(9.5, r * 0.25, 13);
   const tooltip = [bubble.name, bubble.subtitle, meta].filter(Boolean).join(" · ");
 
   return (
@@ -169,13 +181,13 @@ export function AgentCell(props: {
             trigger={
               <div
                 className={cn(
-                  "agent-cell-breathe relative flex size-full flex-col items-center justify-center rounded-full border text-center text-white",
+                  "agent-cell-breathe relative flex size-full flex-col items-center justify-center rounded-full border text-center",
                   bubble.status === "waiting" && "border-dashed",
                 )}
                 style={{
                   ...membraneStyle(accent, ENERGY[bubble.status]),
                   ...breatheStyle(cell.id),
-                  textShadow: LABEL_SHADOW,
+                  ...labelInk(accent),
                 }}
               />
             }
@@ -184,14 +196,14 @@ export function AgentCell(props: {
               <ContextRing r={r} fraction={bubble.contextFraction} compacted={bubble.compacted} />
             ) : null}
             <span
-              className="truncate font-semibold leading-tight"
+              className="truncate font-bold leading-tight"
               style={{ fontSize: nameSize, maxWidth: "85%" }}
             >
               {bubble.name}
             </span>
             {(isRoot || live) && bubble.subtitle ? (
               <span
-                className="truncate leading-tight opacity-75"
+                className="truncate font-medium leading-tight opacity-95"
                 style={{ fontSize: lineSize, maxWidth: "80%" }}
               >
                 {bubble.subtitle}
@@ -199,7 +211,7 @@ export function AgentCell(props: {
             ) : null}
             {meta && (isRoot || !live) ? (
               <span
-                className="truncate leading-tight opacity-60"
+                className="truncate font-medium leading-tight tabular-nums opacity-90"
                 style={{ fontSize: lineSize, maxWidth: "80%" }}
               >
                 {meta}
@@ -261,10 +273,10 @@ function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) 
       label={`${task.label}${duration}`}
       trigger={
         <div
-          className="agent-cell-bud absolute flex flex-col items-center justify-center rounded-full border text-center leading-none text-white"
+          className="agent-cell-bud absolute flex flex-col items-center justify-center rounded-full border text-center leading-none"
           style={{
             ...membraneStyle(accent, 0.9),
-            textShadow: LABEL_SHADOW,
+            ...labelInk(accent),
             left: props.owner + props.task.dx - r,
             top: props.owner + props.task.dy - r,
             width: r * 2,
@@ -275,11 +287,11 @@ function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) 
     >
       {r >= 12 ? (
         <>
-          <span className="font-medium" style={{ fontSize: clamp(6.5, r * 0.5, 8) }}>
+          <span className="font-bold" style={{ fontSize: clamp(8, r * 0.6, 10.5) }}>
             {taskShortLabel(task)}
           </span>
           {task.count > 1 && !isFolded(task) ? (
-            <span className="opacity-70" style={{ fontSize: 6.5 }}>
+            <span className="font-semibold tabular-nums" style={{ fontSize: 7.5 }}>
               ×{task.count}
             </span>
           ) : null}

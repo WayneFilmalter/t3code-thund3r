@@ -14,6 +14,7 @@ import {
   assignChildFeeds,
   deriveAgentMapModel,
   groupTasks,
+  orderAgentFeed,
   snapshotSettledChild,
 } from "./agentMap.logic";
 import { agentName } from "./agentMapNames";
@@ -75,6 +76,7 @@ function run(
     threadId: "thread-1",
     ordinal: 1,
     status,
+    modelSelection: { instanceId: "codex", model: "gpt-5.4" },
     requestedAt: at(0),
     startedAt: at(0),
     completedAt: status === "completed" || status === "failed" ? at(60_000) : null,
@@ -116,7 +118,12 @@ function projection(overrides: {
   threadId?: string;
 }): OrchestrationV2ThreadProjection {
   return {
-    thread: { id: overrides.threadId ?? "thread-1", activeProviderThreadId: "pt-1" },
+    thread: {
+      id: overrides.threadId ?? "thread-1",
+      title: "Thread",
+      activeProviderThreadId: "pt-1",
+      modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+    },
     runs: overrides.runs ?? [run("run-1", "running")],
     subagents: overrides.subagents ?? [],
     providerTurns: overrides.providerTurns ?? [],
@@ -434,6 +441,9 @@ describe("children", () => {
       elapsedMs: 4_000,
       contextFraction: null,
       compacted: false,
+      model: null,
+      detail: null,
+      lastActivityAtMs: null,
       satellites: [],
       tasks: [{ id: "t", label: "Shell ×2", category: "shell", count: 2, durationMs: 10 }],
       children: [],
@@ -483,6 +493,9 @@ describe("assignChildFeeds", () => {
           elapsedMs: null,
           contextFraction: null,
           compacted: false,
+          model: null,
+          detail: null,
+          lastActivityAtMs: null,
           satellites: [],
           tasks: [],
           children: [],
@@ -511,5 +524,67 @@ describe("assignChildFeeds", () => {
     expect(assignChildFeeds({ subagents, settled: new Map(), maxFeeds: 10 }).feeds).toHaveLength(
       10,
     );
+  });
+});
+
+describe("feed", () => {
+  it("names the main agent's model and thread title, and each child's model and task", () => {
+    const base = projection({
+      subagents: [
+        subagent({ id: "titled", model: "gpt-5.4", title: "Explore auth flow" }),
+        subagent({
+          id: "untitled",
+          title: null,
+          prompt: "Read the tests\nthen report",
+          model: null,
+        }),
+      ],
+    });
+    const withRun = {
+      ...base,
+      thread: {
+        ...base.thread,
+        title: "Fix login",
+        modelSelection: { instanceId: "claude", model: "fallback" },
+      },
+      runs: [
+        { ...base.runs[0]!, modelSelection: { instanceId: "claude", model: "claude-opus-5-5" } },
+      ],
+    } as never as OrchestrationV2ThreadProjection;
+    const model = derive({ projection: withRun })!;
+    expect(model.root).toMatchObject({ model: "claude-opus-5-5", detail: "Fix login" });
+    const [titled, untitled] = model.root.children;
+    expect(titled).toMatchObject({ model: "gpt-5.4", detail: "Explore auth flow" });
+    expect(untitled).toMatchObject({ model: null, detail: "Read the tests" });
+  });
+
+  it("lists the main agent, then working subagents, then finished ones, newest first", () => {
+    const model = derive({
+      projection: projection({
+        subagents: [
+          subagent({
+            id: "done-old",
+            status: "completed",
+            updatedAt: at(1_000),
+            completedAt: at(1_000),
+          }),
+          subagent({ id: "live-old", updatedAt: at(2_000) }),
+          subagent({
+            id: "done-new",
+            status: "completed",
+            updatedAt: at(5_000),
+            completedAt: at(5_000),
+          }),
+          subagent({ id: "live-new", updatedAt: at(4_000) }),
+        ],
+      }),
+    })!;
+    expect(orderAgentFeed(model).map((bubble) => bubble.id)).toEqual([
+      "thread-1",
+      "live-new",
+      "live-old",
+      "done-new",
+      "done-old",
+    ]);
   });
 });

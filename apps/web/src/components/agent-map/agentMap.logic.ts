@@ -63,6 +63,12 @@ export interface AgentBubble {
   readonly contextFraction: number | null;
   /** Main bubble only: the latest event was a compaction, so the ring shows ↻. */
   readonly compacted: boolean;
+  /** Model the agent runs on, as the provider reports it. */
+  readonly model: string | null;
+  /** What the agent was asked to do, untruncated, for the feed. */
+  readonly detail: string | null;
+  /** Last time anything about this agent changed; the feed sorts by it. */
+  readonly lastActivityAtMs: number | null;
   readonly satellites: ReadonlyArray<AgentMapSatellite>;
   readonly tasks: ReadonlyArray<AgentMapTask>;
   readonly children: ReadonlyArray<AgentBubble>;
@@ -129,6 +135,10 @@ interface BubbleSkeleton {
   readonly tokens: number | null;
   readonly contextFraction: number | null;
   readonly compacted: boolean;
+  /** Model the agent runs on, as the provider reports it. */
+  readonly model: string | null;
+  /** What the agent was asked to do, untruncated, for the feed. */
+  readonly detail: string | null;
   /** Elapsed time that no longer moves, plus the moment the live part started. */
   readonly settledElapsedMs: number | null;
   readonly liveSinceMs: number | null;
@@ -406,6 +416,17 @@ function isRunSettled(run: OrchestrationV2Run): boolean {
   return !ACTIVE_RUN_STATUSES.has(run.status) && run.status !== "queued";
 }
 
+function childIdentity(subagent: OrchestrationV2Subagent): {
+  model: string | null;
+  detail: string | null;
+} {
+  const prompt = subagent.prompt.trim().split("\n")[0]?.trim() ?? "";
+  return {
+    model: subagent.model ?? subagent.modelSelection?.model ?? null,
+    detail: subagent.title ?? (prompt.length > 0 ? prompt : null),
+  };
+}
+
 /** A finished child is named by what it was asked to do; its tasks show as cells. */
 function settledChildSubtitle(subagent: OrchestrationV2Subagent, failed: boolean): string {
   if (failed) return "Failed";
@@ -430,6 +451,7 @@ function deriveChildFromFeed(
     tokens: feed.projection ? deriveThreadTokens(feed.projection) : null,
     contextFraction: null,
     compacted: false,
+    ...childIdentity(subagent),
     settledElapsedMs: live ? null : childElapsed(subagent),
     liveSinceMs: live ? ms(subagent.startedAt) : null,
     lastActivityAtMs: lastActivityAt(items, ms(subagent.updatedAt)),
@@ -458,6 +480,7 @@ function deriveChildFromSnapshot(
     tokens: snapshot.tokens,
     contextFraction: null,
     compacted: false,
+    ...childIdentity(subagent),
     settledElapsedMs: snapshot.elapsedMs ?? childElapsed(subagent),
     liveSinceMs: null,
     lastActivityAtMs: ms(subagent.updatedAt),
@@ -481,6 +504,7 @@ function deriveChildFromRecord(subagent: OrchestrationV2Subagent): BubbleSkeleto
     tokens: null,
     contextFraction: null,
     compacted: false,
+    ...childIdentity(subagent),
     settledElapsedMs: live ? null : childElapsed(subagent),
     liveSinceMs: live ? ms(subagent.startedAt) : null,
     lastActivityAtMs: ms(subagent.updatedAt),
@@ -562,6 +586,9 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
       id: projection.thread.id,
       name: agentName(projection.thread.id),
       kind: "main",
+      model:
+        (activeRun ?? latestRun)?.modelSelection.model ?? projection.thread.modelSelection.model,
+      detail: projection.thread.title,
       status,
       subtitle: deriveSubtitle(status, live ? activeItems : allItems, projection.runs.length),
       tokens: deriveThreadTokens(projection),
@@ -623,6 +650,9 @@ function resolveBubble(skeleton: BubbleSkeleton, nowMs: number): AgentBubble {
     elapsedMs,
     contextFraction: skeleton.contextFraction,
     compacted: skeleton.compacted,
+    model: skeleton.model,
+    detail: skeleton.detail,
+    lastActivityAtMs: skeleton.lastActivityAtMs,
     satellites,
     tasks: skeleton.tasks,
     children: skeleton.children.map((child) => resolveBubble(child, nowMs)),
@@ -690,3 +720,31 @@ export function assignChildFeeds(input: {
   }
   return { feeds, toLoad };
 }
+
+const FEED_LIVE = new Set<AgentBubbleStatus>(["tool", "thinking", "waiting", "idle", "stalled"]);
+
+/**
+ * The feed under the map: the main agent first, then subagents still working (most
+ * recently active first), then finished ones (most recently finished first).
+ */
+export function orderAgentFeed(model: AgentMapModel): AgentBubble[] {
+  const recency = (bubble: AgentBubble) => bubble.lastActivityAtMs ?? 0;
+  const children = [...model.root.children].sort((left, right) => {
+    const leftLive = FEED_LIVE.has(left.status) ? 0 : 1;
+    const rightLive = FEED_LIVE.has(right.status) ? 0 : 1;
+    return (
+      leftLive - rightLive || recency(right) - recency(left) || left.id.localeCompare(right.id)
+    );
+  });
+  return [model.root, ...children];
+}
+
+export const AGENT_STATUS_LABELS: Record<AgentBubbleStatus, string> = {
+  tool: "Working",
+  thinking: "Thinking",
+  waiting: "Needs you",
+  idle: "Idle",
+  stalled: "Stalled",
+  done: "Done",
+  failed: "Failed",
+};

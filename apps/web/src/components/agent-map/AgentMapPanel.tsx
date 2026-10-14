@@ -27,6 +27,7 @@ import {
 } from "./agentMap.logic";
 import { createAgentMapPacker, limitVisibleChildren } from "./agentMapLayout";
 import { AgentMapCanvas } from "./AgentMapCanvas";
+import { AgentActivityFeed } from "./AgentActivityFeed";
 import { AgentMapLegend } from "./AgentMapLegend";
 
 export const AGENT_MAP_MAX_CHILD_FEEDS = 10;
@@ -154,9 +155,7 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
   const [packer] = useState(createAgentMapPacker);
   const { measure, width, height } = useElementSize();
   const packing =
-    visibleModel === null || width === 0 || height === 0
-      ? null
-      : packer(visibleModel, { width, height });
+    visibleModel === null || width === 0 || height === 0 ? null : packer(visibleModel);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -176,13 +175,19 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
               Start a turn to see agents here.
             </div>
           ) : packing === null ? null : (
-            <AgentMapCanvas model={visibleModel} packing={packing} animated={animated} />
+            <AgentMapCanvas
+              model={visibleModel}
+              packing={packing}
+              animated={animated}
+              width={width}
+              height={height}
+            />
           )}
         </div>
         <AgentMapLegend />
       </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center border-t border-border text-xs text-muted-foreground">
-        Coming soon
+      <div className="flex min-h-0 flex-1 flex-col border-t border-border">
+        {model === null ? null : <AgentActivityFeed model={model} />}
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import type { AgentBubble, AgentMapModel, AgentMapTask } from "./agentMap.logic";
 import {
   createAgentMapPacker,
+  fitScale,
   foldTasks,
   limitVisibleChildren,
   LIVE_TETHER_GAP,
@@ -22,6 +23,9 @@ function bubble(overrides: Partial<AgentBubble> & { id: string }): AgentBubble {
     elapsedMs: null,
     contextFraction: null,
     compacted: false,
+    model: null,
+    detail: null,
+    lastActivityAtMs: null,
     satellites: [],
     tasks: [],
     children: [],
@@ -56,8 +60,6 @@ function model(
     }),
   };
 }
-
-const SIZE = { width: 600, height: 520 };
 
 /** Every circle in absolute coordinates, tagged with its owner. */
 function circles(packing: AgentMapPacking) {
@@ -96,7 +98,7 @@ function crowded(): AgentMapModel {
 
 describe("packAgentMap", () => {
   it("never lets two cells overlap by more than a pixel", () => {
-    const all = circles(packAgentMap(crowded(), SIZE));
+    const all = circles(packAgentMap(crowded()));
     for (let left = 0; left < all.length; left += 1) {
       for (let right = left + 1; right < all.length; right += 1) {
         const a = all[left]!;
@@ -107,7 +109,7 @@ describe("packAgentMap", () => {
   });
 
   it("hugs tasks to their owner and leaves no cell floating alone", () => {
-    const packing = packAgentMap(crowded(), SIZE);
+    const packing = packAgentMap(crowded());
     const all = circles(packing);
     const byId = new Map(all.map((circle) => [circle.id, circle]));
     const gap = (a: (typeof all)[number], b: (typeof all)[number]) =>
@@ -129,17 +131,17 @@ describe("packAgentMap", () => {
   });
 
   it("holds live children out on a tether", () => {
-    const packing = packAgentMap(model([bubble({ id: "live", status: "tool" })], [], true), SIZE);
+    const packing = packAgentMap(model([bubble({ id: "live", status: "tool" })], [], true));
     const child = packing.children[0]!;
     const gap =
       Math.hypot(child.x - packing.root.x, child.y - packing.root.y) - child.r - packing.root.r;
-    expect(gap).toBeCloseTo(LIVE_TETHER_GAP * packing.scale, 0);
+    expect(gap).toBeCloseTo(LIVE_TETHER_GAP, 0);
     expect(child.docked).toBe(false);
   });
 
   it("is deterministic and keeps model order", () => {
-    const first = packAgentMap(crowded(), SIZE);
-    expect(packAgentMap(crowded(), SIZE)).toEqual(first);
+    const first = packAgentMap(crowded());
+    expect(packAgentMap(crowded())).toEqual(first);
     expect(first.children.map((cell) => cell.id)).toEqual(
       crowded().root.children.map((child) => child.id),
     );
@@ -148,11 +150,9 @@ describe("packAgentMap", () => {
   it("barely moves existing cells when a child joins", () => {
     const before = packAgentMap(
       model([bubble({ id: "a" }), bubble({ id: "b" }), bubble({ id: "c" })]),
-      SIZE,
     );
     const after = packAgentMap(
       model([bubble({ id: "a" }), bubble({ id: "b" }), bubble({ id: "c" }), bubble({ id: "d" })]),
-      SIZE,
     );
     for (const cell of before.children) {
       const moved = after.children.find((candidate) => candidate.id === cell.id)!;
@@ -160,16 +160,15 @@ describe("packAgentMap", () => {
     }
   });
 
-  it("shrinks to fit a small canvas", () => {
-    const small = { width: 240, height: 200 };
-    const packing = packAgentMap(crowded(), small);
-    expect(packing.scale).toBeLessThan(1);
-    for (const circle of circles(packing)) {
-      expect(circle.x - circle.r).toBeGreaterThanOrEqual(-0.5);
-      expect(circle.x + circle.r).toBeLessThanOrEqual(small.width + 0.5);
-      expect(circle.y - circle.r).toBeGreaterThanOrEqual(-0.5);
-      expect(circle.y + circle.r).toBeLessThanOrEqual(small.height + 0.5);
-    }
+  it("scales the cluster to fit its box, growing and shrinking with it", () => {
+    const packing = packAgentMap(crowded());
+    const small = fitScale(packing.extent, { width: 240, height: 200 });
+    const large = fitScale(packing.extent, { width: 1200, height: 1000 });
+    expect(small).toBeLessThan(1);
+    expect(large).toBeGreaterThan(small);
+    // The scaled cluster stays inside the smaller side of the box.
+    expect(packing.extent * small).toBeLessThanOrEqual(100);
+    expect(fitScale(10, { width: 4000, height: 4000 })).toBe(2.4);
   });
 });
 
@@ -182,9 +181,9 @@ describe("foldTasks and the packer cache", () => {
 
   it("returns the same packing until the shape changes", () => {
     const pack = createAgentMapPacker();
-    const first = pack(model([bubble({ id: "a", elapsedMs: 1 })]), SIZE);
-    expect(pack(model([bubble({ id: "a", elapsedMs: 2_000 })]), SIZE)).toBe(first);
-    expect(pack(model([bubble({ id: "a", status: "tool" })], [], true), SIZE)).not.toBe(first);
+    const first = pack(model([bubble({ id: "a", elapsedMs: 1 })]));
+    expect(pack(model([bubble({ id: "a", elapsedMs: 2_000 })]))).toBe(first);
+    expect(pack(model([bubble({ id: "a", status: "tool" })], [], true))).not.toBe(first);
   });
 });
 
@@ -205,9 +204,7 @@ describe("limitVisibleChildren", () => {
     const children = Array.from({ length: 60 }, (_, index) =>
       bubble({ id: `c${index}`, tokens: 50 * index, tasks: tasks(`c${index}`, 8) }),
     );
-    const all = circles(
-      packAgentMap(limitVisibleChildren(model(children, tasks("root", 24))), SIZE),
-    );
+    const all = circles(packAgentMap(limitVisibleChildren(model(children, tasks("root", 24)))));
     for (let left = 0; left < all.length; left += 1) {
       for (let right = left + 1; right < all.length; right += 1) {
         const a = all[left]!;
