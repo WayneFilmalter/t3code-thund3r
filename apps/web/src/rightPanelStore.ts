@@ -32,6 +32,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-requests",
   "workflows",
   "agent-map",
+  "linear",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -89,6 +90,8 @@ export type RightPanelSurface =
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
   | { id: "workflows"; kind: "workflows" }
+  /** A Linear team's issues by status, read through the server's Linear MCP client. */
+  | { id: "linear"; kind: "linear" }
   /** The thread drawn as a bubble map of its agent and subagents. */
   | { id: "agent-map"; kind: "agent-map" };
 
@@ -242,6 +245,8 @@ const singletonSurface = (
       return { id: "device", kind };
     case "workflows":
       return { id: "workflows", kind };
+    case "linear":
+      return { id: "linear", kind };
     case "agent-map":
       return { id: "agent-map", kind };
   }

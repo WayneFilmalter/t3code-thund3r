@@ -118,6 +118,7 @@ import {
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { LinearSettings } from "./LinearSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
 import type { ImportOutcome } from "./browserImportWizard.logic";
@@ -1546,7 +1547,25 @@ export function IntegrationsSettingsPanel() {
           previewDefaults
         )}
       </SettingsSection>
+      <LinearIntegrationSettings />
       <DeviceIntegrationSettings />
     </SettingsPageContainer>
+  );
+}
+
+/** Server-scoped, so it follows the primary environment like the GitHub token does. */
+function LinearIntegrationSettings() {
+  const primaryEnvironment = usePrimaryEnvironment();
+  return (
+    <SettingsSection {...searchableSetting("linear")}>
+      {primaryEnvironment == null ? (
+        <p className="text-xs text-muted-foreground">Connect to an environment to set up Linear.</p>
+      ) : (
+        <LinearSettings
+          key={primaryEnvironment.environmentId}
+          environmentId={primaryEnvironment.environmentId}
+        />
+      )}
+    </SettingsSection>
   );
 }

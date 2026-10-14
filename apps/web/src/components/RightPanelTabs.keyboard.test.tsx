@@ -86,6 +86,7 @@ async function renderPanel(overrides: Partial<ComponentProps<typeof RightPanelTa
         onAddDevice={noop}
         onAddWorkflows={noop}
         onAddAgentMap={noop}
+        onAddLinear={noop}
         browserAvailable={false}
         terminalAvailable={false}
         diffAvailable={false}
@@ -95,6 +96,7 @@ async function renderPanel(overrides: Partial<ComponentProps<typeof RightPanelTa
         deviceAvailable={false}
         workflowsAvailable={false}
         agentMapAvailable={false}
+        linearAvailable={false}
         {...overrides}
       >
         content

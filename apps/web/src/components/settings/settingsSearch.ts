@@ -726,6 +726,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["xcode android studio sdk avd runtime"],
   },
   {
+    id: "linear",
+    title: "Linear",
+    to: "/settings/integrations",
+    searchTerms: ["linear issues tickets api key team key mcp right panel"],
+  },
+  {
     id: "browser-profiles",
     title: "Browser profiles",
     to: "/settings/integrations",

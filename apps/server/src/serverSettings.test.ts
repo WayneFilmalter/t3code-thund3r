@@ -1852,6 +1852,37 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
+  it.effect("keeps the Linear API key in the secret store and redacts it for clients", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* ServerSecretStore.ServerSecretStore;
+      const saved = yield* service.updateSettings({
+        linear: { apiKey: "lin_api_secret", teamKey: "KRW" },
+      });
+      assert.equal(saved.linear.apiKey, "lin_api_secret");
+      assert.equal(saved.linear.teamKey, "KRW");
+      assert.isTrue(Option.isSome(yield* store.get("linear-api-key")));
+      assert.notInclude(yield* fs.readFileString(config.settingsPath), "lin_api_secret");
+
+      const client = ServerSettingsModule.redactServerSettingsForClient(saved);
+      assert.notInclude(JSON.stringify(client), "lin_api_secret");
+      assert.isAbove(client.linear.apiKey.length, 0);
+
+      // Echoing the marker keeps the key; a team-only patch leaves it alone too.
+      const echoed = yield* service.updateSettings({ linear: { apiKey: client.linear.apiKey } });
+      assert.equal(echoed.linear.apiKey, "lin_api_secret");
+      const teamOnly = yield* service.updateSettings({ linear: { teamKey: "ENG" } });
+      assert.equal(teamOnly.linear.apiKey, "lin_api_secret");
+      assert.equal(teamOnly.linear.teamKey, "ENG");
+
+      const removed = yield* service.updateSettings({ linear: { apiKey: "" } });
+      assert.equal(removed.linear.apiKey, "");
+      assert.isTrue(Option.isNone(yield* store.get("linear-api-key")));
+    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
   it.effect("materializes provider secrets for terminal environment resolution", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;

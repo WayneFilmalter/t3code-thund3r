@@ -33,6 +33,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  ListTodo,
   Orbit,
   Plus,
   TerminalSquare,
@@ -147,6 +148,7 @@ interface RightPanelTabsProps {
   onAddDevice: () => void;
   onAddWorkflows: () => void;
   onAddAgentMap: () => void;
+  onAddLinear: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -156,6 +158,7 @@ interface RightPanelTabsProps {
   deviceAvailable: boolean;
   workflowsAvailable: boolean;
   agentMapAvailable: boolean;
+  linearAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -186,6 +189,7 @@ const SURFACE_DISABLED_REASONS = {
   device: "Devices are only available from a thread.",
   workflows: "Workflows are only available from a project thread.",
   agentMap: "The agent map is only available from a thread.",
+  linear: "Linear is only available from a thread.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -211,6 +215,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   device: "Available from a thread.",
   workflows: "Available from a project thread.",
   agentMap: "Available from a thread.",
+  linear: "Available from a thread.",
 } as const;
 
 type TabContextMenuAction =
@@ -353,6 +358,7 @@ function RightPanelEmptyState(props: {
   onAddDevice: () => void;
   onAddWorkflows: () => void;
   onAddAgentMap: () => void;
+  onAddLinear: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -362,6 +368,7 @@ function RightPanelEmptyState(props: {
   deviceAvailable: boolean;
   workflowsAvailable: boolean;
   agentMapAvailable: boolean;
+  linearAvailable: boolean;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -439,6 +446,14 @@ function RightPanelEmptyState(props: {
       available: props.agentMapAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.agentMap,
       onClick: props.onAddAgentMap,
+    },
+    {
+      label: "Linear",
+      icon: ListTodo,
+      shortcut: "I",
+      available: props.linearAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.linear,
+      onClick: props.onAddLinear,
     },
   ] as const;
 
@@ -633,6 +648,8 @@ function surfaceTitle(
   switch (surface.kind) {
     case "workflows":
       return "Workflows";
+    case "linear":
+      return "Linear";
     case "agent-map":
       return "Agents";
     case "diff":
@@ -712,6 +729,8 @@ function SurfaceIcon({
     }
     case "workflows":
       return <Workflow className="size-3 shrink-0" />;
+    case "linear":
+      return <ListTodo className="size-3 shrink-0" />;
     case "agent-map":
       return <Orbit className="size-3 shrink-0" />;
     case "diff":
@@ -1044,6 +1063,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.agentMapAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.agentMap,
       onClick: props.onAddAgentMap,
+    },
+    {
+      label: "Linear",
+      icon: ListTodo,
+      shortcut: "I",
+      available: props.linearAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.linear,
+      onClick: props.onAddLinear,
     },
   ] as const;
 
@@ -1539,6 +1566,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddDevice={props.onAddDevice}
             onAddWorkflows={props.onAddWorkflows}
             onAddAgentMap={props.onAddAgentMap}
+            onAddLinear={props.onAddLinear}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1548,6 +1576,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             deviceAvailable={props.deviceAvailable}
             workflowsAvailable={props.workflowsAvailable}
             agentMapAvailable={props.agentMapAvailable}
+            linearAvailable={props.linearAvailable}
           />
         ) : (
           props.children

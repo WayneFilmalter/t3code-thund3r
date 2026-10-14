@@ -826,6 +826,17 @@ export const UsageLimitSourceConfig = Schema.Struct({
 });
 export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
 
+/**
+ * Linear access for the right panel's Linear tab. The key is a Linear personal
+ * API key sent as a bearer token to Linear's hosted MCP server; it is redacted
+ * before reaching a client. The team key picks which team's issues to list.
+ */
+export const LinearSettings = Schema.Struct({
+  apiKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  teamKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+});
+export type LinearSettings = typeof LinearSettings.Type;
+
 /** A GitHub host name, lowercased on decode so `GitHub.com` and `github.com` are one entry. */
 export const GitHubHost = TrimmedNonEmptyString.pipe(
   Schema.decodeTo(Schema.String, SchemaTransformation.toLowerCase()),
@@ -1327,6 +1338,9 @@ export const ServerSettings = Schema.Struct({
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
   ),
+  linear: LinearSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(LinearSettings)({}))),
+  ),
   /** Allows this server to read the Cursor CLI's macOS Keychain login for account usage. */
   cursorKeychainUsageEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
@@ -1631,6 +1645,13 @@ export const ServerSettingsPatch = Schema.Struct({
   // echoed back yet. `null` removes; the server merges into its current map.
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
+  ),
+  /** Either field alone; an empty `apiKey` removes the stored key. */
+  linear: Schema.optionalKey(
+    Schema.Struct({
+      apiKey: Schema.optionalKey(TrimmedString),
+      teamKey: Schema.optionalKey(TrimmedString),
+    }),
   ),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),
   /** Each entry replaces one model's rates; `null` restores automatic pricing. */
