@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { useClosedViewStore } from "./closedViewStore";
 import {
+  mergePersistedRightPanelState,
   migratePersistedRightPanelState,
   PULL_REQUESTS_PANEL_REF,
   pullRequestSurface,
@@ -24,6 +25,7 @@ beforeEach(() => {
   useClosedViewStore.setState({ entries: [] });
   useRightPanelStore.setState({
     byThreadKey: {},
+    panelOpen: false,
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
@@ -868,10 +870,11 @@ describe("rightPanelStore", () => {
 
     useRightPanelStore.getState().openFile(refB, "conductor.json");
     useRightPanelStore.getState().reconcileFileSurfaces(refB, false);
+    // Cleanup never closes the shared panel; the emptied thread falls back to the agents map.
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
-      isOpen: false,
-      activeSurfaceId: null,
-      surfaces: [],
+      isOpen: true,
+      activeSurfaceId: "agent-map",
+      surfaces: [{ id: "agent-map", kind: "agent-map" }],
     });
   });
 
@@ -932,6 +935,70 @@ describe("rightPanelStore", () => {
       activeSurfaceId: "agent-map",
       surfaces: [{ id: "agent-map", kind: "agent-map" }],
     });
+  });
+
+  it("shares open and closed across threads while each keeps its own tabs", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    // Switching to another thread finds the panel still open, on that thread's own tabs.
+    store.ensureOpenThreadSurface(refB);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "agent-map",
+      surfaces: [{ id: "agent-map", kind: "agent-map" }],
+    });
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+
+    // Closing it from either thread closes it for both, and reopening restores each one's tabs.
+    useRightPanelStore.getState().toggleVisibility(refB);
+    expect(useRightPanelStore.getState().panelOpen).toBe(false);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
+    useRightPanelStore.getState().ensureOpenThreadSurface(refA);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
+    useRightPanelStore.getState().toggleVisibility(refA);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refB)).toBe(
+      "agent-map",
+    );
+  });
+
+  it("derives the shared open state from older saves and aligns every thread to it", () => {
+    const diff = { id: "diff" as const, kind: "diff" as const };
+    const merged = mergePersistedRightPanelState(
+      {
+        byThreadKey: {
+          "env-1:thread-A": { isOpen: false, activeSurfaceId: "diff", surfaces: [diff] },
+          "env-1:thread-B": { isOpen: true, activeSurfaceId: "diff", surfaces: [diff] },
+        },
+      },
+      useRightPanelStore.getState(),
+    );
+    expect(merged.panelOpen).toBe(true);
+    expect(merged.byThreadKey["env-1:thread-A"]?.isOpen).toBe(true);
+
+    const closed = mergePersistedRightPanelState(
+      {
+        panelOpen: false,
+        byThreadKey: {
+          "env-1:thread-B": { isOpen: true, activeSurfaceId: "diff", surfaces: [diff] },
+        },
+      },
+      useRightPanelStore.getState(),
+    );
+    expect(closed.byThreadKey["env-1:thread-B"]?.isOpen).toBe(false);
+  });
+
+  it("leaves the pull-request page's panel out of the shared open state", () => {
+    useRightPanelStore.getState().show(PULL_REQUESTS_PANEL_REF);
+    expect(useRightPanelStore.getState().panelOpen).toBe(false);
+    useRightPanelStore.getState().open(refA, "diff");
+    useRightPanelStore.getState().close(refA);
+    expect(
+      selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        PULL_REQUESTS_PANEL_REF,
+      ).isOpen,
+    ).toBe(true);
   });
 
   it("reopens a panel with tabs as it was, without adding the agents map", () => {

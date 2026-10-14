@@ -131,6 +131,12 @@ export interface ThreadPanelVisibility {
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
   /**
+   * Whether thread panels are open. Shared by every thread so switching threads or
+   * pane focus never opens or closes the panel; each thread keeps its own tabs.
+   * Every thread entry's `isOpen` mirrors it. The pull-request page's panel is separate.
+   */
+  panelOpen: boolean;
+  /**
    * A thread whose right panel should open maximized the next time it shows,
    * such as one started for a link the OS opened. Its view consumes it once.
    */
@@ -207,6 +213,8 @@ interface RightPanelStoreState {
   ) => void;
   toggleThreadPanel: (ref: ScopedThreadRef, presentation: ThreadPanelPresentation) => void;
   removeThread: (ref: ScopedThreadRef) => void;
+  /** Gives a thread seen in the open panel for the first time the agents map, not an empty panel. */
+  ensureOpenThreadSurface: (ref: ScopedThreadRef) => void;
 }
 
 const EMPTY_THREAD_STATE: ThreadRightPanelState = {
@@ -374,7 +382,7 @@ const updateThreadPanelVisibilityMap = (
 
 type RightPanelStoreData = Pick<
   RightPanelStoreState,
-  "byThreadKey" | "threadPanelVisibilityByThreadKey"
+  "byThreadKey" | "threadPanelVisibilityByThreadKey" | "panelOpen"
 >;
 
 /**
@@ -387,9 +395,15 @@ const updateThread = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): RightPanelStoreData => {
-  const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
-  const byThreadKey = updateThreadStateMap(state.byThreadKey, threadKey, updater);
+  const shared = !isPullRequestsPanelKey(threadKey);
+  const stored = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+  // Thread panels decide on the shared open state, whatever this thread last stored.
+  const current =
+    shared && stored.isOpen !== state.panelOpen ? { ...stored, isOpen: state.panelOpen } : stored;
+  let byThreadKey = updateThreadStateMap(state.byThreadKey, threadKey, () => updater(current));
   const next = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+  const panelOpen = shared ? next.isOpen : state.panelOpen;
+  if (panelOpen !== state.panelOpen) byThreadKey = withSharedOpen(byThreadKey, panelOpen);
   let threadPanelVisibilityByThreadKey = state.threadPanelVisibilityByThreadKey;
 
   if (!current.isOpen && next.isOpen) {
@@ -409,7 +423,25 @@ const updateThread = (
     );
   }
 
-  return { byThreadKey, threadPanelVisibilityByThreadKey };
+  return { byThreadKey, threadPanelVisibilityByThreadKey, panelOpen };
+};
+
+/** Copies the shared open state onto every thread entry, leaving the pull-request panel alone. */
+const withSharedOpen = (
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  panelOpen: boolean,
+): Record<string, ThreadRightPanelState> => {
+  let changed = false;
+  const next: Record<string, ThreadRightPanelState> = {};
+  for (const [threadKey, threadState] of Object.entries(byThreadKey)) {
+    if (isPullRequestsPanelKey(threadKey) || threadState.isOpen === panelOpen) {
+      next[threadKey] = threadState;
+      continue;
+    }
+    changed = true;
+    next[threadKey] = { ...threadState, isOpen: panelOpen };
+  }
+  return changed ? next : byThreadKey;
 };
 
 // Every store action is a user choice unless it goes through `automaticUpdate`.
@@ -420,7 +452,15 @@ const automaticUpdate = (
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Partial<RightPanelStoreState> => ({
-  ...updateThread(state, threadKey, updater),
+  ...updateThread(state, threadKey, (current) => {
+    const next = updater(current);
+    if (!current.isOpen || next.isOpen || isPullRequestsPanelKey(threadKey)) return next;
+    // Automatic changes may open the shared panel but never close it; a thread they
+    // empty falls back to the agents map.
+    return next.surfaces.length > 0
+      ? { ...next, isOpen: true }
+      : upsertSurface(next, singletonSurface("agent-map"));
+  }),
 });
 
 const userAction = (
@@ -470,6 +510,25 @@ const closeAction = (
 function normalizeRevealLine(line: number | undefined): number | null {
   if (line === undefined || !Number.isFinite(line)) return null;
   return Math.max(1, Math.trunc(line));
+}
+
+/**
+ * Merges saved panel state into the store. Saves from before the shared open flag
+ * derive it from any open thread; every entry is then aligned to it.
+ */
+export function mergePersistedRightPanelState<State extends RightPanelStoreState>(
+  persisted: unknown,
+  current: State,
+): State {
+  const saved = (persisted ?? {}) as Partial<RightPanelStoreState>;
+  const byThreadKey = saved.byThreadKey ?? current.byThreadKey;
+  const panelOpen =
+    typeof saved.panelOpen === "boolean"
+      ? saved.panelOpen
+      : Object.entries(byThreadKey).some(
+          ([threadKey, threadState]) => !isPullRequestsPanelKey(threadKey) && threadState.isOpen,
+        );
+  return { ...current, ...saved, panelOpen, byThreadKey: withSharedOpen(byThreadKey, panelOpen) };
 }
 
 export function migratePersistedRightPanelState(persistedState: unknown): {
@@ -612,6 +671,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      panelOpen: false,
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -1038,6 +1098,15 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : { ...visibility, popoverOpen: !visibility.popoverOpen },
           ),
         })),
+      ensureOpenThreadSurface: (ref) =>
+        set((state) => {
+          const threadKey = scopedThreadKey(ref);
+          if (!state.panelOpen || isPullRequestsPanelKey(threadKey)) return state;
+          if ((state.byThreadKey[threadKey]?.surfaces.length ?? 0) > 0) return state;
+          return automaticUpdate(state, threadKey, (current) =>
+            upsertSurface(current, singletonSurface("agent-map")),
+          );
+        }),
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -1071,6 +1140,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
       ),
       partialize: (state) => ({
+        panelOpen: state.panelOpen,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey)
             .filter(([threadKey]) => !isPullRequestsPanelKey(threadKey))
@@ -1089,6 +1159,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         ),
       }),
       migrate: migratePersistedRightPanelState,
+      merge: mergePersistedRightPanelState,
     },
   ),
 );
