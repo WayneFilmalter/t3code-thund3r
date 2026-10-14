@@ -42,14 +42,15 @@ in Settings.
 ## Split panes
 
 On web and desktop, `mod+shift+o` splits the chat area to the right and
-`mod+shift+e` splits it down, so several threads run side by side. A new pane
-starts on the thread you split from and becomes the focused pane; clicking
+`mod+shift+e` splits it down, so several threads run side by side. The new pane
+opens a new thread in the same project and becomes the focused pane; clicking
 into a pane focuses it. Opening a thread — from the sidebar, `mod+1`–`mod+9`,
 the command palette, or a new thread with `mod+n` — replaces the focused
 pane's thread, and opening a thread already shown in another pane focuses
-that pane instead. `mod+alt+w` closes the focused pane. All three commands
-are also in the command palette and configurable under **Pane** in
-**Settings → Keybindings**.
+that pane instead. `ctrl+shift` plus an arrow key (Control on every platform)
+moves to the pane on that side, and `mod+w` closes the focused pane. Splitting and closing are also
+in the command palette, and all pane shortcuts are configurable under
+**Navigation** in **Settings → Keybindings**.
 
 ## Copy pull request references
 
@@ -117,7 +118,8 @@ Join modifiers and a key with `+`, such as `mod+shift+d` or `ctrl+l`.
 
 Available context keys are `terminalFocus`, `terminalOpen`, `previewFocus`,
 `previewOpen`, `modelPickerOpen`, `usagePageOpen`, `composerFocus`, `composerDraft`,
-`turnRunning`, `editableFocus`, `isWeb`, and `isDesktop`.
+`turnRunning`, `editableFocus`, `paneSplit`, `isWeb`, and `isDesktop`.
+`paneSplit` is true while the chat area is split into panes.
 `editableFocus` is true while a text field, the composer, or another editor has
 the keyboard. `isWeb` is true in a browser tab. `isDesktop` is true in the
 desktop app. Unknown keys evaluate to `false`.
@@ -171,7 +173,8 @@ through the pages you have visited, like a browser's back and forward buttons.
 ## Reserved shortcuts
 
 In the desktop app, `mod+w` closes the focused terminal or the active right-panel
-tab. When nothing remains to close, it closes the window. In a browser, `mod+w`
+tab. While the chat is split, it closes the focused pane instead. When nothing
+remains to close, it closes the window. In a browser, `mod+w`
 closes the browser tab; rebind `rightPanel.close` and `terminal.close` to an available
 shortcut such as `alt+w`.
 

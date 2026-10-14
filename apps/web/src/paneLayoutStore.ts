@@ -101,10 +101,9 @@ export interface PaneLayoutStore {
   focusedPaneId: PaneId;
   paneTargets: PaneTargets;
   /**
-   * Splits the focused pane, duplicating `currentTarget` (the URL's target,
-   * which is what the focused pane shows) into both halves, and focuses the
-   * new pane. Duplicating keeps the URL and the focused pane in agreement
-   * without a navigation, so there is no transition state to reconcile.
+   * Splits the focused pane and focuses the new, empty half. The original
+   * pane keeps `currentTarget` (the URL's target, which is what it shows);
+   * the caller then starts a thread, and its navigation fills the new pane.
    */
   splitFocusedPane: (
     direction: PaneSplitDirection,
@@ -134,6 +133,61 @@ export function findPaneWithTarget(
   return null;
 }
 
+export type PaneFocusDirection = "left" | "right" | "up" | "down";
+
+export interface PaneRect {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+}
+
+/**
+ * The pane a directional move lands on, like moving between terminal splits:
+ * among panes entirely on that side, prefer ones that line up with the
+ * current pane, then the nearest, then the best aligned. Null at an edge.
+ */
+export function findPaneInDirection(
+  rects: ReadonlyMap<PaneId, PaneRect>,
+  fromId: PaneId,
+  direction: PaneFocusDirection,
+): PaneId | null {
+  const from = rects.get(fromId);
+  if (!from) return null;
+  const horizontal = direction === "left" || direction === "right";
+  const EDGE_TOLERANCE = 2;
+  let best: { id: PaneId; aligned: boolean; distance: number; offset: number } | null = null;
+  for (const [id, rect] of rects) {
+    if (id === fromId) continue;
+    const distance =
+      direction === "left"
+        ? from.left - rect.right
+        : direction === "right"
+          ? rect.left - from.right
+          : direction === "up"
+            ? from.top - rect.bottom
+            : rect.top - from.bottom;
+    if (distance < -EDGE_TOLERANCE) continue;
+    const overlap = horizontal
+      ? Math.min(from.bottom, rect.bottom) - Math.max(from.top, rect.top)
+      : Math.min(from.right, rect.right) - Math.max(from.left, rect.left);
+    const offset = horizontal
+      ? Math.abs((from.top + from.bottom) / 2 - (rect.top + rect.bottom) / 2)
+      : Math.abs((from.left + from.right) / 2 - (rect.left + rect.right) / 2);
+    const candidate = { id, aligned: overlap > 0, distance: Math.max(0, distance), offset };
+    if (
+      best === null ||
+      (candidate.aligned && !best.aligned) ||
+      (candidate.aligned === best.aligned &&
+        (candidate.distance < best.distance ||
+          (candidate.distance === best.distance && candidate.offset < best.offset)))
+    ) {
+      best = candidate;
+    }
+  }
+  return best?.id ?? null;
+}
+
 function createInitialState(): Pick<PaneLayoutStore, "root" | "focusedPaneId" | "paneTargets"> {
   const id = nextId("pane");
   return {
@@ -158,7 +212,7 @@ export const usePaneLayoutStore = create<PaneLayoutStore>((set) => ({
         paneTargets: {
           ...state.paneTargets,
           [state.focusedPaneId]: currentTarget,
-          [newLeaf.id]: currentTarget,
+          [newLeaf.id]: null,
         },
       };
     });

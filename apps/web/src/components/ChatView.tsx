@@ -165,7 +165,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import { isMacPlatform } from "../lib/utils";
@@ -567,7 +567,7 @@ import {
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { createPaneScopedComposerRef, useComposerHandleContext } from "../composerHandleContext";
-import { usePaneFocusHandle } from "../paneFocus";
+import { usePaneFocused, usePaneFocusHandle, usePanePanelPortal } from "../paneFocus";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1855,6 +1855,12 @@ export default function ChatView(props: ChatViewProps) {
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
   const sharedComposerHandleRef = useComposerHandleContext();
   const paneFocus = usePaneFocusHandle();
+  // Split panes share one right panel outside the split tree. Only the
+  // focused pane renders it (through the portal) and its corner controls;
+  // other panes treat their thread's panel as closed.
+  const panePanelPortal = usePanePanelPortal();
+  const paneFocused = usePaneFocused(paneFocus);
+  const ownsPanelChrome = panePanelPortal === null || paneFocused;
   // Every view keeps its own composer handle; only the focused pane publishes
   // it to the shared context ref that the palette and file browser read, so
   // two mounted views (split panes) cannot fight over one handle.
@@ -2284,7 +2290,7 @@ export default function ChatView(props: ChatViewProps) {
   // Electron hosts its own browser tabs; other clients need the environment to host them.
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
   const previewPanelInlineSize = usePreviewPanelInlineSize(undefined, {
-    container: workspaceLayoutElement,
+    container: panePanelPortal?.row ?? workspaceLayoutElement,
     // One width for every thread and pane: switching threads or focus never resizes the panel.
   });
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
@@ -2343,6 +2349,14 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
+  // Open or closed is shared by every thread, so switching threads or pane focus keeps
+  // the panel as it was. A thread first seen in the open panel gets the agents map,
+  // before paint, instead of an empty panel.
+  const sharedRightPanelOpen = useRightPanelStore((state) => state.panelOpen);
+  useLayoutEffect(() => {
+    if (!ownsPanelChrome || !activeThreadRef || !sharedRightPanelOpen) return;
+    useRightPanelStore.getState().ensureOpenThreadSurface(activeThreadRef);
+  }, [activeThreadRef, ownsPanelChrome, sharedRightPanelOpen]);
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
   );
@@ -2383,8 +2397,9 @@ export default function ChatView(props: ChatViewProps) {
       ),
     [allocatableActiveTerminalIds, canReuseTerminal, environmentId],
   );
-  const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
-  const rightPanelOpen = rightPanelState.isOpen;
+  const previewPanelOpen =
+    activeRightPanelKind === "preview" && browserAvailable && ownsPanelChrome;
+  const rightPanelOpen = sharedRightPanelOpen && ownsPanelChrome;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
@@ -2418,7 +2433,8 @@ export default function ChatView(props: ChatViewProps) {
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
   );
-  const canMaximizeRightPanel = rightPanelOpen && !shouldUsePlanSidebarSheet;
+  const canMaximizeRightPanel =
+    rightPanelOpen && !shouldUsePlanSidebarSheet && panePanelPortal === null;
   const rightPanelMaximized = canMaximizeRightPanel && rightPanelState.maximized === true;
   const inlineRightPanelOwnsTitleBar = rightPanelOpen && !shouldUsePlanSidebarSheet;
   const [threadPanelPresentation, setThreadPanelPresentation] =
@@ -8089,8 +8105,16 @@ export default function ChatView(props: ChatViewProps) {
       turnRunning: phase === "running",
       isWeb: !isElectron,
       isDesktop: isElectron,
+      paneSplit: panePanelPortal !== null,
     }),
-    [composerRef, previewPanelOpen, terminalUiState.terminalOpen, routeKind, phase],
+    [
+      composerRef,
+      previewPanelOpen,
+      terminalUiState.terminalOpen,
+      routeKind,
+      phase,
+      panePanelPortal,
+    ],
   );
   const timelineSkills = activeProviderStatus
     ? resolveProviderSkillsForCwd(activeProviderStatus, gitCwd)
@@ -8235,7 +8259,8 @@ export default function ChatView(props: ChatViewProps) {
       if (command === "rightPanel.close") {
         // Nothing open: leave the event alone so the shortcut keeps its
         // native meaning (close window on desktop, close tab in a browser).
-        if (!activeRightPanelSurface) return;
+        // In split panes the chat route closes the focused pane instead.
+        if (!activeRightPanelSurface || panePanelPortal !== null) return;
         event.preventDefault();
         event.stopPropagation();
         if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
@@ -8474,6 +8499,7 @@ export default function ChatView(props: ChatViewProps) {
     logicalProjectEnvironments,
     onEnvironmentChange,
     paneFocus,
+    panePanelPortal,
   ]);
 
   // A focused desktop browser page forwards these chords as menu actions.
@@ -11467,6 +11493,11 @@ export default function ChatView(props: ChatViewProps) {
     addFolders: (folders) => composerRef.current?.addDroppedFolders(folders),
   });
 
+  const renderInlineRightPanel = (panel: React.ReactNode) => {
+    if (panePanelPortal === null) return panel;
+    return panePanelPortal.host ? createPortal(panel, panePanelPortal.host) : null;
+  };
+
   const content = (
     <div
       ref={setWorkspaceLayoutElement}
@@ -11495,7 +11526,7 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
         </WizardPopup>
       </Dialog>
-      {rightPanelControlsAtRoot ? panelLayoutControls : null}
+      {rightPanelControlsAtRoot && ownsPanelChrome ? panelLayoutControls : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -11526,7 +11557,9 @@ export default function ChatView(props: ChatViewProps) {
               className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
             />
           ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
+          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel && ownsPanelChrome
+            ? panelLayoutControls
+            : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
           <ChatHeader
             activeThreadEnvironmentId={activeThread.environmentId}
@@ -12152,56 +12185,58 @@ export default function ChatView(props: ChatViewProps) {
         ))}
       </div>
 
-      {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef ? (
-        <RightPanelTabs
-          mode="inline"
-          open={rightPanelOpen}
-          keybindings={keybindings}
-          getShortcutContext={getShortcutContext}
-          maximized={rightPanelMaximized}
-          inlineSize={previewPanelInlineSize}
-          surfaces={renderedRightPanelSurfaces}
-          environmentId={activeThreadRef.environmentId}
-          activeSurfaceId={renderedRightPanelSurface?.id ?? null}
-          pendingSurfaceIds={pendingFileSurfaceIds}
-          previewSessions={activePreviewState.sessions}
-          desktopByTabId={activePreviewState.desktopByTabId}
-          previewRuntimeTabId={resolvePreviewRuntimeTabId}
-          terminalLabelsById={activeTerminalLabelsById}
-          onActivate={activateRightPanelSurface}
-          onCloseSurface={closeRightPanelSurface}
-          onRenameDevice={(surfaceId, title) => {
-            if (activeThreadRef)
-              useRightPanelStore.getState().renameDevice(activeThreadRef, surfaceId, title);
-          }}
-          onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
-          onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
-          onCloseAllSurfaces={closeAllRightPanelSurfaces}
-          onMoveSurface={moveRightPanelSurface}
-          onCopyFilePath={copyRightPanelFilePath}
-          onAddBrowser={() => createBrowserSurface()}
-          onAddBrowserInProfile={createBrowserSurface}
-          onAddTerminal={addTerminalSurface}
-          onAddDiff={addDiffSurface}
-          onAddFiles={addFilesSurface}
-          onAddPullRequest={addPullRequestSurface}
-          onAddPullRequests={addPullRequestsSurface}
-          onAddDevice={addDeviceSurface}
-          onAddWorkflows={addWorkflowsSurface}
-          onAddAgentMap={addAgentMapSurface}
-          browserAvailable={canOperatePreview && browserAvailable}
-          terminalAvailable={activeProject !== null && canOperateTerminal}
-          diffAvailable={isServerThread && isGitRepo}
-          filesAvailable={activeProject !== null}
-          pullRequestAvailable={pullRequestSurfaceAvailable}
-          pullRequestsAvailable={pullRequestsSurfaceAvailable}
-          deviceAvailable={activeThreadRef !== null}
-          workflowsAvailable={activeProject !== null}
-          agentMapAvailable={activeThreadRef !== null}
-        >
-          {rightPanelContent}
-        </RightPanelTabs>
-      ) : null}
+      {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef && ownsPanelChrome
+        ? renderInlineRightPanel(
+            <RightPanelTabs
+              mode="inline"
+              open={rightPanelOpen}
+              keybindings={keybindings}
+              getShortcutContext={getShortcutContext}
+              maximized={rightPanelMaximized}
+              inlineSize={previewPanelInlineSize}
+              surfaces={renderedRightPanelSurfaces}
+              environmentId={activeThreadRef.environmentId}
+              activeSurfaceId={renderedRightPanelSurface?.id ?? null}
+              pendingSurfaceIds={pendingFileSurfaceIds}
+              previewSessions={activePreviewState.sessions}
+              desktopByTabId={activePreviewState.desktopByTabId}
+              previewRuntimeTabId={resolvePreviewRuntimeTabId}
+              terminalLabelsById={activeTerminalLabelsById}
+              onActivate={activateRightPanelSurface}
+              onCloseSurface={closeRightPanelSurface}
+              onRenameDevice={(surfaceId, title) => {
+                if (activeThreadRef)
+                  useRightPanelStore.getState().renameDevice(activeThreadRef, surfaceId, title);
+              }}
+              onCloseOtherSurfaces={closeOtherRightPanelSurfaces}
+              onCloseSurfacesToRight={closeRightPanelSurfacesToRight}
+              onCloseAllSurfaces={closeAllRightPanelSurfaces}
+              onMoveSurface={moveRightPanelSurface}
+              onCopyFilePath={copyRightPanelFilePath}
+              onAddBrowser={() => createBrowserSurface()}
+              onAddBrowserInProfile={createBrowserSurface}
+              onAddTerminal={addTerminalSurface}
+              onAddDiff={addDiffSurface}
+              onAddFiles={addFilesSurface}
+              onAddPullRequest={addPullRequestSurface}
+              onAddPullRequests={addPullRequestsSurface}
+              onAddDevice={addDeviceSurface}
+              onAddWorkflows={addWorkflowsSurface}
+              onAddAgentMap={addAgentMapSurface}
+              browserAvailable={canOperatePreview && browserAvailable}
+              terminalAvailable={activeProject !== null && canOperateTerminal}
+              diffAvailable={isServerThread && isGitRepo}
+              filesAvailable={activeProject !== null}
+              pullRequestAvailable={pullRequestSurfaceAvailable}
+              pullRequestsAvailable={pullRequestsSurfaceAvailable}
+              deviceAvailable={activeThreadRef !== null}
+              workflowsAvailable={activeProject !== null}
+              agentMapAvailable={activeThreadRef !== null}
+            >
+              {rightPanelContent}
+            </RightPanelTabs>,
+          )
+        : null}
       {rightPanelPresent && shouldUsePlanSidebarSheet && activeThreadRef ? (
         <RightPanelSheet
           animationDurationMs={panelAnimationsActive ? panelAnimationDurationMs : 0}

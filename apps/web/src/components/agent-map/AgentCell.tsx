@@ -108,7 +108,7 @@ function clamp(min: number, value: number, max: number): number {
 }
 
 function metaLine(bubble: AgentBubble): string {
-  const tokens = bubble.tokens === null ? null : `${formatContextWindowTokens(bubble.tokens)} tok`;
+  const tokens = bubble.tokens === null ? null : formatContextWindowTokens(bubble.tokens);
   const elapsed = bubble.elapsedMs === null ? null : formatDuration(bubble.elapsedMs);
   return [tokens, elapsed].filter(Boolean).join(" · ");
 }

@@ -88,6 +88,7 @@ function ChatRouteGlobalShortcuts() {
           previewOpen,
           editableFocus: isEditableFocused(event.target),
           modelPickerOpen: isModelPickerOpen(),
+          paneSplit: usePaneLayoutStore.getState().root.type === "split",
         },
       });
 
@@ -113,11 +114,26 @@ function ChatRouteGlobalShortcuts() {
       if (command === "pane.splitRight" || command === "pane.splitDown") {
         event.preventDefault();
         event.stopPropagation();
-        splitFocusedPane(command === "pane.splitRight" ? "row" : "column", routeTarget);
+        splitFocusedPane(
+          command === "pane.splitRight" ? "row" : "column",
+          routeTarget,
+          (openDraftIds) =>
+            startNewThreadFromContext(
+              {
+                activeDraftThread,
+                activeThread: activeThread ?? undefined,
+                defaultProjectRef,
+                handleNewThread,
+              },
+              { openDraftIds },
+            ),
+        );
         return;
       }
 
-      if (command === "pane.close") {
+      // Saved configs list `rightPanel.close` on mod+w after any backfilled
+      // `pane.close` default, so while split it closes the pane too.
+      if (command === "pane.close" || command === "rightPanel.close") {
         if (usePaneLayoutStore.getState().root.type === "leaf") return;
         event.preventDefault();
         event.stopPropagation();

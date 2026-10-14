@@ -1884,7 +1884,18 @@ function OpenCommandPaletteDialog(props: {
       title: "Split pane right",
       icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "pane.splitRight",
-      run: async () => splitFocusedPane("row", paletteRouteTarget),
+      run: async () =>
+        splitFocusedPane("row", paletteRouteTarget, (openDraftIds) =>
+          startNewThreadFromContext(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            { openDraftIds },
+          ),
+        ),
     },
     {
       kind: "action",
@@ -1893,7 +1904,18 @@ function OpenCommandPaletteDialog(props: {
       title: "Split pane down",
       icon: <Rows2Icon className={ITEM_ICON_CLASS} />,
       shortcutCommand: "pane.splitDown",
-      run: async () => splitFocusedPane("column", paletteRouteTarget),
+      run: async () =>
+        splitFocusedPane("column", paletteRouteTarget, (openDraftIds) =>
+          startNewThreadFromContext(
+            {
+              activeDraftThread,
+              activeThread: activeThread ?? undefined,
+              defaultProjectRef,
+              handleNewThread,
+            },
+            { openDraftIds },
+          ),
+        ),
     },
   );
   if (paneLayoutSplit) {

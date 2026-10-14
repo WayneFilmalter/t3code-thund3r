@@ -1626,14 +1626,47 @@ describe("composer and pull request shortcuts", () => {
         }),
         command,
       );
-      assert.isNull(
-        resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
-          platform,
-          context: { modelPickerOpen: false },
-        }),
+      if (platform === "MacIntel") {
+        assert.isNull(
+          resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
+            platform,
+            context: { modelPickerOpen: false },
+          }),
+        );
+      }
+    });
+
+    it.each([
+      ["ArrowLeft", "pane.focusLeft"],
+      ["ArrowRight", "pane.focusRight"],
+      ["ArrowUp", "pane.focusUp"],
+      ["ArrowDown", "pane.focusDown"],
+    ] as const)(`moves between panes with Ctrl+Shift+%s on ${platform}`, (key, command) => {
+      assert.strictEqual(
+        resolveShortcutCommand(
+          event({ key, shiftKey: true, ctrlKey: true }),
+          DEFAULT_RESOLVED_KEYBINDINGS,
+          { platform, context: { modelPickerOpen: false, composerFocus: true } },
+        ),
+        command,
       );
     });
   }
+});
+
+describe("mod+w", () => {
+  const input = event({ key: "w", metaKey: true });
+  const resolve = (context: Record<string, boolean>) =>
+    resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, { platform: "MacIntel", context });
+
+  it("closes the focused pane while split", () => {
+    assert.strictEqual(resolve({ paneSplit: true, terminalFocus: false }), "pane.close");
+  });
+
+  it("keeps closing right panel tabs and terminals otherwise", () => {
+    assert.strictEqual(resolve({ paneSplit: false, terminalFocus: false }), "rightPanel.close");
+    assert.strictEqual(resolve({ paneSplit: true, terminalFocus: true }), "terminal.close");
+  });
 });
 
 describe("Usage shortcuts", () => {

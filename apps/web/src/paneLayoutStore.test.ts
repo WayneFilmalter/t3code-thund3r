@@ -5,6 +5,7 @@ import { assert, beforeEach, describe, it } from "vite-plus/test";
 import {
   MAX_PANES,
   clampPaneRatio,
+  findPaneInDirection,
   collectLeafIds,
   findPaneWithTarget,
   resetPaneLayoutForTesting,
@@ -33,7 +34,7 @@ describe("paneLayoutStore", () => {
     assert.deepEqual(collectLeafIds(state().root), [state().focusedPaneId]);
   });
 
-  it("split duplicates the current target into both panes and focuses the new one", () => {
+  it("split keeps the current target in the original pane and focuses a new empty one", () => {
     const original = state().focusedPaneId;
     const target = serverTarget("thread-1");
     state().splitFocusedPane("row", target);
@@ -45,7 +46,7 @@ describe("paneLayoutStore", () => {
     assert.notStrictEqual(focusedPaneId, original);
     assert.include(leaves, focusedPaneId);
     assert.deepEqual(paneTargets[original], target);
-    assert.deepEqual(paneTargets[focusedPaneId], target);
+    assert.isNull(paneTargets[focusedPaneId] ?? null);
   });
 
   it("splits down inside an existing right split, keeping the tree shape", () => {
@@ -105,9 +106,10 @@ describe("paneLayoutStore", () => {
   });
 
   it("setPaneTarget with an equal target keeps the same state object", () => {
+    const original = state().focusedPaneId;
     state().splitFocusedPane("row", serverTarget("thread-1"));
     const before = state().paneTargets;
-    state().setPaneTarget(state().focusedPaneId, serverTarget("thread-1"));
+    state().setPaneTarget(original, serverTarget("thread-1"));
     assert.strictEqual(state().paneTargets, before);
   });
 
@@ -122,5 +124,40 @@ describe("paneLayoutStore", () => {
     if (updated.type !== "split") return;
     assert.strictEqual(updated.ratio, clampPaneRatio(0.99));
     assert.isBelow(updated.ratio, 1);
+  });
+});
+
+describe("findPaneInDirection", () => {
+  // Layout: a | b on top of a full-width c.
+  //   a: left half of the top row, b: right half, c: bottom row.
+  const rects = new Map([
+    ["a", { left: 0, top: 0, right: 500, bottom: 400 }],
+    ["b", { left: 501, top: 0, right: 1000, bottom: 400 }],
+    ["c", { left: 0, top: 401, right: 1000, bottom: 800 }],
+  ]);
+
+  it("moves to the side neighbor that lines up", () => {
+    assert.strictEqual(findPaneInDirection(rects, "a", "right"), "b");
+    assert.strictEqual(findPaneInDirection(rects, "b", "left"), "a");
+  });
+
+  it("moves down into a wide pane and back up to the closest-aligned pane", () => {
+    assert.strictEqual(findPaneInDirection(rects, "b", "down"), "c");
+    assert.strictEqual(findPaneInDirection(rects, "c", "up"), "a");
+  });
+
+  it("stays put at an edge", () => {
+    assert.isNull(findPaneInDirection(rects, "a", "left"));
+    assert.isNull(findPaneInDirection(rects, "a", "up"));
+    assert.isNull(findPaneInDirection(rects, "c", "down"));
+  });
+
+  it("prefers an aligned pane over a nearer diagonal one", () => {
+    const stacked = new Map([
+      ["left", { left: 0, top: 0, right: 400, bottom: 800 }],
+      ["topRight", { left: 401, top: 0, right: 800, bottom: 300 }],
+      ["farBottomRight", { left: 900, top: 500, right: 1200, bottom: 800 }],
+    ]);
+    assert.strictEqual(findPaneInDirection(stacked, "topRight", "left"), "left");
   });
 });

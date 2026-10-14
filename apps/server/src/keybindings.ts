@@ -129,6 +129,37 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
   },
 ];
 
+// Rules that used to be defaults and were then moved or dropped. Startup
+// removes an exact, untouched copy once per config (recorded by `id`), so the
+// replacement default can backfill into the freed shortcut. A user who
+// re-adds the same rule afterwards keeps it.
+const RETIRED_DEFAULT_KEYBINDINGS: ReadonlyArray<{
+  readonly id: string;
+  readonly rule: KeybindingRule;
+}> = [
+  {
+    id: "retire:chat.new:mod+shift+o",
+    rule: { key: "mod+shift+o", command: "chat.new", when: "!terminalFocus" },
+  },
+  {
+    id: "retire:composer.effort:mod+shift+e",
+    rule: { key: "mod+shift+e", command: "composer.effort", when: "!terminalFocus" },
+  },
+  {
+    id: "retire:pane.close:mod+alt+w",
+    rule: { key: "mod+alt+w", command: "pane.close" },
+  },
+  ...(["left", "right", "up", "down"] as const).map((direction) => ({
+    id: `retire:pane.focus.${direction}:mod+shift+arrow`,
+    rule: {
+      key: `mod+shift+arrow${direction}`,
+      command:
+        `pane.focus${direction[0]!.toUpperCase()}${direction.slice(1)}` as KeybindingRule["command"],
+      when: "!modelPickerOpen",
+    },
+  })),
+];
+
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
   const parsed = parseKeybindingShortcut(rule.key);
   if (!parsed) return null;
@@ -506,13 +537,17 @@ const make = Effect.gen(function* () {
       const pendingLateDefaults = LATE_DEFAULT_KEYBINDINGS.filter(
         (late) => !appliedMigrationIds.has(late.id),
       );
+      const pendingRetirements = RETIRED_DEFAULT_KEYBINDINGS.filter(
+        (retired) => !appliedMigrationIds.has(retired.id),
+      );
       const configExists = yield* readConfigExists;
       if (!configExists) {
         yield* writeConfigAtomically(DEFAULT_KEYBINDINGS);
-        if (pendingLateDefaults.length > 0) {
+        if (pendingLateDefaults.length > 0 || pendingRetirements.length > 0) {
           yield* recordAppliedMigrations([
             ...appliedMigrationIds,
             ...LATE_DEFAULT_KEYBINDINGS.map((late) => late.id),
+            ...RETIRED_DEFAULT_KEYBINDINGS.map((retired) => retired.id),
           ]);
         }
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
@@ -531,7 +566,10 @@ const make = Effect.gen(function* () {
         yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
         return;
       }
-      const customConfig = runtimeConfig.keybindings;
+      const customConfig = runtimeConfig.keybindings.filter(
+        (entry) => !pendingRetirements.some((retired) => isSameKeybindingRule(entry, retired.rule)),
+      );
+      const retiredRuleCount = runtimeConfig.keybindings.length - customConfig.length;
       const existingCommands = new Set(customConfig.map((entry) => entry.command));
       const missingDefaults: KeybindingRule[] = [];
       const shortcutConflictWarnings: Array<{
@@ -604,17 +642,18 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
+      if (defaultsToAppend.length > 0 || retiredRuleCount > 0) {
         yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
       }
       // A late default skipped at max entries stays pending for a later start.
       const settledLateDefaults = pendingLateDefaults.filter(
         (late) => !skippedDefaults.includes(late.rule),
       );
-      if (settledLateDefaults.length > 0) {
+      if (settledLateDefaults.length > 0 || pendingRetirements.length > 0) {
         yield* recordAppliedMigrations([
           ...appliedMigrationIds,
           ...settledLateDefaults.map((late) => late.id),
+          ...pendingRetirements.map((retired) => retired.id),
         ]);
       }
       yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);

@@ -8,7 +8,7 @@
  * consumers can check focus at event time without re-rendering the whole
  * view on every pane focus change.
  */
-import { createContext, use } from "react";
+import { createContext, use, useSyncExternalStore } from "react";
 
 export interface PaneFocusHandle {
   isFocused: () => boolean;
@@ -25,4 +25,25 @@ export const PaneFocusContext = createContext<PaneFocusHandle>(ALWAYS_FOCUSED_PA
 
 export function usePaneFocusHandle(): PaneFocusHandle {
   return use(PaneFocusContext);
+}
+
+/**
+ * Where split panes host the single right panel: `host` sits beside the split
+ * tree and `row` spans the tree plus the panel, for width clamping. Null
+ * outside split panes, where each view renders its panel inline.
+ */
+export interface PanePanelPortal {
+  readonly host: HTMLElement | null;
+  readonly row: HTMLElement | null;
+}
+
+export const PanePanelPortalContext = createContext<PanePanelPortal | null>(null);
+
+export function usePanePanelPortal(): PanePanelPortal | null {
+  return use(PanePanelPortalContext);
+}
+
+/** Re-renders on pane focus changes; outside split panes it is always true. */
+export function usePaneFocused(handle: PaneFocusHandle): boolean {
+  return useSyncExternalStore(handle.subscribe, handle.isFocused, handle.isFocused);
 }

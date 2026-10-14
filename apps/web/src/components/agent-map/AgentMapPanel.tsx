@@ -15,7 +15,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { observeResize } from "~/lib/observeResize";
 import { useMediaQuery } from "~/hooks/useMediaQuery";
-import { useThreadProjection, useThreadStatus, useThreadVisibleTurnItems } from "~/state/entities";
+import {
+  resolveThreadDetailRef,
+  useThreadProjection,
+  useThreadShell,
+  useThreadStatus,
+  useThreadVisibleTurnItems,
+} from "~/state/entities";
 
 import {
   assignChildFeeds,
@@ -195,12 +201,22 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
 }
 
 export function AgentMapPanel({ threadRef }: { readonly threadRef: ScopedThreadRef | null }) {
-  if (threadRef === null) {
+  // A draft's reserved id is unknown to the server until its first message
+  // lands. Subscribing before then reads a definitive 404, which marks the
+  // thread deleted and ignores everything it later streams.
+  const shell = useThreadShell(threadRef);
+  const detailRef = resolveThreadDetailRef(threadRef, {
+    shellExists: shell !== null,
+    waitForShell: true,
+  });
+  if (detailRef === null) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Open a thread to see its agents.
+        {threadRef === null
+          ? "Open a thread to see its agents."
+          : "Agents appear once the thread starts."}
       </div>
     );
   }
-  return <AgentMapForThread key={scopedThreadKey(threadRef)} threadRef={threadRef} />;
+  return <AgentMapForThread key={scopedThreadKey(detailRef)} threadRef={detailRef} />;
 }

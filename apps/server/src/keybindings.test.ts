@@ -318,6 +318,41 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("retires an untouched old default once so its replacement backfills", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const when = "!terminalFocus";
+      const oldSplitDefault = { key: "mod+shift+o", command: "chat.new", when } as const;
+      const newChat = { key: "mod+n", command: "chat.new", when } as const;
+      const customEffort = { key: "mod+alt+e", command: "composer.effort", when } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [
+        newChat,
+        oldSplitDefault,
+        customEffort,
+      ]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.key === "mod+shift+o"),
+        [{ key: "mod+shift+o", command: "pane.splitRight", when }],
+      );
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "composer.effort"),
+        [customEffort],
+      );
+
+      // Re-adding the retired rule on purpose survives later startups.
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [...persisted, oldSplitDefault]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const afterRestart = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.isTrue(
+        afterRestart.some((entry) => entry.key === "mod+shift+o" && entry.command === "chat.new"),
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("leaves a customized command without the late default", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;

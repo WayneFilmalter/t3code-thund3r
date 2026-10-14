@@ -7,20 +7,31 @@
  */
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ThreadRouteView } from "./ThreadRouteView";
 import { SidebarInset } from "./ui/sidebar";
-import { shortcutLabelForCommand } from "../keybindings";
-import { navigateToPaneTarget } from "../paneLayoutActions";
+import type { KeybindingCommand } from "@t3tools/contracts";
+import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
+import { isEditableFocused } from "../lib/editableFocus";
+import { isPreviewFocused } from "../lib/previewFocus";
+import { isTerminalFocused } from "../lib/terminalFocus";
+import { isModelPickerOpen } from "../modelPickerVisibility";
+import { movePaneFocus, navigateToPaneTarget, resolvePaneUrlSync } from "../paneLayoutActions";
 import {
-  findPaneWithTarget,
   usePaneLayoutStore,
+  type PaneFocusDirection,
   type PaneId,
   type PaneNode,
 } from "../paneLayoutStore";
-import { PaneFocusContext, type PaneFocusHandle } from "../paneFocus";
-import { threadRouteTargetsEqual, type ThreadRouteTarget } from "../threadRoutes";
+import {
+  PaneFocusContext,
+  PanePanelPortalContext,
+  type PaneFocusHandle,
+  type PanePanelPortal,
+} from "../paneFocus";
+import type { ThreadRouteTarget } from "../threadRoutes";
 import { cn } from "~/lib/utils";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
@@ -29,43 +40,86 @@ type SplitNode = Extract<PaneNode, { type: "split" }>;
 export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget | null }) {
   const root = usePaneLayoutStore((state) => state.root);
   const focusedPaneId = usePaneLayoutStore((state) => state.focusedPaneId);
-  const focusedTarget = usePaneLayoutStore(
-    (state) => state.paneTargets[state.focusedPaneId] ?? null,
-  );
   const navigate = useNavigate();
+  const [panelRow, setPanelRow] = useState<HTMLDivElement | null>(null);
+  const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
+  const panelPortal = useMemo<PanePanelPortal>(
+    () => ({ host: panelHost, row: panelRow }),
+    [panelHost, panelRow],
+  );
 
-  // Keeps the URL and the focused pane pointing at the same thread. A focus
-  // change moves the URL to the pane; a URL change (any navigation) retargets
-  // the focused pane — unless another pane already shows that thread, in
-  // which case focus moves there instead of opening a duplicate view.
-  const prevRef = useRef<{ threadTarget: ThreadRouteTarget | null; focusedPaneId: PaneId | null }>({
-    threadTarget,
-    focusedPaneId,
-  });
+  // Keeps the URL and the focused pane pointing at the same thread; see
+  // resolvePaneUrlSync for the rules.
+  const prevRef = useRef({ threadTarget, focusedPaneId });
   useEffect(() => {
-    const prev = prevRef.current;
+    const previous = prevRef.current;
     prevRef.current = { threadTarget, focusedPaneId };
-    if (threadRouteTargetsEqual(threadTarget, focusedTarget)) return;
-    if (focusedPaneId !== prev.focusedPaneId) {
-      navigateToPaneTarget(navigate, focusedTarget);
-      return;
-    }
     const store = usePaneLayoutStore.getState();
-    if (threadTarget !== null) {
-      const holder = findPaneWithTarget(store.root, store.paneTargets, threadTarget);
-      if (holder !== null && holder !== focusedPaneId) {
-        store.focusPane(holder);
-        return;
-      }
-    }
-    store.setPaneTarget(focusedPaneId, threadTarget);
-  }, [threadTarget, focusedPaneId, focusedTarget, navigate]);
+    const sync = resolvePaneUrlSync({
+      previous,
+      threadTarget,
+      focusedPaneId,
+      root: store.root,
+      paneTargets: store.paneTargets,
+    });
+    if (sync.kind === "navigate") navigateToPaneTarget(navigate, sync.target);
+    else if (sync.kind === "focus") store.focusPane(sync.paneId);
+    else if (sync.kind === "retarget") store.setPaneTarget(focusedPaneId, sync.target);
+  }, [threadTarget, focusedPaneId, navigate]);
+
+  usePaneFocusShortcuts();
 
   return (
     <SidebarInset className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh">
-      <PaneTree node={root} />
+      {/* One right panel for the whole split area: the focused pane's view
+          portals its panel into the host beside the tree. */}
+      <div ref={setPanelRow} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <PanePanelPortalContext value={panelPortal}>
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+            <PaneTree node={root} />
+          </div>
+        </PanePanelPortalContext>
+        <div ref={setPanelHost} className="relative flex min-h-0 shrink-0" />
+      </div>
     </SidebarInset>
   );
+}
+
+const PANE_FOCUS_DIRECTIONS: Partial<Record<KeybindingCommand, PaneFocusDirection>> = {
+  "pane.focusLeft": "left",
+  "pane.focusRight": "right",
+  "pane.focusUp": "up",
+  "pane.focusDown": "down",
+};
+
+/**
+ * Moves focus to the neighboring pane. Listens in the capture phase so the
+ * composer and terminals cannot claim the chord first; mounted only while
+ * split, so outside split panes the keys keep their native behavior.
+ */
+function usePaneFocusShortcuts() {
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isCommandPaletteOpen()) return;
+      const command = resolveShortcutCommand(event, keybindings, {
+        context: {
+          terminalFocus: isTerminalFocused(),
+          previewFocus: isPreviewFocused(),
+          editableFocus: isEditableFocused(event.target),
+          modelPickerOpen: isModelPickerOpen(),
+          paneSplit: true,
+        },
+      });
+      const direction = command ? PANE_FOCUS_DIRECTIONS[command] : undefined;
+      if (!direction) return;
+      event.preventDefault();
+      event.stopPropagation();
+      movePaneFocus(direction);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [keybindings]);
 }
 
 function PaneTree({ node }: { node: PaneNode }) {
@@ -193,11 +247,10 @@ function PaneLeaf({ paneId }: { paneId: PaneId }) {
 
   return (
     <div
-      className={cn(
-        "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
-        focused && "ring-1 ring-primary/35 ring-inset",
-      )}
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden outline-none"
+      data-pane-id={paneId}
       data-pane-focused={focused || undefined}
+      tabIndex={-1}
       onPointerDownCapture={focusThisPane}
       onFocusCapture={focusThisPane}
     >
@@ -208,6 +261,15 @@ function PaneLeaf({ paneId }: { paneId: PaneId }) {
           <EmptyPanePlaceholder />
         )}
       </PaneFocusContext>
+      {/* Drawn over the view, not as an inset ring: the view's own
+          background would paint over a box-shadow on this element. */}
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 z-30 rounded-xs border border-primary/40 transition-opacity duration-150",
+          focused ? "opacity-100" : "opacity-0",
+        )}
+      />
     </div>
   );
 }
