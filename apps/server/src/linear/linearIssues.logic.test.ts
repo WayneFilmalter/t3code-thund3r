@@ -6,6 +6,7 @@ import {
   extractToolPayload,
   parseLinearIssues,
   readPriority,
+  sortIssuesByPriority,
 } from "./linearIssues.logic.ts";
 
 describe("extractToolPayload", () => {
@@ -139,5 +140,33 @@ describe("readPriority", () => {
     assert.equal(readPriority("No priority"), "none");
     assert.equal(readPriority({ value: 3 }), "medium");
     assert.equal(readPriority(undefined), "none");
+  });
+});
+
+describe("sortIssuesByPriority", () => {
+  const issue = (identifier: string, priority: LinearIssue["priority"]): LinearIssue => ({
+    id: identifier,
+    identifier,
+    title: identifier,
+    url: "",
+    priority,
+    estimate: null,
+    stateName: "Todo",
+    branchName: null,
+  });
+
+  it("puts urgent first and keeps Linear's order within a priority", () => {
+    const sorted = sortIssuesByPriority([
+      issue("A", "none"),
+      issue("B", "medium"),
+      issue("C", "urgent"),
+      issue("D", "medium"),
+      issue("E", "high"),
+      issue("F", "low"),
+    ]);
+    assert.deepEqual(
+      sorted.map((entry) => entry.identifier),
+      ["C", "E", "B", "D", "F", "A"],
+    );
   });
 });

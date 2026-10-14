@@ -1,11 +1,13 @@
 import {
   LINEAR_ISSUE_STATUSES,
   type EnvironmentId,
+  type PullRequestListInput,
+  type ScopedProjectRef,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ListTodo, RefreshCwIcon, SettingsIcon } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useOpenLink } from "~/browser/useOpenLink";
 import { Button } from "~/components/ui/button";
@@ -20,9 +22,61 @@ import {
 import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
+import { useProject } from "~/state/entities";
+import { usePullRequestList, type EnvironmentQueryTarget } from "~/state/pullRequests";
+import { usePaginatedBranches } from "~/state/queries";
 
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { LinearSection } from "./LinearSection";
+import { EMPTY_LINEAR_GIT_INDEX, buildLinearGitIndex } from "./linearPanel.logic";
+
+/** Enough pages to cover a team's branches without walking a huge repo's whole ref list. */
+const MAX_BRANCH_REFS = 2000;
+
+/**
+ * Git's view of the team's branches: every ref whose name carries the team key, local or
+ * remote, plus the project's pull requests. Both are read once per panel and shared by all
+ * sections, so a card's icon costs nothing extra per issue.
+ */
+function useLinearGitIndex(props: {
+  environmentId: EnvironmentId;
+  projectRef: ScopedProjectRef | null;
+  teamKey: string;
+}) {
+  const project = useProject(props.projectRef);
+  const cwd = project?.workspaceRoot ?? null;
+  const branches = usePaginatedBranches({
+    environmentId: cwd === null ? null : props.environmentId,
+    cwd,
+    query: `${props.teamKey.toLowerCase()}-`,
+  });
+  const { loadNext } = branches;
+  const hasMore = branches.data?.nextCursor != null;
+  useEffect(() => {
+    if (hasMore && !branches.isFetchingNextPage && branches.refs.length < MAX_BRANCH_REFS) {
+      loadNext();
+    }
+  }, [branches.isFetchingNextPage, branches.refs.length, hasMore, loadNext]);
+
+  const projectId = props.projectRef?.projectId;
+  const pullRequestTargets = useMemo(
+    (): ReadonlyArray<EnvironmentQueryTarget<PullRequestListInput>> =>
+      projectId === undefined
+        ? []
+        : [{ environmentId: props.environmentId, input: { state: "all", projectId, limit: 500 } }],
+    [projectId, props.environmentId],
+  );
+  const pullRequests = usePullRequestList(pullRequestTargets);
+  const entries = pullRequests.data?.entries;
+
+  return useMemo(
+    () =>
+      branches.refs.length === 0 && (entries === undefined || entries.length === 0)
+        ? EMPTY_LINEAR_GIT_INDEX
+        : buildLinearGitIndex(branches.refs, entries ?? []),
+    [branches.refs, entries],
+  );
+}
 
 function LinearSubheader(props: { onFetchAll?: (() => void) | undefined }) {
   return (
@@ -77,10 +131,16 @@ function LinearSetupPrompt(props: { title: string; description: string }) {
 
 function LinearPanelBody(props: {
   threadRef: ScopedThreadRef | null;
+  projectRef: ScopedProjectRef | null;
   environmentId: EnvironmentId;
 }) {
   const { environmentId } = props;
   const linear = useEnvironmentSettings(environmentId, (settings) => settings.linear);
+  const gitIndex = useLinearGitIndex({
+    environmentId,
+    projectRef: props.projectRef,
+    teamKey: linear.teamKey,
+  });
   const openLink = useOpenLink(props.threadRef);
   const [fetchRevision, setFetchRevision] = useState(0);
   const onOpen = useCallback(
@@ -124,6 +184,7 @@ function LinearPanelBody(props: {
               label={status.label}
               environmentId={environmentId}
               fetchRevision={fetchRevision}
+              gitIndex={gitIndex}
               onOpen={onOpen}
             />
           </section>
@@ -140,6 +201,7 @@ function LinearPanelBody(props: {
  */
 export function LinearPanel(props: {
   threadRef: ScopedThreadRef | null;
+  projectRef: ScopedProjectRef | null;
   environmentId: EnvironmentId | null;
 }) {
   if (props.environmentId === null) {
@@ -160,5 +222,11 @@ export function LinearPanel(props: {
       </div>
     );
   }
-  return <LinearPanelBody threadRef={props.threadRef} environmentId={props.environmentId} />;
+  return (
+    <LinearPanelBody
+      threadRef={props.threadRef}
+      projectRef={props.projectRef}
+      environmentId={props.environmentId}
+    />
+  );
 }

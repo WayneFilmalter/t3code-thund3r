@@ -1,8 +1,10 @@
 import type { LinearIssue } from "@t3tools/contracts";
 import { Check, Copy, ExternalLink } from "lucide";
+import { GitBranchIcon } from "lucide-react";
 import { useRef } from "react";
 
 import { MorphIcon } from "~/components/MorphIcon";
+import { PULL_REQUEST_STATE_PRESENTATION } from "~/components/pullRequest/pullRequestIcons";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import {
@@ -15,7 +17,22 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 
 import { PRIORITY_BADGE_VARIANTS, PRIORITY_TONES } from "./linearTones";
-import { PRIORITY_LABELS, estimateLabel } from "./linearPanel.logic";
+import { PRIORITY_LABELS, estimateLabel, type LinearGitPresence } from "./linearPanel.logic";
+
+/** Top-right of the card: what git knows about the issue's branch. Nothing when nothing. */
+function GitPresenceIcon({ presence }: { presence: LinearGitPresence }) {
+  if (presence === "none") return null;
+  if (presence === "branch") {
+    return <GitBranchIcon aria-label="Branch exists" className="size-3 text-muted-foreground" />;
+  }
+  const state = PULL_REQUEST_STATE_PRESENTATION[presence];
+  return (
+    <state.Icon
+      aria-label={`Pull request ${state.label.toLowerCase()}`}
+      className={cn("size-3", state.toneClassName)}
+    />
+  );
+}
 
 function BranchCopyButton({ issue }: { issue: LinearIssue }) {
   const ref = useRef<HTMLButtonElement>(null);
@@ -60,7 +77,11 @@ function BranchCopyButton({ issue }: { issue: LinearIssue }) {
  * issue's priority rather than its section, so the urgent ones stand out
  * wherever they sit. Footer: priority, estimate, copy the git branch, open in Linear.
  */
-export function LinearIssueBubble(props: { issue: LinearIssue; onOpen: (url: string) => void }) {
+export function LinearIssueBubble(props: {
+  issue: LinearIssue;
+  gitPresence: LinearGitPresence;
+  onOpen: (url: string) => void;
+}) {
   const { issue } = props;
   const tone = PRIORITY_TONES[issue.priority];
   const estimate = estimateLabel(issue.estimate);
@@ -79,6 +100,9 @@ export function LinearIssueBubble(props: { issue: LinearIssue; onOpen: (url: str
             {issue.stateName ? ` · ${issue.stateName}` : ""}
           </span>
         </div>
+        <span className="mt-1 flex shrink-0 items-center">
+          <GitPresenceIcon presence={props.gitPresence} />
+        </span>
       </div>
       <div className="flex items-center gap-2 pt-0.5">
         <Badge variant={PRIORITY_BADGE_VARIANTS[issue.priority]} size="sm" className="shrink-0">

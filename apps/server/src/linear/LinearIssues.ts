@@ -22,7 +22,12 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as Settings from "../serverSettings.ts";
-import { LinearPayloadError, extractToolPayload, parseLinearIssues } from "./linearIssues.logic.ts";
+import {
+  LinearPayloadError,
+  extractToolPayload,
+  parseLinearIssues,
+  sortIssuesByPriority,
+} from "./linearIssues.logic.ts";
 
 export const LINEAR_MCP_URL = "https://mcp.linear.app/mcp";
 const LIST_TIMEOUT = "20 seconds";
@@ -102,7 +107,7 @@ const make = Effect.gen(function* () {
         }).pipe(
           Effect.flatMap((result) =>
             Effect.try({
-              try: () => parseLinearIssues(extractToolPayload(result)),
+              try: () => sortIssuesByPriority(parseLinearIssues(extractToolPayload(result))),
               catch: (error) =>
                 new LinearError({
                   kind: error instanceof LinearPayloadError ? "invalid-response" : "rejected",

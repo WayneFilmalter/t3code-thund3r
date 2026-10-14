@@ -1,7 +1,12 @@
 import type { LinearIssue } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { estimateLabel, sectionState } from "./linearPanel.logic";
+import {
+  buildLinearGitIndex,
+  estimateLabel,
+  resolveLinearGitPresence,
+  sectionState,
+} from "./linearPanel.logic";
 
 const issue: LinearIssue = {
   id: "1",
@@ -46,5 +51,34 @@ describe("estimateLabel", () => {
     expect(estimateLabel(null)).toBeNull();
     expect(estimateLabel(1)).toBe("1 pt");
     expect(estimateLabel(3)).toBe("3 pts");
+  });
+});
+
+describe("git presence", () => {
+  const index = buildLinearGitIndex(
+    [
+      { name: "wayne/kre-1", isRemote: false },
+      { name: "origin/wayne/kre-2", isRemote: true, remoteName: "origin" },
+      { name: "Wayne/KRE-5", isRemote: false },
+    ],
+    [
+      { headBranch: "wayne/kre-2", state: "open" },
+      { headBranch: "wayne/kre-3", state: "closed" },
+      { headBranch: "wayne/kre-3", state: "merged" },
+      { headBranch: "wayne/kre-4", state: "closed" },
+    ],
+  );
+
+  it("strips the remote prefix and matches case-insensitively", () => {
+    expect(resolveLinearGitPresence("wayne/kre-1", index)).toBe("branch");
+    expect(resolveLinearGitPresence("wayne/kre-5", index)).toBe("branch");
+  });
+
+  it("prefers the strongest pull request state and falls back to the branch", () => {
+    expect(resolveLinearGitPresence("wayne/kre-2", index)).toBe("open");
+    expect(resolveLinearGitPresence("wayne/kre-3", index)).toBe("merged");
+    expect(resolveLinearGitPresence("wayne/kre-4", index)).toBe("closed");
+    expect(resolveLinearGitPresence("wayne/kre-9", index)).toBe("none");
+    expect(resolveLinearGitPresence(null, index)).toBe("none");
   });
 });

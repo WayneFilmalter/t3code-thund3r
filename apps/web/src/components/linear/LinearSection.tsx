@@ -12,7 +12,7 @@ import { useEnvironmentQuery } from "~/state/query";
 
 import { LinearIssueBubble } from "./LinearIssueBubble";
 import { STATUS_TONES } from "./linearTones";
-import { sectionState } from "./linearPanel.logic";
+import { resolveLinearGitPresence, sectionState, type LinearGitIndex } from "./linearPanel.logic";
 
 /**
  * One status of the Linear tab: a workflow-style header that folds the list,
@@ -26,6 +26,7 @@ export function LinearSection(props: {
   environmentId: EnvironmentId;
   /** Bumped by the panel's fetch-all; each bump fetches this section. */
   fetchRevision: number;
+  gitIndex: LinearGitIndex;
   onOpen: (url: string) => void;
 }) {
   const { status, environmentId, fetchRevision } = props;
@@ -115,7 +116,12 @@ export function LinearSection(props: {
           <div className="flex flex-col gap-1.5 pb-1">
             {query.error ? <p className="px-1 text-xs text-destructive">{query.error}</p> : null}
             {issues.map((issue) => (
-              <LinearIssueBubble key={issue.id} issue={issue} onOpen={props.onOpen} />
+              <LinearIssueBubble
+                key={issue.id}
+                issue={issue}
+                gitPresence={resolveLinearGitPresence(issue.branchName, props.gitIndex)}
+                onOpen={props.onOpen}
+              />
             ))}
           </div>
         ) : (

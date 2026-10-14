@@ -11312,6 +11312,7 @@ export default function ChatView(props: ChatViewProps) {
     ) : renderedRightPanelSurface?.kind === "linear" ? (
       <LinearPanel
         threadRef={activeThreadRef}
+        projectRef={activeProjectRef}
         environmentId={activeThreadRef?.environmentId ?? primaryEnvironmentId}
       />
     ) : renderedRightPanelSurface?.kind === "agent-map" ? (

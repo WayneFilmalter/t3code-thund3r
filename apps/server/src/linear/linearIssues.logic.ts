@@ -104,6 +104,28 @@ function readIssueList(payload: unknown): ReadonlyArray<unknown> {
   throw new LinearPayloadError("Linear returned no issue list.");
 }
 
+const PRIORITY_RANK: Record<LinearIssuePriority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
+};
+
+/** Highest priority first; Linear's own order (most recently updated) breaks ties. */
+export function sortIssuesByPriority(
+  issues: ReadonlyArray<LinearIssue>,
+): ReadonlyArray<LinearIssue> {
+  return issues
+    .map((issue, index) => ({ issue, index }))
+    .sort(
+      (left, right) =>
+        PRIORITY_RANK[left.issue.priority] - PRIORITY_RANK[right.issue.priority] ||
+        left.index - right.index,
+    )
+    .map(({ issue }) => issue);
+}
+
 /** Issues from a `list_issues` payload. Entries without an identifier and title are skipped. */
 export function parseLinearIssues(payload: unknown): ReadonlyArray<LinearIssue> {
   const issues: LinearIssue[] = [];
