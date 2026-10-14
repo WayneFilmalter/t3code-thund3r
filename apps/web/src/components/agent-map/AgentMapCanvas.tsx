@@ -99,31 +99,23 @@ export function AgentMapCanvas(props: {
   // Resizes and repacks glide the stage to its new fit.
   useLayoutEffect(() => applyView(view.current, true), [applyView]);
 
-  // Pinch (ctrl+wheel on trackpads) or cmd/ctrl+wheel zooms at the pointer; plain wheel pans.
+  // Scrolling zooms at the pointer; dragging pans. Pinch arrives as ctrl+wheel with small
+  // deltas, so it gets a stronger factor. Line-mode wheels (Firefox) report in lines.
   useEffect(() => {
     if (box === null) return;
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
       const rect = box.getBoundingClientRect();
-      if (event.ctrlKey || event.metaKey) {
-        const factor = Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002));
-        applyView(
-          zoomAround(
-            view.current,
-            factor,
-            { x: event.clientX - rect.left, y: event.clientY - rect.top },
-            rect,
-          ),
-          false,
-        );
-        return;
-      }
+      const delta =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY;
+      const factor = Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.002));
       applyView(
-        {
-          ...view.current,
-          panX: view.current.panX - event.deltaX,
-          panY: view.current.panY - event.deltaY,
-        },
+        zoomAround(
+          view.current,
+          factor,
+          { x: event.clientX - rect.left, y: event.clientY - rect.top },
+          rect,
+        ),
         false,
       );
     };
