@@ -1,38 +1,50 @@
-import { scopedThreadKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { useAtomValue } from "@effect/atom-react";
+import { usePullRequestStack } from "~/state/usePullRequestStack";
+import { RefreshIcon } from "~/components/ui/refresh-icon";
+import { AnimatedWidth } from "~/components/AnimatedWidth";
+import {
+  scopedThreadKey,
+  scopeProjectRef,
+  scopeThreadRef,
+} from "@t3tools/client-runtime/environment";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  PullRequestAction,
-  PullRequestMergeMethod,
-  PullRequestUpdateMethod,
-  PullRequestRef,
-  PullRequestState,
-  ScopedThreadRef,
+import {
+  AuthOrchestrationOperateScope,
+  AuthSourceControlWriteScope,
+  type EnvironmentId,
+  type PullRequestAction,
+  type PullRequestMergeMethod,
+  type PullRequestListEntry,
+  type PullRequestUpdateMethod,
+  type PullRequestRef,
+  type PullRequestReviewGuideStop,
+  resolveEnvironmentMachineKind,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import {
   ArrowDownUpIcon,
   ArrowLeftIcon,
   ArrowUpRightIcon,
   BookOpenIcon,
+  CheckIcon,
   CircleDotIcon,
+  CopyIcon,
   ChevronDownIcon,
+  ExternalLinkIcon,
   FileDiffIcon,
   FolderGit2Icon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
-  GitMergeIcon,
-  GitPullRequestClosedIcon,
-  GitPullRequestDraftIcon,
-  GitPullRequestIcon,
   HammerIcon,
   MessageCircleQuestionIcon,
   MessageSquareIcon,
   LinkIcon,
   MoreHorizontalIcon,
   PanelRightIcon,
-  PencilIcon,
-  RefreshCwIcon,
-  ServerIcon,
+  PlayIcon,
+  RotateCcwIcon,
+  SparklesIcon,
   TriangleAlertIcon,
 } from "lucide-react";
 import {
@@ -41,38 +53,56 @@ import {
   type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
+import { useRightPanelStore } from "~/rightPanelStore";
+import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useNewThreadHandler } from "~/hooks/useHandleNewThread";
-import { useCopyToClipboard, writeTextToClipboard } from "~/hooks/useCopyToClipboard";
+import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { isCommandPaletteOpen } from "~/commandPaletteBus";
+import {
+  resolveShortcutCommand,
+  shortcutLabelForCommand,
+  type ShortcutMatchContext,
+} from "~/keybindings";
+import { primaryServerKeybindingsAtom } from "~/state/server";
+import { usePullRequestDefaultMergeMethodResolver } from "./usePullRequestActions";
+import { changeRequestRepositoryUrl, gitHubPullRequestBrowserUrl } from "~/lib/openPullRequestLink";
 import { usePreparePullRequestThreadAction } from "~/lib/sourceControlActions";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import type { ReviewCommentContext } from "~/reviewCommentContext";
-import { useProjects } from "~/state/entities";
+import { useProjects, useServerConfigs } from "~/state/entities";
 import { useEnvironments } from "~/state/environments";
 import { useEnvironmentQuery } from "~/state/query";
+import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
-import { pullRequestEnvironment } from "~/state/pullRequests";
-import { useAtomCommand } from "~/state/use-atom-command";
-import { formatRelativeTimeLabel } from "~/timestampFormat";
-
 import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-} from "../ui/alert-dialog";
+  pullRequestEnvironment,
+  pullRequestListEntryToSummary,
+  newestPullRequestSummary,
+  usePullRequestTurnRefresh,
+  useSharedPullRequestSummary,
+} from "~/state/pullRequests";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { PullRequestStackMenu } from "./PullRequestStackMenu";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { PullRequestThreadLinks } from "./PullRequestThreadLinks";
+import { vcsEnvironment } from "~/state/vcs";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { useUiStateStore } from "~/uiStateStore";
+
+import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { PullRequestEditButton } from "./PullRequestEditButton";
 import { Input } from "../ui/input";
 import {
   Menu,
@@ -81,21 +111,33 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuShortcut,
   MenuTrigger,
 } from "../ui/menu";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { toastManager } from "../ui/toast";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
+import { MiddleTruncate } from "../ui/middle-truncate";
+import {
+  PullRequestChecksStatusLine,
+  PullRequestDetailHeaderBody,
+  PullRequestDetailTabBar,
+  PullRequestDetailTitleRow,
+} from "./PullRequestDetailLayout";
 import { PullRequestDetailGhost, PullRequestTimelineGhost } from "./PullRequestGhosts";
+import { PullRequestCopyableCode } from "./PullRequestCopyableCode";
 import { PullRequestActivityUnavailableState } from "./PullRequestActivityUnavailableState";
 import { DiffPanelLoadingState } from "../DiffPanelShell";
 import { PullRequestsUnavailableState } from "./PullRequestsUnavailableState";
 import type { PullRequestAgentSelectionInput } from "./PullRequestCodeTab";
 import { openOnHostLabel, showPullRequestLinkContextMenu } from "./pullRequestLinkContextMenu";
+import { PullRequestMarkdownContext } from "./PullRequestMarkdown";
+import { PullRequestComposer } from "./PullRequestComposer";
 import { PullRequestSummaryTab } from "./PullRequestSummaryTab";
 import { PullRequestTimelineTab } from "./PullRequestTimelineTab";
 import {
   buildAddSelectionToAgentHandoff,
+  buildAskAboutGuideStopHandoff,
   buildAskAboutPullRequestHandoff,
   buildExplainPullRequestHandoff,
   buildFixFindingHandoff,
@@ -104,15 +146,27 @@ import {
   handoffPrompt,
   handoffReviewComments,
   latestPullRequestReviewOutcomes,
+  loadingPullRequestCheckoutCommand,
+  isPullRequestNotFound,
+  isStackedPullRequestBase,
   pullRequestActionMenuHasGroup,
   pullRequestActionNeedsHostRefresh,
-  pullRequestComposerTarget,
+  pullRequestCheckoutCommand,
   pullRequestFindingKey,
   pullRequestHandoffLabels,
+  PULL_REQUEST_MERGE_METHOD_LABELS,
   readableFailure,
+  readPullRequestDetailSnapshot,
+  resolvePullRequestReferenceHost,
+  resolveDisplayedPullRequestDetail,
+  resolvePullRequestPrimaryControl,
+  allowsSinglePullRequestMerge,
   resolveBaseFreshness,
+  resolvePullRequestMergeMethod,
   type PullRequestFinding,
   shouldRefreshPullRequestActivity,
+  stripPullRequestHandoffReferences,
+  writePullRequestDetailSnapshot,
 } from "./pullRequestDetail.logic";
 import { canEditPullRequestChangeRequest } from "./pullRequestEditing.logic";
 import {
@@ -126,26 +180,18 @@ import {
   PullRequestMetaLine,
   PullRequestReviewOutcomeIcon,
   pullRequestChecksState,
+  pullRequestChecksStatePresentation,
   pullRequestReviewOutcomeToneClassName,
   resolvePullRequestState,
   summarizePullRequestChecks,
 } from "./pullRequestPresentation";
+import { PullRequestGlyph } from "./pullRequestIcons";
+import { PullRequestGuideTab } from "./PullRequestGuideTab";
+import { guideRunKey, useGuideRunStore } from "./guide/guideRunStore";
+import { useReviewGuideWriter } from "./guide/useReviewGuideWriter";
+import { useInlineActionConfirm } from "./useInlineActionConfirm";
 
-type DetailTab = "summary" | "timeline" | "code";
-
-const ACTION_SUCCESS_LABELS: Record<PullRequestAction, string> = {
-  merge: "Pull request merged",
-  ready: "Marked ready for review",
-  draft: "Converted to draft",
-  close: "Pull request closed",
-  reopen: "Pull request reopened",
-  "update-branch": "Branch updated with the base branch",
-  // True whichever it did: a pull request that was already mergeable merges the moment this is
-  // armed, and the client has no way to tell that apart from one still waiting on something.
-  "enable-auto-merge":
-    "Auto-merge turned on — merges as soon as this is ready, sooner if it already is",
-  "disable-auto-merge": "Auto-merge turned off",
-};
+type DetailTab = "summary" | "guide" | "timeline" | "code";
 
 /** Said as the thing that did not happen, rather than as the operation that returned an error. */
 const ACTION_FAILURE_LABELS: Record<PullRequestAction, string> = {
@@ -157,6 +203,8 @@ const ACTION_FAILURE_LABELS: Record<PullRequestAction, string> = {
   "update-branch": "Could not update this branch",
   "enable-auto-merge": "Could not turn on auto-merge",
   "disable-auto-merge": "Could not turn off auto-merge",
+  revert: "Could not open a revert pull request",
+  "approve-workflows": "Could not approve workflows",
 };
 
 /** What to try, for the times the host says only that it refused. */
@@ -178,6 +226,10 @@ const ACTION_FAILURE_HINTS: Record<PullRequestAction, string> = {
     "The host refused it. Check that this repository allows auto-merge, that you have write access, and that there is something left for it to wait on.",
   "disable-auto-merge":
     "The host refused it. Check that you have write access, and that the merge has not already happened.",
+  revert:
+    "The host refused it. Check that you have write access and that this pull request was merged on the host.",
+  "approve-workflows":
+    "The host refused it. Check that you have Actions write access and that these workflow runs are still awaiting approval.",
 };
 
 /**
@@ -190,13 +242,13 @@ const UPDATE_BRANCH_REBASE_FAILURE_HINT =
 
 const TABS: ReadonlyArray<{ value: DetailTab; label: string }> = [
   { value: "summary", label: "Summary" },
+  { value: "guide", label: "Guide" },
   { value: "timeline", label: "Timeline" },
   { value: "code", label: "Code" },
 ];
 
-// The diff viewer pulls in its worker pool, so it stays out of the bundle until Code is opened.
-// Named rather than inlined so the panel can also call it itself, to start the download before
-// anyone has clicked the tab.
+// The diff viewer pulls in its worker pool, so load it only when the reader approaches Code.
+// Start the download on tab hover or focus, before the click, without loading it for every PR.
 const loadCodeTab = () => import("./PullRequestCodeTab");
 const PullRequestCodeTab = lazy(loadCodeTab);
 
@@ -243,7 +295,10 @@ function ActOnEnvironmentPicker({
             {/* The radio item lays its children out as one block, so the icon and the label
                 need their own row to share a line. */}
             <span className="flex min-w-0 items-center gap-2">
-              <ServerIcon className="size-3.5 shrink-0" />
+              <EnvironmentMachineIcon
+                kind={environment.machine ?? "server"}
+                className="size-3.5 shrink-0"
+              />
               <span className="truncate">{environment.label}</span>
             </span>
           </MenuRadioItem>
@@ -263,7 +318,7 @@ const openNumberContextMenu = (
   event.stopPropagation();
   void showPullRequestLinkContextMenu({
     url: detail.url,
-    openLabel: openOnHostLabel(detail.provider),
+    openLabel: openOnHostLabel(sourceControlClients.get(detail.provider)),
     position: { x: event.clientX, y: event.clientY },
   });
 };
@@ -284,6 +339,8 @@ function PullRequestBaseFreshnessWarning({
   pending,
   onUpdate,
   iconClassName,
+  className,
+  children,
 }: {
   readonly baseBranch: string;
   readonly freshness: {
@@ -293,6 +350,9 @@ function PullRequestBaseFreshnessWarning({
   readonly pending: boolean;
   readonly onUpdate: (method: PullRequestUpdateMethod) => void;
   readonly iconClassName?: string;
+  readonly className?: string;
+  /** What the warning is about, drawn in the same amber before the mark: the base branch. */
+  readonly children?: ReactNode;
 }) {
   const behind =
     freshness.behindBy === null
@@ -311,18 +371,17 @@ function PullRequestBaseFreshnessWarning({
           <button
             type="button"
             aria-label={summary}
-            className="inline-flex shrink-0 cursor-help items-center rounded-sm text-amber-600 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "inline-flex min-w-0 shrink-0 cursor-help items-center gap-1 rounded-sm text-warning-foreground outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+              className,
+            )}
           />
         }
       >
-        <TriangleAlertIcon aria-hidden className={cn("size-3.5", iconClassName)} />
+        {children}
+        <TriangleAlertIcon aria-hidden className={cn("size-3.5 shrink-0", iconClassName)} />
       </PopoverTrigger>
-      <PopoverPopup
-        align="start"
-        side="bottom"
-        className="max-w-80"
-        viewportClassName="py-2.5 [--viewport-inline-padding:--spacing(3)]"
-      >
+      <PopoverPopup align="start" side="bottom" className="max-w-80" padding="compact">
         <p className="text-xs text-foreground">{summary}</p>
         <p className="mt-0.5 text-xs text-muted-foreground">Changes can be cleanly merged.</p>
         {/* Each way the host offers and this reader may take, as its own button: a split button
@@ -337,7 +396,7 @@ function PullRequestBaseFreshnessWarning({
                 disabled={pending}
                 onClick={() => onUpdate(method)}
               >
-                <GitMergeIcon aria-hidden className="size-3" />
+                <PullRequestGlyph.merged aria-hidden className="size-3" />
                 {method === "rebase" ? "Update with rebase" : "Update branch"}
               </Button>
             ))}
@@ -350,17 +409,34 @@ function PullRequestBaseFreshnessWarning({
 
 export function PullRequestDetailPanel({
   environmentId,
-  reference,
+  shortcutsEnabled,
+  getShortcutContext,
+  threadRef = null,
+  reference: requestedReference,
+  listEntry = null,
   refreshToken: forcedRefreshToken = 0,
   onActed,
   onClose,
-  onStateChange,
   context = "page",
-  chromeVariant = "full",
   composerDraftTarget,
+  onBack,
+  onSelectPullRequest,
+  onGuideShown,
 }: {
   environmentId: EnvironmentId;
+  shortcutsEnabled: boolean;
+  getShortcutContext: () => ShortcutMatchContext;
+  onSelectPullRequest?: ((reference: PullRequestRef) => void) | undefined;
+  /**
+   * The thread this panel sits beside, if any. Links that are not the pull
+   * request itself (check details, host permalinks) can open in that thread's
+   * in-app browser when the user has asked for it; the page has no thread, so
+   * there they always go to the system browser.
+   */
+  threadRef?: ScopedThreadRef | null;
   reference: PullRequestRef;
+  /** Row fields already loaded by the pull-request list, used while richer detail arrives. */
+  listEntry?: PullRequestListEntry | null;
   /**
    * Bumped by whatever holds the panel when a reader asks for everything on screen to be read
    * again. The panel owns its own reads, so the page cannot refresh them for it — it says when,
@@ -371,36 +447,63 @@ export function PullRequestDetailPanel({
    * An action changed this pull request on the host, so a list showing it is now out of date.
    * Told rather than assumed: only the page knows whether it is showing one.
    */
-  onActed?: () => void;
+  /**
+   * Each host action as it goes: "sent" the moment it leaves, so a list can answer before the
+   * host does; "done" or "failed" when the host has spoken. Undefined for one the caller cannot
+   * name, which is only ever "done".
+   */
+  onActed?: (action?: PullRequestAction, phase?: "sent" | "done" | "failed") => void;
   /** Page-owned detail columns use this to clear the selected pull request. */
   onClose?: () => void;
-  /** Keeps compact chrome, such as the right-panel tab, in step with refreshed host state. */
-  onStateChange?: (status: {
-    projectId: string;
-    repository: string;
-    number: number;
-    state: PullRequestState;
-    isDraft: boolean;
-  }) => void;
   /**
    * Beside a thread, the checkout affordance disappears: the panel is showing that thread's
    * own pull request, so the branch is already under the reader's feet — and checking it out
    * again is at best a no-op and at worst git refusing a branch two checkouts.
    */
   context?: "page" | "thread";
-  /**
-   * How the metadata above the content behaves: `full` keeps every row pinned; `collapse`
-   * folds the whole of it into the top row once the active tab scrolls, and unfolds at the
-   * top — the chrome spends its height on what is being read.
-   */
-  chromeVariant?: "full" | "collapse";
-  /**
-   * The open thread's composer. Beside the thread whose own pull request this is, hand-offs
-   * land here instead of opening a new thread — the branch is already under the reader's feet.
-   */
+  /** The open thread's composer. */
   composerDraftTarget?: ScopedThreadRef | DraftId;
+  /**
+   * Beside a thread, the way back to that thread's list of pull requests. The tab strip can
+   * close this surface, but closing is not going back: the reader came from the list and
+   * expects to land on it, with this one still open behind.
+   */
+  onBack?: (() => void) | undefined;
+  /** Told when a written guide comes on screen. The page maximizes its panel for the guide. */
+  onGuideShown?: (() => void) | undefined;
 }) {
-  const pullRequestKey = `${reference.projectId}:${reference.repository}#${reference.number}`;
+  const environmentConfigs = useServerConfigs();
+  const projects = useProjects();
+  const project = projects.find(
+    (project) =>
+      project.id === requestedReference.projectId && project.environmentId === environmentId,
+  );
+  const repositoryIdentity = project?.repositoryIdentity;
+  const supportsThreadPullRequests =
+    environmentConfigs.get(environmentId)?.environment.capabilities.threadPullRequests === true;
+  const reference = useMemo(
+    () =>
+      supportsThreadPullRequests
+        ? resolvePullRequestReferenceHost(requestedReference, repositoryIdentity)
+        : {
+            projectId: requestedReference.projectId,
+            repository: requestedReference.repository,
+            number: requestedReference.number,
+          },
+    [requestedReference, repositoryIdentity, supportsThreadPullRequests],
+  );
+  const pullRequestKey = `${reference.projectId}:${reference.host ?? ""}:${reference.repository}#${reference.number}`;
+  const matchingListEntry =
+    listEntry?.projectId === reference.projectId &&
+    listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
+    (reference.host === undefined ||
+      listEntry.host.toLowerCase() === reference.host.toLowerCase()) &&
+    listEntry.number === reference.number
+      ? listEntry
+      : null;
+  const [threadPickerOpen, setThreadPickerOpen] = useState(false);
+  // Counted up by the guide's last stop to open the composer on the review.
+  const [openReviewRequest, setOpenReviewRequest] = useState(0);
   const [tab, setTab] = useState<DetailTab>("summary");
   const [timelineOrder, setTimelineOrder] = useState<"newest" | "oldest">("newest");
   const [codeCommitScope, setCodeCommitScope] = useState<{
@@ -416,81 +519,217 @@ export function PullRequestDetailPanel({
     selectCodeCommit(oid);
     setTab("code");
   };
+  // The guide names files; following one shows it in the whole diff, not a single commit's.
+  const [codeRevealRequest, setCodeRevealRequest] = useState<{
+    readonly path: string;
+    readonly nonce: number;
+  } | null>(null);
+  const openFileInCode = (path: string) => {
+    selectCodeCommit(null);
+    setCodeRevealRequest((previous) => ({ path, nonce: (previous?.nonce ?? 0) + 1 }));
+    void loadCodeTab();
+    setTab("code");
+  };
+  // A guide notice asks for its pull request's Guide tab once the page has opened it.
+  const guideOpenRequested = useGuideRunStore(
+    (state) => state.openRequestKey === guideRunKey(environmentId, reference),
+  );
+  if (guideOpenRequested && tab !== "guide") setTab("guide");
+  useEffect(() => {
+    if (guideOpenRequested) useGuideRunStore.getState().requestOpen(null);
+  }, [guideOpenRequested]);
   // Every tab the reader has opened stays mounted behind the active one. The diff viewer
   // always needed this (it virtualizes against its own scroll position); the trace showed the
   // summary needs it too — a large description re-parses its whole markdown on every return
   // to the tab. `visibility` keeps boxes, sizes and scroll offsets, and takes hidden content
   // out of the tab order and the accessibility tree.
-  const [mountedTabs, setMountedTabs] = useState<ReadonlySet<DetailTab>>(
-    () => new Set<DetailTab>(["summary"]),
-  );
+  const tabScopeKey = `${environmentId}:${pullRequestKey}`;
+  const [tabMountState, setTabMountState] = useState(() => ({
+    key: tabScopeKey,
+    tabs: new Set<DetailTab>(["summary"]),
+  }));
+  // A previously visited Code tab must not fetch diffs for every later PR while hidden.
+  const mountedTabs =
+    tabMountState.key === tabScopeKey ? tabMountState.tabs : new Set<DetailTab>([tab]);
   useEffect(() => {
-    setMountedTabs((previous) =>
-      previous.has(tab) ? previous : new Set<DetailTab>(previous).add(tab),
-    );
-  }, [tab]);
+    setTabMountState((previous) => {
+      if (previous.key !== tabScopeKey) return { key: tabScopeKey, tabs: new Set([tab]) };
+      if (previous.tabs.has(tab)) return previous;
+      return { key: tabScopeKey, tabs: new Set(previous.tabs).add(tab) };
+    });
+  }, [tab, tabScopeKey]);
   const [chromeCondensed, setChromeCondensed] = useState(false);
-  // Each tab remembers whether its chrome was condensed. Only the active tab can emit scroll
-  // events, so the capture handler always writes the active tab's entry — and a tab switch
-  // reads the destination's memory instead of inheriting the tab being left. A tab too short
-  // to scroll remembers "expanded", which is what keeps it from being stranded under a chrome
-  // it has no scrollbar to reopen.
+  // Each mounted tab remembers its own scroll chrome; short tabs cannot scroll to reopen it.
   const chromeStateByTab = useRef<Partial<Record<DetailTab, boolean>>>({});
   useEffect(() => {
     setChromeCondensed(chromeStateByTab.current[tab] ?? false);
   }, [tab]);
-  const condensed = chromeVariant === "collapse" && chromeCondensed;
-  // Collapsing removes the fold's height from the chrome, which would otherwise hand that
-  // height to the scrollport and leap the content up by it mid-scroll. The cure is exact
-  // compensation: collapse only once the reader has scrolled at least the fold's height,
-  // then give that height back to `scrollTop` before the next paint — the content under
-  // their eyes does not move, and the collapse itself is the only thing that changes.
-  const scrollerRef = useRef<HTMLElement | null>(null);
+  const condensed = chromeCondensed;
+  const scrollerByTab = useRef<Partial<Record<DetailTab, HTMLDivElement | null>>>({});
+  const scrollerRefs = useMemo(
+    () => ({
+      summary: (node: HTMLDivElement | null) => {
+        scrollerByTab.current.summary = node;
+      },
+      timeline: (node: HTMLDivElement | null) => {
+        scrollerByTab.current.timeline = node;
+      },
+      code: (node: HTMLDivElement | null) => {
+        scrollerByTab.current.code = node;
+      },
+    }),
+    [],
+  );
   const foldRef = useRef<HTMLDivElement | null>(null);
-  // The condensed chrome's second row opens as the fold closes, so the height the scrollport
-  // gains is the fold's minus this row's. Measured the same way the fold is: `scrollHeight`
-  // through a zero track reads its natural height in either state.
   const condensedRowRef = useRef<HTMLDivElement | null>(null);
-  const compensationRef = useRef<number | null>(null);
+  // Refund after the fold commits so the content under the reader does not jump with its height.
+  const compensationRef = useRef<{
+    tab: DetailTab;
+    scroller: HTMLDivElement;
+    delta: number;
+  } | null>(null);
   useLayoutEffect(() => {
-    if (compensationRef.current === null) return;
-    const scroller = scrollerRef.current;
-    const delta = compensationRef.current;
+    const compensation = compensationRef.current;
+    if (compensation === null) return;
     compensationRef.current = null;
-    if (scroller) scroller.scrollTop = Math.max(0, scroller.scrollTop + delta);
-  }, [condensed]);
-  const [mergeMethod, setMergeMethod] = useState<PullRequestMergeMethod>("merge");
-  const [confirmAction, setConfirmAction] = useState<
-    "merge" | "close" | "enable-auto-merge" | null
-  >(null);
+    if (
+      !condensed ||
+      compensation.tab !== tab ||
+      scrollerByTab.current[tab] !== compensation.scroller
+    )
+      return;
+    compensation.scroller.scrollTop = Math.max(
+      0,
+      compensation.scroller.scrollTop + compensation.delta,
+    );
+  }, [condensed, tab]);
+  const lastSelectedMergeMethod = useUiStateStore((state) => state.pullRequestMergeMethod);
+  const setLastSelectedMergeMethod = useUiStateStore((state) => state.setPullRequestMergeMethod);
+  const resolveProjectDefaultMergeMethod = usePullRequestDefaultMergeMethodResolver(
+    environmentId,
+    reference.projectId,
+  );
+  const projectDefaultMergeMethod = useMemo(
+    () => resolveProjectDefaultMergeMethod(),
+    [resolveProjectDefaultMergeMethod],
+  );
+  const [mergeMethodSelection, setMergeMethodSelection] = useState<{
+    readonly pullRequestKey: string;
+    readonly method: PullRequestMergeMethod;
+  } | null>(null);
+  const setMergeMethod = (method: PullRequestMergeMethod) => {
+    setMergeMethodSelection({ pullRequestKey, method });
+  };
+  const inlineConfirm = useInlineActionConfirm(pullRequestKey);
   // Which handoff is preparing, keyed so a per-finding button can say "Preparing..." on itself
   // alone. One at a time whatever the key: they all check the same pull request out.
   const [handoff, setHandoff] = useState<string | null>(null);
-  const { copyToClipboard: copyBranchToClipboard, isCopied: isBranchCopied } = useCopyToClipboard({
-    target: "branch name",
-    timeout: 1600,
-  });
-
-  // The chunk is fetched as soon as the panel exists rather than waiting for the Code tab to be
-  // clicked, so a reader who does click it lands on a chunk already in the module cache.
-  useEffect(() => {
-    void loadCodeTab();
-  }, []);
-
+  const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
   const detailQuery = useEnvironmentQuery(
     pullRequestEnvironment.detail({ environmentId, input: reference }),
   );
   const activityQuery = useEnvironmentQuery(
     pullRequestEnvironment.activity({ environmentId, input: reference }),
   );
-  // Detail and diff are independent server reads, so the diff for the default view (no commit,
-  // no cursor) is started here too rather than waiting for the Code tab to mount. This is one
-  // extra cached read per opened pull request even for readers who never open the tab, but it
-  // turns the tab's first paint from a cold request into a cache hit.
-  const _diffWarmUpQuery = useEnvironmentQuery(
-    pullRequestEnvironment.diff({ environmentId, input: { ...reference } }),
+  const turnRefresh = usePullRequestTurnRefresh(environmentId);
+  const [cachedDetail, setCachedDetail] = useState(() =>
+    readPullRequestDetailSnapshot(
+      typeof window === "undefined" ? undefined : window.localStorage,
+      environmentId,
+      reference,
+    ),
   );
-  const coreDetail = detailQuery.data;
+  useEffect(() => {
+    setCachedDetail(
+      readPullRequestDetailSnapshot(
+        typeof window === "undefined" ? undefined : window.localStorage,
+        environmentId,
+        reference,
+      ),
+    );
+  }, [environmentId, pullRequestKey, reference.projectId, reference.repository, reference.number]);
+  useEffect(() => {
+    if (detailQuery.data === null) return;
+    writePullRequestDetailSnapshot(
+      typeof window === "undefined" ? undefined : window.localStorage,
+      environmentId,
+      reference,
+      detailQuery.data,
+    );
+    setCachedDetail(detailQuery.data);
+  }, [
+    detailQuery.data,
+    environmentId,
+    pullRequestKey,
+    reference.projectId,
+    reference.repository,
+    reference.number,
+  ]);
+  const resolvedCoreDetail = resolveDisplayedPullRequestDetail({
+    live: detailQuery.data,
+    cached: cachedDetail,
+    reference,
+  });
+  const listSummary = useMemo(
+    () => (matchingListEntry === null ? null : pullRequestListEntryToSummary(matchingListEntry)),
+    [matchingListEntry],
+  );
+  const detailSummary = useMemo(
+    () =>
+      detailQuery.data === null
+        ? null
+        : {
+            ...detailQuery.data,
+            checksState: pullRequestChecksState(detailQuery.data.checks),
+          },
+    [detailQuery.data],
+  );
+  const observedSummary = useSharedPullRequestSummary(
+    environmentId,
+    reference,
+    detailSummary,
+    detailQuery.dataUpdatedAt,
+  );
+  // The list row is also published to the shared cache, but only after this commit's layout
+  // effects run, so it is compared directly rather than trusted to be there already.
+  const sharedSummary = useMemo(
+    () =>
+      newestPullRequestSummary(
+        resolvedCoreDetail,
+        newestPullRequestSummary(observedSummary, listSummary),
+      ),
+    [resolvedCoreDetail, observedSummary, listSummary],
+  );
+  const coreDetail = useMemo(
+    () =>
+      resolvedCoreDetail === null || sharedSummary === null || sharedSummary === resolvedCoreDetail
+        ? resolvedCoreDetail
+        : {
+            ...resolvedCoreDetail,
+            title: sharedSummary.title,
+            state: sharedSummary.state,
+            headBranch: sharedSummary.headBranch,
+            baseBranch: sharedSummary.baseBranch,
+            updatedAt: sharedSummary.updatedAt,
+            author: sharedSummary.author ?? resolvedCoreDetail.author,
+            additions: sharedSummary.additions ?? resolvedCoreDetail.additions,
+            deletions: sharedSummary.deletions ?? resolvedCoreDetail.deletions,
+            changedFiles: sharedSummary.changedFiles ?? resolvedCoreDetail.changedFiles,
+            mergeability: sharedSummary.mergeability ?? resolvedCoreDetail.mergeability,
+            closedAt:
+              sharedSummary.closedAt === undefined
+                ? resolvedCoreDetail.closedAt
+                : sharedSummary.closedAt,
+            mergedAt:
+              sharedSummary.mergedAt === undefined
+                ? resolvedCoreDetail.mergedAt
+                : sharedSummary.mergedAt,
+            // A summary may come from an older server that does not report draft state. Keep the
+            // detail's required value instead of making the complete detail shape partial.
+            isDraft: sharedSummary.isDraft ?? resolvedCoreDetail.isDraft,
+          },
+    [resolvedCoreDetail, sharedSummary],
+  );
   const activity = activityQuery.data;
   const detail = useMemo(
     () =>
@@ -498,6 +737,25 @@ export function PullRequestDetailPanel({
         ? null
         : {
             ...coreDetail,
+            capabilities: canWriteSourceControl
+              ? coreDetail.capabilities
+              : {
+                  ...coreDetail.capabilities,
+                  reactions: false,
+                  edit: { changeRequest: false, comment: false },
+                },
+            viewerPermissions: canWriteSourceControl
+              ? coreDetail.viewerPermissions
+              : {
+                  ...coreDetail.viewerPermissions,
+                  actions: [],
+                  comment: false,
+                  resolve: false,
+                  verdicts: [],
+                  requestReviewers: false,
+                  updateMethods: [],
+                  labels: false,
+                },
             author: activity?.author ?? coreDetail.author,
             reviewers: activity?.reviewers ?? coreDetail.reviewers,
             comments: activity?.comments ?? [],
@@ -507,52 +765,158 @@ export function PullRequestDetailPanel({
             commits: activity?.commits ?? [],
             reactions: activity?.reactions ?? [],
           },
-    [activity, coreDetail],
+    [activity, canWriteSourceControl, coreDetail],
   );
+  const handoffSummary = detail ?? sharedSummary;
+  const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const { copyToClipboard: copyReference } = useCopyToClipboard<string>({
+    target: "pull request reference",
+    onCopy: (label) => toastManager.add({ type: "success", title: `${label} copied` }),
+    onError: (error, label) =>
+      toastManager.add({
+        type: "error",
+        title: `Failed to copy ${label}`,
+        description: error.message,
+      }),
+  });
+  const copyFromShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (!shortcutsEnabled || event.defaultPrevented || isCommandPaletteOpen()) return;
+    const command = resolveShortcutCommand(event, keybindings, {
+      context: getShortcutContext(),
+    });
+    if (command !== "pullRequest.copyNumber") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!event.repeat) copyReference(`#${reference.number}`, "PR number");
+  });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => copyFromShortcut(event);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
+  useEffect(() => {
+    if (detail?.autoMergeMethod !== undefined) setMergeMethod(detail.autoMergeMethod);
+  }, [detail?.autoMergeMethod, pullRequestKey]);
+  const repositoryUrl = detail === null ? null : changeRequestRepositoryUrl(detail.url);
+  const hostClient = sourceControlClients.get(detail?.provider);
+  const markdownContext = useMemo(
+    () => ({
+      repositoryUrl:
+        repositoryUrl === null ? null : hostClient.referenceAutolinkRepositoryUrl(repositoryUrl),
+      threadRef,
+    }),
+    [hostClient, repositoryUrl, threadRef],
+  );
+  const authorProfileUrl =
+    detail?.author && repositoryUrl !== null
+      ? hostClient.authorProfileUrl(detail.author.login, repositoryUrl)
+      : null;
+  const checkoutCommand = handoffSummary
+    ? pullRequestCheckoutCommand(
+        handoffSummary.provider,
+        handoffSummary.number,
+        handoffSummary.headBranch,
+        detail?.headRepositoryNameWithOwner,
+        changeRequestRepositoryUrl(handoffSummary.url),
+      )
+    : loadingPullRequestCheckoutCommand(reference, repositoryIdentity);
+  const onCheckoutCommandError = useCallback((error: Error) => {
+    toastManager.add({
+      type: "error",
+      title: "Could not copy checkout command",
+      description: error.message,
+    });
+  }, []);
+  const branchRefsQuery = useEnvironmentQuery(
+    detail === null
+      ? null
+      : vcsEnvironment.listRefs({
+          environmentId,
+          input: {
+            cwd: detail.workspaceRoot,
+            includeMatchingRemoteRefs: true,
+            // listRefs keeps the current ref first and a known default second.
+            limit: 2,
+          },
+        }),
+  );
+  const isStackedPullRequest =
+    detail !== null &&
+    isStackedPullRequestBase(detail.baseBranch, branchRefsQuery.data?.refs ?? []);
+  // The host's own stack, where it keeps one. Only asked for once the detail has landed so a
+  // pull request nobody can read costs one request rather than two.
+  const stackReference = useMemo(
+    () =>
+      detail === null || detail.capabilities.stacks !== true || !supportsThreadPullRequests
+        ? null
+        : { ...reference, host: reference.host ?? parseChangeRequestUrl(detail.url)?.host },
+    [detail, reference, supportsThreadPullRequests],
+  );
+  const nativeStackQuery = usePullRequestStack(environmentId, stackReference);
+  const nativeStack = nativeStackQuery.data;
+  const supportsStackActions =
+    supportsThreadPullRequests &&
+    detail?.capabilities.stacks === true &&
+    detail.capabilities.stackActions === true &&
+    environmentConfigs.get(environmentId)?.environment.capabilities.pullRequestStackActions ===
+      true;
+  const canMergeSinglePullRequest = allowsSinglePullRequestMerge({
+    supportsStackActions,
+    hasStack: nativeStack !== null,
+    stackPending: !nativeStackQuery.isFresh,
+    stackError: nativeStackQuery.error,
+  });
   const activityPending = activityQuery.isPending && activity === null;
   const activityError = activity === null ? activityQuery.error : null;
   const refreshDetail = useCallback(() => {
     detailQuery.refresh();
     activityQuery.refresh();
-  }, [activityQuery.refresh, detailQuery.refresh]);
+    nativeStackQuery.refresh();
+  }, [activityQuery.refresh, detailQuery.refresh, nativeStackQuery.refresh]);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const codeRefreshToken = refreshToken + (turnRefresh ?? 0);
   const activityRevision = useRef<{ readonly key: string; readonly updatedAt: string } | null>(
     null,
   );
   useEffect(() => {
     if (!coreDetail) return;
-    const next = { key: pullRequestKey, updatedAt: coreDetail.updatedAt };
+    const next = { key: tabScopeKey, updatedAt: coreDetail.updatedAt };
     if (shouldRefreshPullRequestActivity(activityRevision.current, next)) {
+      // Let an existing read settle before revalidating the new revision. Interrupting a
+      // mutation's activity refresh can leave SWR displaying its previous value.
+      if (activityQuery.isPending) return;
       activityQuery.refresh();
+      setRefreshToken((token) => token + 1);
     }
     activityRevision.current = next;
-  }, [activityQuery.refresh, coreDetail, pullRequestKey]);
-  useEffect(() => {
-    if (!detail) return;
-    onStateChange?.({
-      projectId: detail.projectId,
-      repository: detail.repository,
-      number: detail.number,
-      state: detail.state,
-      isDraft: detail.isDraft,
-    });
-  }, [detail, onStateChange]);
-  // Core detail is cheap enough to re-read while this stays open. Activity is heavier, so the
-  // revision effect above reads it only after this same pull request reports a change. Keyed by
+  }, [activityQuery.isPending, activityQuery.refresh, coreDetail, tabScopeKey]);
+  // Reuse activity and diff until core detail reports a changed revision. Keyed by
   // the pull request rather than by the panel, because this one panel shows a different pull
   // request every time it is opened.
-  useLiveRefresh(detailQuery.refresh, {
-    key: `pull-request:${reference.projectId}:${reference.repository}#${reference.number}`,
-  });
+  useLiveRefresh(
+    () => {
+      detailQuery.refresh();
+    },
+    { key: `pull-request:${environmentId}:${pullRequestKey}` },
+  );
   // The button, on the other hand, goes around the server's cache rather than through it: it is
   // the answer for a reader who can see that what they are looking at is behind. The
   // invalidation goes first so the re-reads miss that cache; if it fails, the reads still run
   // and at worst answer from it.
   const invalidate = useAtomCommand(pullRequestEnvironment.invalidate, { reportFailure: false });
-  const [refreshToken, setRefreshToken] = useState(0);
+  const [isInvalidating, setIsInvalidating] = useState(false);
+  // One word for "the host is being asked again", whichever of the two halves is in flight:
+  // the invalidation round trip, then the detail read it kicks off.
+  const refreshing = isInvalidating || detailQuery.isPending;
   const refreshFromHost = useCallback(async () => {
-    await invalidate({ environmentId, input: { reference } });
-    refreshDetail();
-    setRefreshToken((token) => token + 1);
+    setIsInvalidating(true);
+    try {
+      await invalidate({ environmentId, input: { reference } });
+      refreshDetail();
+      setRefreshToken((token) => token + 1);
+    } finally {
+      setIsInvalidating(false);
+    }
   }, [environmentId, invalidate, reference, refreshDetail]);
   // A refresh asked for by the page: the detail, and through the token below, the diff with it.
   const appliedForcedToken = useRef(forcedRefreshToken);
@@ -561,7 +925,12 @@ export function PullRequestDetailPanel({
     appliedForcedToken.current = forcedRefreshToken;
     void refreshFromHost();
   }, [forcedRefreshToken, refreshFromHost]);
-  const runAction = useAtomCommand(pullRequestEnvironment.runAction, { reportFailure: false });
+  const runAction = useAtomCommand(pullRequestEnvironment.runAction, {
+    reportFailure: false,
+  });
+  const postComment = useAtomCommand(pullRequestEnvironment.comment, {
+    reportFailure: false,
+  });
   // Which action is in flight, not merely that one is: every control here is disabled while any
   // of them runs, but only the button that was pressed may say what it is doing.
   const [pendingAction, setPendingAction] = useState<PullRequestAction | null>(null);
@@ -577,7 +946,12 @@ export function PullRequestDetailPanel({
   const [titleSaving, setTitleSaving] = useState(false);
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
-  const projects = useProjects();
+  const unavailableGitHubUrl = useMemo(() => {
+    const identity = projects.find(
+      (project) => project.id === reference.projectId && project.environmentId === environmentId,
+    )?.repositoryIdentity;
+    return gitHubPullRequestBrowserUrl(identity, reference.repository, reference.number);
+  }, [environmentId, projects, reference.number, reference.projectId, reference.repository]);
   // Beside a thread there is nothing to pick: the hand-offs land in that thread's composer, and
   // the thread is already on one server's copy of the branch.
   const pickableEnvironments = useMemo(
@@ -586,7 +960,11 @@ export function PullRequestDetailPanel({
         ? resolvePickableEnvironments(
             { environmentId, projectId: reference.projectId },
             projects,
-            environments,
+            environments.map((environment) => ({
+              environmentId: environment.environmentId,
+              label: environment.label,
+              machine: resolveEnvironmentMachineKind(environment.serverConfig),
+            })),
           )
         : [],
     [context, environmentId, environments, projects, reference.projectId],
@@ -604,18 +982,20 @@ export function PullRequestDetailPanel({
   const acting =
     pickableEnvironments.find((entry) => entry.environmentId === chosenEnvironmentId) ?? null;
   const actingEnvironmentId = acting?.environmentId ?? environmentId;
+  const checkoutRoot =
+    acting?.workspaceRoot ?? detail?.workspaceRoot ?? project?.workspaceRoot ?? null;
+  const canOperateThread = useEnvironmentScope(actingEnvironmentId, AuthOrchestrationOperateScope);
   const prepareThread = usePreparePullRequestThreadAction({
     environmentId: actingEnvironmentId,
-    cwd: acting?.workspaceRoot ?? detail?.workspaceRoot ?? null,
+    cwd: checkoutRoot,
   });
 
-  const perform = async (
+  const finishAction = async (
     action: PullRequestAction,
     method?: PullRequestMergeMethod,
     updateMethod?: PullRequestUpdateMethod,
   ) => {
-    if (pendingAction !== null) return;
-    setPendingAction(action);
+    onActed?.(action, "sent");
     const result = await runAction({
       environmentId,
       input: {
@@ -643,9 +1023,13 @@ export function PullRequestDetailPanel({
         title: ACTION_FAILURE_LABELS[action],
         description: readableFailure(failure, hint),
       });
-      return;
+      onActed?.(action, "failed");
+      return false;
     }
-    toastManager.add({ type: "success", title: ACTION_SUCCESS_LABELS[action] });
+    // Reverting opens another PR; the current panel has no new state to show.
+    if (action === "revert") {
+      toastManager.add({ type: "success", title: "Revert pull request opened" });
+    }
     // A branch update moves the head commit, which leaves the diff atom pointed at a comparison
     // that no longer exists — the same staleness the manual refresh button fixes, so it goes
     // through that path rather than a second one. Every other action here only changes metadata;
@@ -656,12 +1040,42 @@ export function PullRequestDetailPanel({
     } else {
       refreshDetail();
     }
-    onActed?.();
+    onActed?.(action, "done");
+    return true;
+  };
+
+  const perform = async (
+    action: PullRequestAction,
+    method?: PullRequestMergeMethod,
+    updateMethod?: PullRequestUpdateMethod,
+  ) => {
+    if (!canWriteSourceControl || pendingAction !== null) return false;
+    setPendingAction(action);
+    return finishAction(action, method, updateMethod);
+  };
+
+  const performCommentAction = async (body: string, action: "close" | "reopen") => {
+    if (!canWriteSourceControl || pendingAction !== null) return { commentPosted: false };
+    setPendingAction(action);
+    const commentResult = await postComment({
+      environmentId,
+      input: { ...reference, body },
+    });
+    if (commentResult._tag === "Failure") {
+      setPendingAction(null);
+      toastManager.add({ type: "error", title: "Could not post the comment" });
+      return { commentPosted: false };
+    }
+    const actionSucceeded = await finishAction(action);
+    // The comment is durable even if the state change was refused, so make it visible while the
+    // shared action failure explains why the pull request stayed where it was.
+    if (!actionSucceeded) refreshDetail();
+    return { commentPosted: true };
   };
 
   const saveTitle = async (next: string) => {
     const title = next.trim();
-    if (detail === null || titleSaving) return;
+    if (!canWriteSourceControl || detail === null || titleSaving) return;
     if (title.length === 0 || title === detail.title) {
       setTitleScope(null);
       return;
@@ -691,18 +1105,42 @@ export function PullRequestDetailPanel({
     reviewComments?: ReadonlyArray<ReviewCommentContext>;
   };
 
-  // Beside the thread whose own pull request this is, a task belongs in that thread's composer:
-  // the branch is already checked out under it, so opening a second thread would only scatter
-  // the work.
-  const attachTarget = pullRequestComposerTarget(context, composerDraftTarget);
+  const attachTarget = composerDraftTarget ?? null;
+  const canPrepareWorktree = prepareThread.isAllowed && canOperateThread;
+  const canFixFindings = attachTarget !== null || canPrepareWorktree;
   const handoffLabels = pullRequestHandoffLabels(attachTarget !== null);
+  // The guide is written from the menu as well as its tab, so a reader can ask for a rewrite
+  // without the tour carrying a control for it.
+  const guideWriter = useReviewGuideWriter({
+    environmentId,
+    reference,
+    title: detail?.title ?? null,
+  });
+  const writeGuide = () => {
+    void guideWriter.write();
+    if (guideWriter.data?.guide == null) setTab("guide");
+  };
 
   const writeTaskToComposer = (target: ScopedThreadRef | DraftId, task: ThreadTask) => {
     const store = useComposerDraftStore.getState();
     const draft = store.getComposerDraft(target);
     const key = composerTargetKey(target);
+    const previousCommentIds = new Set((draft?.reviewComments ?? []).map((comment) => comment.id));
+    const repeatedCommentIds = new Set(
+      (task.reviewComments ?? [])
+        .filter((comment) => previousCommentIds.has(comment.id))
+        .map((comment) => comment.id),
+    );
+    const promptWithoutPreviousHandoff = stripPullRequestHandoffReferences(
+      draft?.prompt ?? "",
+      draft?.reviewComments ?? [],
+      repeatedCommentIds,
+    );
     const prompt = handoffPrompt(
-      { prompt: draft?.prompt ?? "", lastHandoffPrompt: lastHandoffPromptByDraft.get(key) },
+      {
+        prompt: promptWithoutPreviousHandoff,
+        lastHandoffPrompt: lastHandoffPromptByDraft.get(key),
+      },
       task.prompt,
     );
     lastHandoffPromptByDraft.set(key, task.prompt);
@@ -711,6 +1149,13 @@ export function PullRequestDetailPanel({
       target,
       handoffReviewComments(draft?.reviewComments ?? [], task.reviewComments ?? []),
     );
+    for (const comment of task.reviewComments ?? []) {
+      if (!repeatedCommentIds.has(comment.id)) continue;
+      store.addReviewComment(target, comment, {
+        allowDuplicateReference: true,
+        insertAtCaret: false,
+      });
+    }
   };
 
   /**
@@ -741,8 +1186,16 @@ export function PullRequestDetailPanel({
     return session;
   };
 
-  /** A question about the change, which needs a thread and nothing else. */
-  const startAsk = async (kind: string, task: ThreadTask) => {
+  /**
+   * A question about the change, which needs a thread and nothing else. `keepGuide` keeps the
+   * reader's place: the new thread opens with this pull request beside it on the Guide tab, at the
+   * stop they asked from, so the answer and the tour can be read together.
+   */
+  const startAsk = async (
+    kind: string,
+    task: ThreadTask,
+    options?: { readonly keepGuide?: boolean },
+  ) => {
     if (!detail || handoff !== null) return;
     if (attachTarget !== null) {
       writeTaskToComposer(attachTarget, task);
@@ -760,6 +1213,22 @@ export function PullRequestDetailPanel({
     const projectRef = scopeProjectRef(actingEnvironmentId, acting?.projectId ?? detail.projectId);
     const opened = await openThreadWithTask(projectRef, task);
     setHandoff(null);
+    if (opened !== null && options?.keepGuide === true) {
+      const draft = useComposerDraftStore.getState().getDraftSession(opened.draftId);
+      if (draft !== null) {
+        useRightPanelStore
+          .getState()
+          .openPullRequest(scopeThreadRef(draft.environmentId, draft.threadId), {
+            environmentId,
+            projectId: reference.projectId,
+            ...(reference.host === undefined ? {} : { host: reference.host }),
+            repository: reference.repository,
+            number: reference.number,
+            url: detail.url,
+          });
+        useGuideRunStore.getState().requestOpen(guideRunKey(environmentId, reference));
+      }
+    }
     if (opened === null) {
       toastManager.add({
         type: "error",
@@ -791,7 +1260,7 @@ export function PullRequestDetailPanel({
     // already work — and it moves the branch under everything else that is open there.
     mode: "worktree" | "local" = "worktree",
   ) => {
-    if (!detail || handoff !== null) return;
+    if (!handoffSummary || handoff !== null) return;
     if (attachTarget !== null && task !== null) {
       writeTaskToComposer(attachTarget, task);
       toastManager.add({
@@ -799,6 +1268,19 @@ export function PullRequestDetailPanel({
         title: "Added to the composer",
         description: "The task is in the composer — read it over, then send.",
       });
+      return;
+    }
+    if (checkoutRoot === null) return;
+    if (
+      !prepareThread.isAllowed ||
+      !readEnvironmentScope(actingEnvironmentId, AuthSourceControlWriteScope)
+    ) {
+      return;
+    }
+    if (
+      mode === "worktree" &&
+      !readEnvironmentScope(actingEnvironmentId, AuthOrchestrationOperateScope)
+    ) {
       return;
     }
     setHandoff(kind);
@@ -811,7 +1293,10 @@ export function PullRequestDetailPanel({
     });
     // Wherever the reader chose to act: the thread, the checkout it is pointed at and the composer
     // the task lands in are all one server's, and picking another one moves all three.
-    const projectRef = scopeProjectRef(actingEnvironmentId, acting?.projectId ?? detail.projectId);
+    const projectRef = scopeProjectRef(
+      actingEnvironmentId,
+      acting?.projectId ?? handoffSummary.projectId,
+    );
     // The thread is opened before the checkout rather than after it, because the project's setup
     // script only runs for a checkout that knows which thread it is for — and a worktree with no
     // dependencies installed is not something anyone can test.
@@ -832,7 +1317,7 @@ export function PullRequestDetailPanel({
       return;
     }
     const prepared = await prepareThread.run({
-      reference: detail.url,
+      reference: handoffSummary.url,
       mode,
       threadId: opened.threadId,
     });
@@ -921,6 +1406,8 @@ export function PullRequestDetailPanel({
         url: detail.url,
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
+        state: detail.state,
+        isDraft: detail.isDraft,
       }),
     });
   };
@@ -934,11 +1421,41 @@ export function PullRequestDetailPanel({
         url: detail.url,
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
+        state: detail.state,
+        isDraft: detail.isDraft,
       }),
     });
   };
 
-  const addSelectionToAgent = (selection: PullRequestAgentSelectionInput) => {
+  const askAboutGuideStop = (stop: PullRequestReviewGuideStop, index: number, question: string) => {
+    if (!detail) return;
+    void startAsk(
+      `guide-stop:${index}`,
+      buildAskAboutGuideStopHandoff({
+        number: detail.number,
+        title: detail.title,
+        url: detail.url,
+        headBranch: detail.headBranch,
+        baseBranch: detail.baseBranch,
+        state: detail.state,
+        isDraft: detail.isDraft,
+        stop: {
+          index,
+          title: stop.title,
+          summary: stop.summary,
+          attention: stop.attention?.note ?? null,
+          excerpts: stop.excerpts,
+        },
+        question,
+      }),
+      { keepGuide: true },
+    );
+  };
+
+  const addSelectionToAgent = (
+    selection: PullRequestAgentSelectionInput,
+    options?: { readonly keepGuide?: boolean },
+  ) => {
     if (!detail) return;
     void startAsk(
       `selection:${selection.comment.id}`,
@@ -948,14 +1465,17 @@ export function PullRequestDetailPanel({
         url: detail.url,
         headBranch: detail.headBranch,
         baseBranch: detail.baseBranch,
+        state: detail.state,
+        isDraft: detail.isDraft,
         comment: selection.comment,
         request: selection.request,
       }),
+      options,
     );
   };
 
   const startCheckout = (mode: "worktree" | "local") => {
-    if (!detail) return;
+    if (!handoffSummary) return;
     void startHandoff(`checkout:${mode}`, null, mode);
   };
 
@@ -987,20 +1507,20 @@ export function PullRequestDetailPanel({
         baseBranch: detail.baseBranch,
         reviewThreads: detail.reviewThreads,
         comments: detail.comments,
-        checks: detail.checks,
+        checks: checksStale ? [] : detail.checks,
         commentsTruncated: detail.commentsTruncated,
       }),
     );
   };
 
   const startResolveConflicts = () => {
-    if (!detail) return;
+    if (!handoffSummary) return;
     void startHandoff("conflicts", {
       prompt: buildResolveConflictsPrompt({
-        number: detail.number,
-        url: detail.url,
-        headBranch: detail.headBranch,
-        baseBranch: detail.baseBranch,
+        number: handoffSummary.number,
+        url: handoffSummary.url,
+        headBranch: handoffSummary.headBranch,
+        baseBranch: handoffSummary.baseBranch,
       }),
     });
   };
@@ -1010,20 +1530,41 @@ export function PullRequestDetailPanel({
   const allowedMergeMethods = detail
     ? detail.capabilities.mergeMethods.filter((method) => detail.mergeCapabilities[method])
     : [];
-  const selectedMergeMethod = allowedMergeMethods.includes(mergeMethod)
-    ? mergeMethod
-    : (allowedMergeMethods[0] ?? "merge");
+  const currentMergeMethod =
+    mergeMethodSelection?.pullRequestKey === pullRequestKey ? mergeMethodSelection.method : null;
+  const selectedMergeMethod = resolvePullRequestMergeMethod(
+    allowedMergeMethods,
+    currentMergeMethod,
+    projectDefaultMergeMethod,
+    lastSelectedMergeMethod,
+  );
+  const selectedMergeMethodLabel = PULL_REQUEST_MERGE_METHOD_LABELS[selectedMergeMethod];
+  const pendingAutoMergeLabel = `Auto-merge (${selectedMergeMethodLabel.toLowerCase()})`;
   const conflicting = detail?.state === "open" && detail.mergeability === "conflicting";
   // Only an outright yes arms it. A host that reports nothing has not said the merge is already
   // spoken for, and an off switch for something that may not be on says the wrong thing twice.
   const autoMergeArmed = detail?.state === "open" && detail.autoMergeEnabled === true;
+  const armedMergeMethod = detail?.autoMergeMethod;
+  const armedAutoMergeLabel = armedMergeMethod
+    ? `Auto-merge (${PULL_REQUEST_MERGE_METHOD_LABELS[armedMergeMethod].toLowerCase()})`
+    : "Auto-merge";
+  const workflowApprovalsRequired =
+    detail?.state === "open" ? (detail.workflowApprovalsRequired ?? 0) : 0;
   // Out of date with the base, and still cleanly mergeable — the one pairing an update button
   // exists for. Null everywhere else, including hosts that cannot compare at all.
   const freshness = detail === null ? null : resolveBaseFreshness(detail);
-  // A host that cannot produce a patch has no Code tab to open. The tabs themselves stay hidden
-  // until the detail arrives, so the loading ghost is the panel's only unfinished UI.
+  // A host that cannot produce a patch has no Code tab to open. While detail is loading the ghost
+  // uses this optimistic tab set to reserve the same chrome; a host without a patch removes Code
+  // when its capabilities arrive.
+  // The Guide tab is a beta the pull request's server opts into in Settings → Source Control.
+  const reviewGuidesEnabled = useEnvironmentSettings(
+    environmentId,
+    (settings) => settings.reviewGuidesEnabled,
+  );
   const visibleTabs = TABS.filter(
-    (item) => item.value !== "code" || detail === null || detail.capabilities.diff,
+    (item) =>
+      (item.value !== "code" || detail === null || detail.capabilities.diff) &&
+      (item.value !== "guide" || reviewGuidesEnabled),
   );
   // The Code tab can be opened while the detail is still on its way, and the detail may then say
   // this host has no patch to show. The tab goes, so whoever was standing on it is moved back to
@@ -1037,20 +1578,32 @@ export function PullRequestDetailPanel({
   const can = (action: PullRequestAction) =>
     detail?.capabilities.actions.includes(action) === true &&
     detail.viewerPermissions.actions.includes(action);
-  // One live action holds the slot. A conflicting change cannot be merged now, so the slot goes
-  // to the thing that would help instead of a Merge button that only ever says no.
-  const primaryAction =
-    detail === null || detail.state !== "open"
-      ? null
-      : detail.isDraft && can("ready")
-        ? "ready"
-        : !can("merge")
-          ? null
-          : conflicting
-            ? "resolve"
-            : allowedMergeMethods.length > 0
-              ? "merge"
-              : null;
+  const detailChecksState = detail ? pullRequestChecksState(detail.checks) : null;
+  const latestChecksState =
+    sharedSummary?.checksState === undefined ? detailChecksState : sharedSummary.checksState;
+  // List rollups can omit workflows awaiting approval. Only refreshed detail can clear those.
+  const checksState =
+    latestChecksState !== "failing" &&
+    detail?.checks.some((check) => check.status === "action-required")
+      ? "pending"
+      : latestChecksState;
+  // A newer rollup cannot tell us which runs changed or how many passed.
+  const checksStale = checksState !== detailChecksState;
+  // The merge state remains in one stable slot from waiting through completion. Conflicts take
+  // the slot while they need a person; the armed badge remains beside them so that state is not lost.
+  const primaryAction = detail
+    ? resolvePullRequestPrimaryControl({
+        state: detail.state,
+        isDraft: detail.isDraft,
+        mergeability: detail.mergeability,
+        checksState,
+        autoMergeEnabled: detail.autoMergeEnabled,
+        hasMergeMethod: allowedMergeMethods.length > 0,
+        canMerge: canMergeSinglePullRequest && can("merge"),
+        canMarkReady: can("ready"),
+        canEnableAutoMerge: canMergeSinglePullRequest && can("enable-auto-merge"),
+      })
+    : null;
   // What the menu's action group holds. Named once so the separators around it are drawn from
   // the same answer as its contents, rather than on the assumption that it has any.
   const showsDraftToggle =
@@ -1058,13 +1611,23 @@ export function PullRequestDetailPanel({
     can(detail.isDraft ? "ready" : "draft") &&
     !(detail.isDraft && primaryAction === "ready");
   const showsAutoMerge =
+    canMergeSinglePullRequest &&
     detail?.state === "open" &&
     ((autoMergeArmed && can("disable-auto-merge")) ||
       (!autoMergeArmed &&
+        primaryAction !== "enable-auto-merge" &&
         !detail.isDraft &&
         !conflicting &&
         can("enable-auto-merge") &&
         allowedMergeMethods.length > 0));
+  const showsMergeNow =
+    canMergeSinglePullRequest &&
+    detail?.state === "open" &&
+    (primaryAction === "enable-auto-merge" || primaryAction === "auto-merge-armed") &&
+    can("merge") &&
+    !detail.isDraft &&
+    !conflicting &&
+    allowedMergeMethods.length > 0;
   const showsMergeMethods =
     detail?.state === "open" &&
     can("merge") &&
@@ -1072,12 +1635,19 @@ export function PullRequestDetailPanel({
     !conflicting &&
     allowedMergeMethods.length > 1;
   // The pull request number carries this state in the overview and the right-panel tab mirrors
-  // it. Conflicts keep their own row below: an open pull request remains green there.
+  // it. Conflicts take the action slot while they need a person, but do not change the PR state.
   const statePresentation = detail
     ? resolvePullRequestState({ state: detail.state, isDraft: detail.isDraft })
     : null;
-  const checksSummary = detail ? summarizePullRequestChecks(detail.checks) : null;
-  const checksState = detail ? pullRequestChecksState(detail.checks) : null;
+  const showsApproveWorkflows =
+    workflowApprovalsRequired > 0 && !checksStale && can("approve-workflows");
+  const checksSummary = checksStale
+    ? checksState === null
+      ? "No checks reported"
+      : pullRequestChecksStatePresentation(checksState).label
+    : detail
+      ? summarizePullRequestChecks(detail.checks)
+      : null;
   // Approvals that still stand, and only those. A superseded one is dimmed beside the reviewer
   // who gave it, so counting it here would have the header assert in a number what the row next
   // to it has just qualified.
@@ -1092,34 +1662,189 @@ export function PullRequestDetailPanel({
         ).length
       : 0;
 
+  const checkoutControl =
+    context === "page" ? (
+      <Menu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <MenuTrigger
+                disabled={handoff !== null || checkoutRoot === null}
+                render={
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    aria-label={handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
+                  >
+                    <GitBranchIcon aria-hidden className="size-3.5" />
+                    <span className="@max-[35rem]/pr-header:hidden">
+                      {handoff?.startsWith("checkout") ? "Checking out..." : "Check out"}
+                    </span>
+                    <ChevronDownIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                  </Button>
+                }
+              />
+            }
+          />
+          <TooltipPopup>Check out this pull request</TooltipPopup>
+        </Tooltip>
+        <MenuPopup align="end" side="bottom">
+          <MenuItem disabled={!canPrepareWorktree} onClick={() => startCheckout("worktree")}>
+            <GitBranchIcon className="mt-1 size-3.5 shrink-0 self-start" />
+            <span className="flex min-w-0 flex-col">
+              <span>In a separate worktree</span>
+              <span className="text-xs text-muted-foreground">
+                Its own folder and thread. Nothing you have open moves.
+              </span>
+            </span>
+          </MenuItem>
+          <MenuItem disabled={!prepareThread.isAllowed} onClick={() => startCheckout("local")}>
+            <FolderGit2Icon className="mt-1 size-3.5 shrink-0 self-start" />
+            <span className="flex min-w-0 flex-col">
+              <span>In this repository</span>
+              <span className="text-xs text-muted-foreground">
+                Switches the branch you are working in, like `gh pr checkout`.
+              </span>
+            </span>
+          </MenuItem>
+          {pickableEnvironments.length > 0 ? (
+            <ActOnEnvironmentPicker
+              environments={pickableEnvironments}
+              value={actingEnvironmentId}
+              onChange={(next) => setActingScope({ pullRequestKey, environmentId: next })}
+              disabled={handoff !== null}
+            />
+          ) : null}
+        </MenuPopup>
+      </Menu>
+    ) : null;
+
+  const resolveConflictsControl = (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex shrink-0">
+            <Button
+              size="xs"
+              variant="destructive-outline"
+              disabled={handoff !== null || (attachTarget === null && checkoutRoot === null)}
+              onClick={startResolveConflicts}
+              aria-label={handoff === "conflicts" ? "Preparing..." : "Resolve conflicts"}
+            >
+              <PullRequestGlyph.conflicting aria-hidden className="size-3.5" />
+              <span className="@max-[30rem]/pr-header:hidden">
+                {handoff === "conflicts" ? "Preparing..." : "Resolve conflicts"}
+              </span>
+            </Button>
+          </span>
+        }
+      />
+      <TooltipPopup side="top">
+        {handoff === "conflicts" ? "Preparing..." : "Resolve conflicts"}
+      </TooltipPopup>
+    </Tooltip>
+  );
+
+  // The list already has the pull request's identity and summary. Keep them on screen
+  // and let the richer detail read replace the remaining placeholders in place.
+  if (detailQuery.isPending && !detail) {
+    return (
+      <PullRequestDetailGhost
+        seed={matchingListEntry}
+        summary={sharedSummary}
+        checkoutCommand={checkoutCommand}
+        onCheckoutError={onCheckoutCommandError}
+        number={reference.number}
+        tabs={visibleTabs}
+        activeTab={tab}
+        {...(onBack ? { onBack } : {})}
+        {...(onClose ? { onClose } : {})}
+        actions={
+          handoffSummary ? (
+            <TooltipProvider delay={150} closeDelay={150} timeout={400}>
+              {handoffSummary.state === "open" && handoffSummary.mergeability === "conflicting"
+                ? resolveConflictsControl
+                : null}
+              {checkoutControl}
+            </TooltipProvider>
+          ) : undefined
+        }
+      />
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-background">
-      {/* The top row's geometry never changes: both of its states occupy the same stacked
-          cell and crossfade, so the actions on the right have one home whatever the chrome
-          is doing below. The fold and this fade share one 200ms clock. */}
-      <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 border-b border-border/60">
-        {/* The fixed height lives on the two top-row cells — not the grid, whose later rows
-            are the fold — so the actions have one immovable home in both states. */}
-        <div className="ml-4 grid h-11 min-w-0 items-center">
+    <div className="relative flex h-full min-h-0 w-full flex-col bg-background">
+      {threadPickerOpen && detail ? (
+        <PullRequestThreadLinks
+          key={`${environmentId}:${detail.url}`}
+          display="picker"
+          environmentId={environmentId}
+          reference={reference}
+          url={detail.url}
+          threadRef={null}
+          onPickerOpenChange={setThreadPickerOpen}
+        />
+      ) : null}
+      <div
+        className={cn(
+          "@container/pr-header grid min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2",
+          detail && "border-b border-border/60",
+          !detail && !onClose && "hidden",
+        )}
+      >
+        <div className="pl-4 grid h-7 min-w-0 items-center overflow-hidden">
           <div
             aria-hidden={condensed}
             inert={condensed}
             className={cn(
-              "col-start-1 row-start-1 flex min-w-0 items-center gap-1 text-sm text-muted-foreground transition-opacity sm:text-xs motion-reduce:transition-none",
-              // Sequenced, not simultaneous: the leaving layer clears quickly before the
-              // arriving one lands, so no frame shows both texts superimposed at half opacity.
+              "col-start-1 row-start-1 flex min-w-0 items-center gap-1 text-sm text-muted-foreground transition-[opacity,transform] ease-out motion-reduce:transform-none motion-reduce:transition-none sm:text-xs",
               condensed
-                ? "pointer-events-none opacity-0 duration-100"
-                : "opacity-100 delay-75 duration-150",
+                ? "pointer-events-none -translate-y-1 opacity-0 duration-100"
+                : "translate-y-0 opacity-100 delay-50 duration-150",
             )}
           >
             {detail && statePresentation ? (
               <>
+                {onBack ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-micro"
+                          variant="ghost-muted"
+                          onClick={onBack}
+                          className="-ml-1.5"
+                          aria-label="Back to this thread's pull requests"
+                        >
+                          <ArrowLeftIcon aria-hidden className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="top">Back to pull requests</TooltipPopup>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
-                    render={<span className="min-w-0 truncate">{detail.repository}</span>}
+                    render={
+                      repositoryUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => void readLocalApi()?.shell.openExternal(repositoryUrl)}
+                          className="min-w-0 cursor-pointer truncate text-left font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                        >
+                          {detail.repository}
+                        </button>
+                      ) : (
+                        <span className="min-w-0 truncate font-medium text-muted-foreground">
+                          {detail.repository}
+                        </span>
+                      )
+                    }
                   />
-                  <TooltipPopup side="top">{detail.repository}</TooltipPopup>
+                  <TooltipPopup side="top">
+                    {repositoryUrl ? `Open ${detail.repository} repository` : detail.repository}
+                  </TooltipPopup>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -1129,16 +1854,17 @@ export function PullRequestDetailPanel({
                         onClick={() => void readLocalApi()?.shell.openExternal(detail.url)}
                         onContextMenu={(event) => openNumberContextMenu(event, detail)}
                         className={cn(
-                          "shrink-0 font-medium underline-offset-2 hover:underline",
+                          "inline-flex shrink-0 cursor-pointer items-center gap-0.5 font-medium underline-offset-2 hover:underline",
                           statePresentation.toneClassName,
                         )}
                         aria-label={`Open pull request #${detail.number} on host`}
                       >
                         #{detail.number}
+                        <ExternalLinkIcon aria-hidden className="size-2.5" />
                       </button>
                     }
                   />
-                  <TooltipPopup side="top">{openOnHostLabel(detail.provider)}</TooltipPopup>
+                  <TooltipPopup side="top">{openOnHostLabel(hostClient)}</TooltipPopup>
                 </Tooltip>
               </>
             ) : null}
@@ -1147,14 +1873,33 @@ export function PullRequestDetailPanel({
             aria-hidden={!condensed}
             inert={!condensed}
             className={cn(
-              "col-start-1 row-start-1 flex min-w-0 items-center gap-1.5 text-sm transition-opacity sm:text-xs motion-reduce:transition-none",
+              "col-start-1 row-start-1 flex min-w-0 items-center gap-1 text-sm text-muted-foreground transition-[opacity,transform] ease-out motion-reduce:transform-none motion-reduce:transition-none sm:text-xs",
               condensed
-                ? "opacity-100 delay-75 duration-150"
-                : "pointer-events-none opacity-0 duration-100",
+                ? "translate-y-0 opacity-100 delay-50 duration-150"
+                : "pointer-events-none translate-y-1 opacity-0 duration-100",
             )}
           >
             {detail && statePresentation ? (
               <>
+                {onBack ? (
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          size="icon-micro"
+                          variant="ghost-muted"
+                          tabIndex={condensed ? 0 : -1}
+                          onClick={onBack}
+                          className="-ml-1.5"
+                          aria-label="Back to this thread's pull requests"
+                        >
+                          <ArrowLeftIcon aria-hidden className="size-3.5" />
+                        </Button>
+                      }
+                    />
+                    <TooltipPopup side="top">Back to pull requests</TooltipPopup>
+                  </Tooltip>
+                ) : null}
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -1164,16 +1909,17 @@ export function PullRequestDetailPanel({
                         onClick={() => void readLocalApi()?.shell.openExternal(detail.url)}
                         onContextMenu={(event) => openNumberContextMenu(event, detail)}
                         className={cn(
-                          "shrink-0 font-medium underline-offset-2 hover:underline",
+                          "inline-flex shrink-0 cursor-pointer items-center gap-0.5 font-medium underline-offset-2 hover:underline",
                           statePresentation.toneClassName,
                         )}
                         aria-label={`Open pull request #${detail.number} on host`}
                       >
                         #{detail.number}
+                        <ExternalLinkIcon aria-hidden className="size-2.5" />
                       </button>
                     }
                   />
-                  <TooltipPopup side="top">{openOnHostLabel(detail.provider)}</TooltipPopup>
+                  <TooltipPopup side="top">{openOnHostLabel(hostClient)}</TooltipPopup>
                 </Tooltip>
                 <Tooltip>
                   <TooltipTrigger
@@ -1185,49 +1931,283 @@ export function PullRequestDetailPanel({
                   />
                   <TooltipPopup side="top">{detail.title}</TooltipPopup>
                 </Tooltip>
-                {conflicting ? (
-                  <Badge
-                    variant="error"
-                    className="h-5 shrink-0 gap-1 rounded px-1.5 text-[10px] text-destructive"
-                  >
-                    <TriangleAlertIcon className="size-3" />
-                    Conflicts
-                  </Badge>
-                ) : checksSummary ? (
-                  <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
-                    {detail && checksState !== null ? (
-                      <PullRequestChecksPopover checks={detail.checks} checksState={checksState} />
-                    ) : null}
-                    {checksSummary}
-                  </span>
-                ) : null}
               </>
             ) : null}
           </div>
         </div>
-        <div className="mr-4 flex h-11 min-w-0 flex-nowrap items-center justify-end gap-1">
+        <div className="mr-4 flex h-7 shrink-0 items-center justify-end gap-1">
           {detail ? (
-            <>
-              <Menu>
-                <MenuTrigger
-                  render={
-                    <Button
-                      aria-label="More pull request actions"
-                      className="size-6"
-                      size="icon-xs"
-                      variant="ghost-muted"
-                    />
+            <TooltipProvider delay={150} closeDelay={150} timeout={400}>
+              {!nativeStack && supportsStackActions && nativeStackQuery.error ? (
+                <Button variant="ghost" size="xs" onClick={nativeStackQuery.refresh}>
+                  Retry stack lookup
+                </Button>
+              ) : null}
+              {nativeStack ? (
+                <PullRequestStackMenu
+                  hostLabel={hostClient.label}
+                  stack={nativeStack}
+                  notice={nativeStackQuery.notice}
+                  onRetry={nativeStackQuery.error ? nativeStackQuery.refresh : undefined}
+                  reference={reference}
+                  environmentId={environmentId}
+                  onSelect={onSelectPullRequest}
+                  mergeMethod={selectedMergeMethod}
+                  canMerge={
+                    nativeStackQuery.isFresh &&
+                    supportsStackActions &&
+                    can("merge") &&
+                    allowedMergeMethods.length > 0
                   }
-                >
-                  <MoreHorizontalIcon className="size-4" />
-                </MenuTrigger>
-                <MenuPopup align="end" side="bottom" className="min-w-72">
-                  <MenuItem disabled={detailQuery.isPending} onClick={() => void refreshFromHost()}>
-                    <RefreshCwIcon className="size-3.5" />
+                  canRebase={
+                    nativeStackQuery.isFresh &&
+                    supportsStackActions &&
+                    detail.viewerPermissions.stackRebase === true
+                  }
+                  onActed={() => {
+                    refreshDetail();
+                    onActed?.();
+                  }}
+                />
+              ) : null}
+              {context === "page" ? (
+                <PullRequestThreadLinks
+                  display="count"
+                  environmentId={environmentId}
+                  reference={reference}
+                  url={detail.url}
+                  threadRef={null}
+                />
+              ) : null}
+              {/* Said where the Merge button is, because it is the answer to why nobody has
+                  pressed it: the merge is already asked for, and the host is holding it. */}
+              {autoMergeArmed && primaryAction !== "auto-merge-armed" ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Badge
+                        size="control"
+                        variant="info"
+                        role="img"
+                        aria-label={armedAutoMergeLabel}
+                      >
+                        <PullRequestGlyph.merged aria-hidden className="size-3.5" />
+                        <span className="@max-[30rem]/pr-header:hidden">{armedAutoMergeLabel}</span>
+                      </Badge>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    {armedAutoMergeLabel}: the host will merge this on its own once its requirements
+                    are met
+                  </TooltipPopup>
+                </Tooltip>
+              ) : null}
+              {primaryAction === "resolve" ? (
+                resolveConflictsControl
+              ) : primaryAction === "ready" ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="inline-flex shrink-0">
+                        <Button
+                          size="xs"
+                          variant="default"
+                          disabled={actionPending}
+                          onClick={() => void perform("ready")}
+                          aria-label="Ready for review"
+                        >
+                          <PullRequestGlyph.pullRequest aria-hidden className="size-3.5" />
+                          <span className="@max-[30rem]/pr-header:hidden">Ready for review</span>
+                        </Button>
+                      </span>
+                    }
+                  />
+                  <TooltipPopup side="top">Ready for review</TooltipPopup>
+                </Tooltip>
+              ) : primaryAction === "enable-auto-merge" ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="inline-flex shrink-0">
+                        <Button
+                          size="xs"
+                          variant="default"
+                          disabled={actionPending}
+                          {...inlineConfirm.props(
+                            "enable-auto-merge",
+                            () => void perform("enable-auto-merge", selectedMergeMethod),
+                          )}
+                          aria-label={
+                            pendingAction === "enable-auto-merge"
+                              ? "Enabling..."
+                              : inlineConfirm.isArmed("enable-auto-merge")
+                                ? "Confirm auto-merge?"
+                                : pendingAutoMergeLabel
+                          }
+                        >
+                          {inlineConfirm.isArmed("enable-auto-merge") ? (
+                            <CheckIcon aria-hidden className="size-3.5" />
+                          ) : (
+                            <PullRequestGlyph.merged aria-hidden className="size-3.5" />
+                          )}
+                          <AnimatedWidth className="@max-[30rem]/pr-header:hidden">
+                            <span className="grid">
+                              <span aria-hidden className="invisible col-start-1 row-start-1">
+                                {pendingAutoMergeLabel}
+                              </span>
+                              <span className="col-start-1 row-start-1">
+                                {pendingAction === "enable-auto-merge"
+                                  ? "Enabling..."
+                                  : inlineConfirm.isArmed("enable-auto-merge")
+                                    ? "Confirm auto-merge?"
+                                    : pendingAutoMergeLabel}
+                              </span>
+                            </span>
+                          </AnimatedWidth>
+                        </Button>
+                      </span>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    {pendingAction === "enable-auto-merge"
+                      ? "Enabling..."
+                      : inlineConfirm.isArmed("enable-auto-merge")
+                        ? "Confirm auto-merge?"
+                        : pendingAutoMergeLabel}
+                  </TooltipPopup>
+                </Tooltip>
+              ) : primaryAction === "auto-merge-armed" ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Badge
+                        size="control"
+                        variant="info"
+                        role="img"
+                        aria-label={armedAutoMergeLabel}
+                      >
+                        <PullRequestGlyph.merged aria-hidden className="size-3.5" />
+                        <span className="@max-[30rem]/pr-header:hidden">{armedAutoMergeLabel}</span>
+                      </Badge>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    {armedAutoMergeLabel}: the host will merge this on its own once its requirements
+                    are met
+                  </TooltipPopup>
+                </Tooltip>
+              ) : primaryAction === "merge" ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="inline-flex shrink-0">
+                        <Button
+                          size="xs"
+                          variant="default"
+                          disabled={actionPending}
+                          {...inlineConfirm.props(
+                            "merge",
+                            () => void perform("merge", selectedMergeMethod),
+                          )}
+                          aria-label={
+                            pendingAction === "merge"
+                              ? "Merging..."
+                              : inlineConfirm.isArmed("merge")
+                                ? "Confirm merge?"
+                                : selectedMergeMethodLabel
+                          }
+                        >
+                          {inlineConfirm.isArmed("merge") ? (
+                            <CheckIcon aria-hidden className="size-3.5" />
+                          ) : (
+                            <PullRequestGlyph.merged aria-hidden className="size-3.5" />
+                          )}
+                          <AnimatedWidth className="@max-[30rem]/pr-header:hidden">
+                            <span className="grid">
+                              <span aria-hidden className="invisible col-start-1 row-start-1">
+                                {selectedMergeMethodLabel}
+                              </span>
+                              <span className="col-start-1 row-start-1">
+                                {pendingAction === "merge"
+                                  ? "Merging..."
+                                  : inlineConfirm.isArmed("merge")
+                                    ? "Confirm merge?"
+                                    : selectedMergeMethodLabel}
+                              </span>
+                            </span>
+                          </AnimatedWidth>
+                        </Button>
+                      </span>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    {pendingAction === "merge"
+                      ? "Merging..."
+                      : inlineConfirm.isArmed("merge")
+                        ? "Confirm merge?"
+                        : selectedMergeMethodLabel}
+                  </TooltipPopup>
+                </Tooltip>
+              ) : (primaryAction === "merged" || primaryAction === "closed") &&
+                statePresentation !== null ? (
+                <Badge size="control" variant="outline">
+                  <span className={cn("flex items-center gap-1", statePresentation.toneClassName)}>
+                    <statePresentation.Icon className="size-3.5" />
+                    {statePresentation.label}
+                  </span>
+                </Badge>
+              ) : null}
+              {/* Keep checkout beside the menu so host actions arriving on its left cannot
+                  move a different action under the reader's pointer. */}
+              {checkoutControl}
+              <Menu>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <MenuTrigger
+                        render={
+                          <Button
+                            aria-label={
+                              refreshing ? "Refreshing pull request" : "More pull request actions"
+                            }
+                            size="icon-xs"
+                            variant="ghost-muted"
+                          />
+                        }
+                      >
+                        {/* The refresh lives in this menu, so while one runs the trigger wears
+                            the spinning glyph in place of the dots: the reader sees the panel
+                            is fetching without a control appearing or the row shifting. */}
+                        {refreshing ? (
+                          <RefreshIcon refreshing size="md" />
+                        ) : (
+                          <MoreHorizontalIcon className="size-4" />
+                        )}
+                      </MenuTrigger>
+                    }
+                  />
+                  <TooltipPopup>
+                    {refreshing ? "Refreshing pull request" : "More pull request actions"}
+                  </TooltipPopup>
+                </Tooltip>
+                <MenuPopup align="end" side="bottom">
+                  <PullRequestThreadLinks
+                    display="menu-item"
+                    environmentId={environmentId}
+                    reference={reference}
+                    url={detail.url}
+                    threadRef={
+                      threadRef ??
+                      (typeof composerDraftTarget === "object" ? composerDraftTarget : null)
+                    }
+                    onPickerOpenChange={setThreadPickerOpen}
+                  />
+                  <MenuItem disabled={refreshing} onClick={() => void refreshFromHost()}>
+                    <RefreshIcon size="sm" refreshing={refreshing} />
                     Refresh
                   </MenuItem>
                   <MenuItem disabled={handoff !== null} onClick={askAboutPullRequest}>
-                    <MessageCircleQuestionIcon className="mt-0.5 size-3.5 shrink-0 self-start" />
+                    <MessageCircleQuestionIcon className="mt-1 size-3.5 shrink-0 self-start" />
                     <span className="flex min-w-0 flex-col">
                       <span>{handoff === "ask" ? "Opening..." : "Ask a question"}</span>
                       <span className="text-xs text-muted-foreground">
@@ -1238,7 +2218,7 @@ export function PullRequestDetailPanel({
                     </span>
                   </MenuItem>
                   <MenuItem disabled={handoff !== null} onClick={explainPullRequest}>
-                    <BookOpenIcon className="mt-0.5 size-3.5 shrink-0 self-start" />
+                    <BookOpenIcon className="mt-1 size-3.5 shrink-0 self-start" />
                     <span className="flex min-w-0 flex-col">
                       <span>{handoff === "explain" ? "Opening..." : "Explain this PR"}</span>
                       <span className="text-xs text-muted-foreground">
@@ -1246,10 +2226,23 @@ export function PullRequestDetailPanel({
                       </span>
                     </span>
                   </MenuItem>
-                  <MenuItem disabled={handoff !== null} onClick={startFixFindings}>
+                  <MenuItem
+                    disabled={handoff !== null || !canFixFindings}
+                    onClick={startFixFindings}
+                  >
                     <HammerIcon className="size-3.5" />
                     {handoff === "findings" ? "Preparing..." : handoffLabels.fixFindings}
                   </MenuItem>
+                  {reviewGuidesEnabled && guideWriter.canWrite ? (
+                    <MenuItem disabled={guideWriter.running} onClick={writeGuide}>
+                      <SparklesIcon className="size-3.5" />
+                      {guideWriter.running
+                        ? "Writing guide..."
+                        : guideWriter.data?.guide == null
+                          ? "Write guide"
+                          : "Rewrite guide"}
+                    </MenuItem>
+                  ) : null}
                   {pickableEnvironments.length > 0 ? (
                     <ActOnEnvironmentPicker
                       environments={pickableEnvironments}
@@ -1270,37 +2263,58 @@ export function PullRequestDetailPanel({
                           onClick={() => void perform(detail.isDraft ? "ready" : "draft")}
                         >
                           {detail.isDraft ? (
-                            <GitPullRequestIcon className="size-3.5" />
+                            <PullRequestGlyph.pullRequest className="size-3.5" />
                           ) : (
-                            <GitPullRequestDraftIcon className="size-3.5" />
+                            <PullRequestGlyph.draft className="size-3.5" />
                           )}
                           {detail.isDraft ? "Ready for review" : "Convert to draft"}
                         </MenuItem>
                       ) : null}
-                      {/* The same merge, left with the host to carry out once the things it
-                          waits on are done. It is offered beside the merge rather than instead
-                          of it, because the reader who can wait and the reader who cannot are
-                          the same person on different days — and a conflicting branch is neither,
-                          since nothing the host waits for will clear it. */}
+                      {showsMergeNow ? (
+                        <MenuItem
+                          closeOnClick={inlineConfirm.isArmed("merge")}
+                          aria-label={
+                            inlineConfirm.isArmed("merge") ? "Confirm merge?" : "Merge now"
+                          }
+                          disabled={actionPending}
+                          {...inlineConfirm.props(
+                            "merge",
+                            () => void perform("merge", selectedMergeMethod),
+                          )}
+                        >
+                          <PullRequestGlyph.merged className="size-3.5" />
+                          {inlineConfirm.isArmed("merge") ? "Confirm merge?" : "Merge now"}
+                        </MenuItem>
+                      ) : null}
+                      {/* The same merge, left with the host to carry out once its requirements
+                          pass. A conflicting branch cannot be armed because nothing the host
+                          waits for will clear the conflict. */}
                       {autoMergeArmed && can("disable-auto-merge") ? (
                         <MenuItem
                           disabled={actionPending}
                           onClick={() => void perform("disable-auto-merge")}
                         >
-                          <GitMergeIcon className="size-3.5" />
+                          <PullRequestGlyph.merged className="size-3.5" />
                           Disable auto-merge
                         </MenuItem>
-                      ) : !autoMergeArmed &&
-                        !detail.isDraft &&
-                        !conflicting &&
-                        can("enable-auto-merge") &&
-                        allowedMergeMethods.length > 0 ? (
+                      ) : showsAutoMerge ? (
                         <MenuItem
+                          closeOnClick={inlineConfirm.isArmed("enable-auto-merge")}
+                          aria-label={
+                            inlineConfirm.isArmed("enable-auto-merge")
+                              ? "Confirm auto-merge?"
+                              : "Enable auto-merge"
+                          }
                           disabled={actionPending}
-                          onClick={() => setConfirmAction("enable-auto-merge")}
+                          {...inlineConfirm.props(
+                            "enable-auto-merge",
+                            () => void perform("enable-auto-merge", selectedMergeMethod),
+                          )}
                         >
-                          <GitMergeIcon className="size-3.5" />
-                          Enable auto-merge
+                          <PullRequestGlyph.merged className="size-3.5" />
+                          {inlineConfirm.isArmed("enable-auto-merge")
+                            ? "Confirm auto-merge?"
+                            : "Enable auto-merge"}
                         </MenuItem>
                       ) : null}
                       {/* A preference for the merge action rather than a second action, so it
@@ -1313,20 +2327,29 @@ export function PullRequestDetailPanel({
                           {/* Only below the draft control. A host with no draft of its own, or
                               a draft whose control is already the header button, would leave
                               this against the separator that opened the group. */}
-                          {showsDraftToggle ? <MenuSeparator /> : null}
+                          {showsDraftToggle || showsMergeNow || showsAutoMerge ? (
+                            <MenuSeparator />
+                          ) : null}
                           <MenuRadioGroup
                             value={selectedMergeMethod}
-                            onValueChange={(method) =>
-                              setMergeMethod(method as PullRequestMergeMethod)
-                            }
+                            onValueChange={(method) => {
+                              const selectedMethod = method as PullRequestMergeMethod;
+                              setMergeMethod(selectedMethod);
+                              setLastSelectedMergeMethod(selectedMethod);
+                            }}
                           >
                             {allowedMergeMethods.map((method) => (
-                              <MenuRadioItem key={method} value={method} disabled={actionPending}>
+                              <MenuRadioItem
+                                key={method}
+                                value={method}
+                                disabled={actionPending}
+                                closeOnClick
+                              >
                                 {/* The radio item lays its children out as one block, so the
                                     icon and the label need their own row to share a line. */}
                                 <span className="flex min-w-0 items-center gap-2">
-                                  <GitMergeIcon className="size-3.5" />
-                                  <span className="capitalize">{method}</span>
+                                  <PullRequestGlyph.merged className="size-3.5" />
+                                  <span>{PULL_REQUEST_MERGE_METHOD_LABELS[method]}</span>
                                 </span>
                               </MenuRadioItem>
                             ))}
@@ -1335,7 +2358,7 @@ export function PullRequestDetailPanel({
                       ) : null}
                       {pullRequestActionMenuHasGroup(
                         showsDraftToggle,
-                        showsAutoMerge,
+                        showsAutoMerge || showsMergeNow,
                         showsMergeMethods,
                       ) ? (
                         <MenuSeparator />
@@ -1344,129 +2367,66 @@ export function PullRequestDetailPanel({
                   ) : null}
                   <MenuItem onClick={() => void readLocalApi()?.shell.openExternal(detail.url)}>
                     <ArrowUpRightIcon className="size-3.5" />
-                    {openOnHostLabel(detail.provider)}
+                    {openOnHostLabel(hostClient)}
                   </MenuItem>
-                  <MenuItem onClick={() => void writeTextToClipboard(detail.url)}>
+                  <MenuItem onClick={() => copyReference(detail.url, "PR link")}>
                     <LinkIcon className="size-3.5" />
                     Copy link
+                    <MenuShortcut>
+                      {shortcutLabelForCommand(keybindings, "thread.copyReference")}
+                    </MenuShortcut>
                   </MenuItem>
-                  {/* Only where the button row could not take it, so it is never offered twice. */}
-                  {conflicting && primaryAction !== "resolve" ? (
-                    <MenuItem disabled={handoff !== null} onClick={startResolveConflicts}>
-                      <GitMergeIcon className="size-3.5" />
-                      {handoff === "conflicts" ? "Preparing..." : handoffLabels.resolveConflicts}
-                    </MenuItem>
-                  ) : null}
+                  <MenuItem onClick={() => copyReference(`#${reference.number}`, "PR number")}>
+                    <CopyIcon className="size-3.5" />
+                    Copy PR number
+                    <MenuShortcut>
+                      {shortcutLabelForCommand(keybindings, "pullRequest.copyNumber")}
+                    </MenuShortcut>
+                  </MenuItem>
                   {detail.state === "open" && can("close") ? (
                     <>
                       <MenuSeparator />
                       <MenuItem
+                        closeOnClick={inlineConfirm.isArmed("close")}
+                        aria-label={
+                          inlineConfirm.isArmed("close") ? "Confirm close?" : "Close pull request"
+                        }
                         variant="destructive"
                         disabled={actionPending}
-                        onClick={() => setConfirmAction("close")}
+                        {...inlineConfirm.props("close", () => void perform("close"))}
                       >
-                        <GitPullRequestClosedIcon className="size-3.5" />
-                        Close pull request
+                        <PullRequestGlyph.closed className="size-3.5" />
+                        {inlineConfirm.isArmed("close") ? "Confirm close?" : "Close pull request"}
                       </MenuItem>
                     </>
                   ) : detail.state === "closed" && can("reopen") ? (
                     <>
                       <MenuSeparator />
                       <MenuItem disabled={actionPending} onClick={() => void perform("reopen")}>
-                        <GitPullRequestIcon className="size-3.5" />
+                        <PullRequestGlyph.reopen className="size-3.5" />
                         Reopen pull request
+                      </MenuItem>
+                    </>
+                  ) : detail.state === "merged" && can("revert") ? (
+                    <>
+                      <MenuSeparator />
+                      <MenuItem
+                        closeOnClick={inlineConfirm.isArmed("revert")}
+                        aria-label={
+                          inlineConfirm.isArmed("revert") ? "Confirm revert?" : "Revert changes"
+                        }
+                        variant={inlineConfirm.isArmed("revert") ? "destructive" : "default"}
+                        disabled={actionPending}
+                        {...inlineConfirm.props("revert", () => void perform("revert"))}
+                      >
+                        <RotateCcwIcon className="size-3.5" />
+                        {inlineConfirm.isArmed("revert") ? "Confirm revert?" : "Revert changes"}
                       </MenuItem>
                     </>
                   ) : null}
                 </MenuPopup>
               </Menu>
-              {/* Checking a pull request out is the reason to open one here at all, so it is a
-                  button of its own rather than a side effect of asking an agent for something.
-                  It asks where, because the two answers are not interchangeable: one leaves your
-                  work where it is, the other moves the repository you are standing in. Only on
-                  the page: beside a thread the branch is already checked out right there. */}
-              {context === "page" ? (
-                <Menu>
-                  <MenuTrigger
-                    disabled={handoff !== null}
-                    render={
-                      <Button size="xs" variant="outline">
-                        {handoff?.startsWith("checkout") ? (
-                          "Checking out..."
-                        ) : (
-                          <>
-                            <GitBranchIcon className="size-3" />
-                            Check out
-                            <ChevronDownIcon className="size-3 text-muted-foreground" />
-                          </>
-                        )}
-                      </Button>
-                    }
-                  />
-                  <MenuPopup align="end" side="bottom" className="min-w-72">
-                    <MenuItem onClick={() => startCheckout("worktree")}>
-                      <GitBranchIcon className="mt-0.5 size-3.5 shrink-0 self-start" />
-                      <span className="flex min-w-0 flex-col">
-                        <span>In a separate worktree</span>
-                        <span className="text-xs text-muted-foreground">
-                          Its own folder and thread. Nothing you have open moves.
-                        </span>
-                      </span>
-                    </MenuItem>
-                    <MenuItem onClick={() => startCheckout("local")}>
-                      <FolderGit2Icon className="mt-0.5 size-3.5 shrink-0 self-start" />
-                      <span className="flex min-w-0 flex-col">
-                        <span>In this repository</span>
-                        <span className="text-xs text-muted-foreground">
-                          Switches the branch you are working in, like `gh pr checkout`.
-                        </span>
-                      </span>
-                    </MenuItem>
-                    {pickableEnvironments.length > 0 ? (
-                      <ActOnEnvironmentPicker
-                        environments={pickableEnvironments}
-                        value={actingEnvironmentId}
-                        onChange={(next) => setActingScope({ pullRequestKey, environmentId: next })}
-                        disabled={handoff !== null}
-                      />
-                    ) : null}
-                  </MenuPopup>
-                </Menu>
-              ) : null}
-              {/* Said where the Merge button is, because it is the answer to why nobody has
-                  pressed it: the merge is already asked for, and the host is holding it. */}
-              {autoMergeArmed ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <Badge
-                        variant="info"
-                        className="h-5 shrink-0 gap-1 rounded px-1.5 text-[10px]"
-                      >
-                        <GitMergeIcon aria-hidden className="size-3" />
-                        Auto-merge
-                      </Badge>
-                    }
-                  />
-                  <TooltipPopup side="top">
-                    The host will merge this on its own once its requirements are met
-                  </TooltipPopup>
-                </Tooltip>
-              ) : null}
-              {primaryAction === "ready" ? (
-                <Button size="xs" disabled={actionPending} onClick={() => void perform("ready")}>
-                  Ready for review
-                </Button>
-              ) : primaryAction === "merge" ? (
-                <Button
-                  size="xs"
-                  disabled={actionPending}
-                  onClick={() => setConfirmAction("merge")}
-                >
-                  {pendingAction === "merge" ? "Merging..." : "Merge"}
-                </Button>
-              ) : null}
-            </>
+            </TooltipProvider>
           ) : null}
           {onClose ? (
             <Button
@@ -1480,14 +2440,9 @@ export function PullRequestDetailPanel({
           ) : null}
         </div>
 
-        {/* The condensed chrome's second row: the tabs that the closing fold takes with it,
-            and compact copies of the branch pair and diff stat so they stay in sight while
-            the full rows are folded away. Same zero-track mechanism as the fold, inverted. */}
         <div
           className={cn(
             "col-span-2 grid",
-            // Inverse of the fold's track: closing eases while the fold above eases open,
-            // so the chrome trades rows in one motion instead of two jumps.
             condensed
               ? "grid-rows-[1fr]"
               : "grid-rows-[0fr] transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
@@ -1496,84 +2451,115 @@ export function PullRequestDetailPanel({
           <div
             ref={condensedRowRef}
             className={cn(
-              "min-h-0 overflow-hidden",
+              "min-h-0 overflow-hidden transition-[opacity,transform] duration-150 ease-out motion-reduce:transform-none motion-reduce:transition-none",
               condensed
-                ? "opacity-100 transition-opacity duration-200 ease-out motion-reduce:transition-none"
-                : "opacity-0",
+                ? "translate-y-0 opacity-100 delay-50"
+                : "translate-y-1 opacity-0 duration-100",
             )}
             inert={!condensed}
           >
             {detail ? (
-              <div className="flex min-w-0 items-center gap-1 px-4 pb-2">
-                <nav aria-label="Pull request tabs" className="flex shrink-0 items-center gap-0.5">
-                  {visibleTabs.map((item) => (
-                    <button
-                      key={item.value}
-                      type="button"
-                      tabIndex={condensed ? 0 : -1}
-                      aria-pressed={tab === item.value}
-                      onClick={() => setTab(item.value)}
-                      className={cn(
-                        "rounded-md px-2 py-1 text-[11px] transition-colors",
-                        tab === item.value
-                          ? "bg-accent text-foreground"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                </nav>
-                <span className="ml-auto inline-flex min-w-0 shrink items-center gap-1 font-mono text-[11px] text-muted-foreground">
-                  <Tooltip>
-                    <TooltipTrigger render={<span className="truncate" />}>
-                      {detail.baseBranch}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{`${detail.baseBranch} ← ${detail.headBranch}`}</TooltipPopup>
-                  </Tooltip>
-                  {freshness ? (
-                    <PullRequestBaseFreshnessWarning
-                      baseBranch={detail.baseBranch}
-                      freshness={freshness}
-                      pending={actionPending}
-                      onUpdate={(method) => void perform("update-branch", undefined, method)}
-                      iconClassName="size-3"
+              <div className="col-span-2 min-w-0 px-4 pb-2 pt-1">
+                <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                  <span className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-xs text-muted-foreground">
+                    <PullRequestActorLabel
+                      actor={detail.author}
+                      profileUrl={authorProfileUrl}
+                      variant="avatar"
+                      className="shrink-0"
                     />
-                  ) : null}
-                  <ArrowLeftIcon aria-label="receives changes from" className="size-3 shrink-0" />
-                  <Tooltip>
-                    <TooltipTrigger render={<span className="truncate" />}>
-                      {detail.headBranch}
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">{`${detail.baseBranch} ← ${detail.headBranch}`}</TooltipPopup>
-                  </Tooltip>
-                </span>
-                <span className="ml-2 inline-flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
-                  <span className="inline-flex items-center gap-1 tabular-nums">
-                    <FileDiffIcon className="size-3" />
-                    {detail.changedFiles.toLocaleString()}
+                    <span className="shrink-0">{formatRelativeTimeLabel(detail.updatedAt)}</span>
                   </span>
-                  <PullRequestDiffStat
-                    additions={detail.additions}
-                    deletions={detail.deletions}
-                    className="shrink-0 font-mono text-[11px]"
-                  />
-                </span>
+                  <span aria-hidden className="h-3 w-px shrink-0 bg-border/70" />
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 font-mono text-2xs text-muted-foreground/65">
+                    {/* An out-of-date base wears the warning on the branch name itself, so the
+                        name is amber and pointing at either the name or the mark opens the way
+                        out. Up to date, the name keeps its plain tooltip. */}
+                    {freshness ? (
+                      <PullRequestBaseFreshnessWarning
+                        baseBranch={detail.baseBranch}
+                        freshness={freshness}
+                        pending={actionPending}
+                        onUpdate={(method) => void perform("update-branch", undefined, method)}
+                        iconClassName="size-3"
+                        className="max-w-[40%]"
+                      >
+                        {isStackedPullRequest ? (
+                          <PullRequestGlyph.stack
+                            aria-label="Stacked pull request"
+                            className="size-3 shrink-0"
+                          />
+                        ) : null}
+                        <code className="flex min-w-0">
+                          <MiddleTruncate value={detail.baseBranch} showTitle={false} />
+                        </code>
+                      </PullRequestBaseFreshnessWarning>
+                    ) : (
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <span className="inline-flex min-w-0 max-w-[40%] shrink-0 items-center gap-1">
+                              {isStackedPullRequest ? (
+                                <PullRequestGlyph.stack
+                                  aria-label="Stacked pull request"
+                                  className="size-3 shrink-0"
+                                />
+                              ) : null}
+                              <code className="flex min-w-0">
+                                <MiddleTruncate value={detail.baseBranch} showTitle={false} />
+                              </code>
+                            </span>
+                          }
+                        />
+                        <TooltipPopup side="top">
+                          {isStackedPullRequest
+                            ? `Stacked on ${detail.baseBranch}`
+                            : detail.baseBranch}
+                        </TooltipPopup>
+                      </Tooltip>
+                    )}
+                    <ArrowLeftIcon
+                      aria-label="receives changes from"
+                      className="size-3 shrink-0 opacity-60"
+                    />
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <code className="flex min-w-0 flex-1">
+                            <MiddleTruncate value={detail.headBranch} showTitle={false} />
+                          </code>
+                        }
+                      />
+                      <TooltipPopup side="top">{detail.headBranch}</TooltipPopup>
+                    </Tooltip>
+                  </span>
+                  <span className="ml-auto inline-flex shrink-0 items-center justify-end gap-2 text-2xs">
+                    <span
+                      className="inline-flex items-center gap-1 tabular-nums"
+                      aria-label={`${detail.changedFiles.toLocaleString()} changed ${
+                        detail.changedFiles === 1 ? "file" : "files"
+                      }`}
+                    >
+                      <FileDiffIcon aria-hidden className="size-3" />
+                      {detail.changedFiles.toLocaleString()}
+                    </span>
+                    <PullRequestDiffStat
+                      additions={detail.additions}
+                      deletions={detail.deletions}
+                      className="shrink-0 font-mono text-2xs"
+                    />
+                  </span>
+                </div>
               </div>
             ) : null}
           </div>
         </div>
 
-        {/* Folding is a grid track going to zero: the rows below stay mounted, the track
-            animates closed over them, and `inert` takes the hidden controls out of the tab
-            order for as long as the chrome is condensed. */}
         <div
           className={cn(
             "col-span-2 grid",
-            // Collapse is instant: it happens mid-scroll, and the compensation that keeps the
-            // content pinned would fight an animated track frame by frame. Reopening happens
-            // at the top with no compensation, so the fold can ease back in instead of
-            // snapping the content down.
+            // Collapse before the scroll refund paints; only reopening eases back in. Animating
+            // both directions makes the shrinking track fight the scrollTop correction.
             condensed
               ? "grid-rows-[0fr]"
               : "grid-rows-[1fr] transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
@@ -1581,313 +2567,335 @@ export function PullRequestDetailPanel({
         >
           <div
             ref={foldRef}
-            // One-way on purpose: appearing content eases in over ground the instant track
-            // already reserved; departing content cuts, because its ground is gone in the
-            // same frame and the scroll compensation reads it as scrolled past.
             className={cn(
-              "min-h-0 overflow-hidden",
+              "min-h-0 overflow-hidden transition-[opacity,transform] duration-150 ease-out motion-reduce:transform-none motion-reduce:transition-none",
               condensed
-                ? "opacity-0"
-                : "opacity-100 transition-opacity duration-200 ease-out motion-reduce:transition-none",
+                ? "-translate-y-1 opacity-0 duration-100"
+                : "translate-y-0 opacity-100 delay-50",
             )}
             inert={condensed}
           >
             {detail ? (
-              <div className="col-span-2 mt-3 min-w-0 px-4 pb-4">
-                {titleDraft === null ? (
-                  <div className="group flex min-w-0 items-start gap-1">
-                    <h1 className="min-w-0 flex-1 text-base font-semibold leading-snug">
-                      {detail.title}
-                    </h1>
-                    {canEditPullRequestChangeRequest(detail) ? (
-                      <Button
-                        size="icon-xs"
-                        variant="ghost"
-                        className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
-                        aria-label="Edit title"
-                        onClick={() => setTitleScope({ pullRequestKey, text: detail.title })}
-                      >
-                        <PencilIcon className="size-3" />
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : (
-                  // A title is one line of text, not markdown, so it takes an input rather than
-                  // the editor the description and the remarks share.
-                  <div className="space-y-2">
-                    <Input
-                      autoFocus
-                      size="sm"
-                      disabled={titleSaving}
-                      value={titleDraft}
-                      aria-label="Pull request title"
-                      onChange={(event) =>
-                        setTitleScope({ pullRequestKey, text: event.target.value })
-                      }
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void saveTitle(titleDraft);
-                        } else if (event.key === "Escape") {
-                          event.preventDefault();
-                          setTitleScope(null);
-                        }
-                      }}
-                    />
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="xs"
-                        variant="ghost"
+              <PullRequestDetailHeaderBody
+                title={
+                  titleDraft === null ? (
+                    <PullRequestDetailTitleRow className="group gap-1">
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <h1 className="min-w-0 flex-1 truncate text-base font-semibold leading-snug">
+                              {detail.title}
+                            </h1>
+                          }
+                        />
+                        <TooltipPopup side="top">{detail.title}</TooltipPopup>
+                      </Tooltip>
+                      {canEditPullRequestChangeRequest(detail) ? (
+                        <PullRequestEditButton
+                          aria-label="Edit title"
+                          onClick={() => setTitleScope({ pullRequestKey, text: detail.title })}
+                        />
+                      ) : null}
+                    </PullRequestDetailTitleRow>
+                  ) : (
+                    // A title is one line of text, not markdown, so it takes an input rather than
+                    // the editor the description and the remarks share.
+                    <div className="space-y-2">
+                      <Input
+                        autoFocus
+                        size="sm"
                         disabled={titleSaving}
-                        onClick={() => setTitleScope(null)}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={titleSaving || titleDraft.trim().length === 0}
-                        onClick={() => void saveTitle(titleDraft)}
-                      >
-                        {titleSaving ? "Saving..." : "Save"}
-                      </Button>
+                        value={titleDraft}
+                        aria-label="Pull request title"
+                        onChange={(event) =>
+                          setTitleScope({ pullRequestKey, text: event.target.value })
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveTitle(titleDraft);
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            setTitleScope(null);
+                          }
+                        }}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          disabled={titleSaving}
+                          onClick={() => setTitleScope(null)}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={
+                            !canWriteSourceControl || titleSaving || titleDraft.trim().length === 0
+                          }
+                          onClick={() => void saveTitle(titleDraft)}
+                        >
+                          {titleSaving ? "Saving..." : "Save"}
+                        </Button>
+                      </div>
                     </div>
-                  </div>
-                )}
-                <PullRequestMetaLine className="mt-2 text-xs text-muted-foreground">
-                  <PullRequestActorLabel actor={detail.author} className="font-medium" />
-                  <span>updated {formatRelativeTimeLabel(detail.updatedAt)}</span>
-                </PullRequestMetaLine>
-
-                <div className="mt-4 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <code className="min-w-0 max-w-48 shrink truncate rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground">
-                          {detail.baseBranch}
-                        </code>
-                      }
+                  )
+                }
+                author={
+                  <PullRequestActorLabel actor={detail.author} profileUrl={authorProfileUrl} />
+                }
+                updated={<span>updated {formatRelativeTimeLabel(detail.updatedAt)}</span>}
+                checkout={
+                  checkoutCommand ? (
+                    <PullRequestCopyableCode
+                      key={checkoutCommand}
+                      value={checkoutCommand}
+                      target="pull request checkout command"
+                      copyLabel="Copy checkout command"
+                      copiedLabel="Checkout command copied"
+                      className="ml-auto font-mono"
+                      tooltipSide="bottom"
+                      onError={onCheckoutCommandError}
                     />
-                    <TooltipPopup side="top">{detail.baseBranch}</TooltipPopup>
-                  </Tooltip>
-                  {freshness ? (
+                  ) : null
+                }
+                base={
+                  /* An out-of-date base wears the warning on the branch name itself, so the
+                        name is amber and pointing at either the name or the mark opens the way
+                        out. Up to date, the name keeps its plain tooltip. */
+                  freshness ? (
                     <PullRequestBaseFreshnessWarning
                       baseBranch={detail.baseBranch}
                       freshness={freshness}
                       pending={actionPending}
                       onUpdate={(method) => void perform("update-branch", undefined, method)}
-                    />
-                  ) : null}
-                  <ArrowLeftIcon aria-label="receives changes from" className="size-4 shrink-0" />
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <button
-                          type="button"
-                          className="grid min-w-0 max-w-64 shrink cursor-pointer rounded-md bg-muted px-2 py-1 font-mono text-xs text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
-                          aria-label={
-                            isBranchCopied ? "Branch name copied" : "Copy pull request branch"
-                          }
-                          onClick={() => copyBranchToClipboard(detail.headBranch)}
+                      className="max-w-[40%]"
+                    >
+                      {isStackedPullRequest ? (
+                        <PullRequestGlyph.stack
+                          aria-label="Stacked pull request"
+                          className="size-3 shrink-0"
                         />
-                      }
-                    >
-                      <code
-                        className={cn(
-                          "col-start-1 row-start-1 min-w-0 truncate transition-opacity duration-150 motion-reduce:transition-none",
-                          isBranchCopied ? "opacity-0" : "opacity-100",
-                        )}
-                      >
-                        {detail.headBranch}
-                      </code>
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          "col-start-1 row-start-1 truncate text-center transition-opacity duration-150 motion-reduce:transition-none",
-                          isBranchCopied ? "opacity-100" : "opacity-0",
-                        )}
-                      >
-                        Copied
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipPopup side="top">
-                      {`${isBranchCopied ? "Copied" : "Copy pull request branch"}: ${detail.headBranch}`}
-                    </TooltipPopup>
-                  </Tooltip>
-                  <span className="ml-auto inline-flex shrink-0 items-center justify-end gap-2">
-                    <span className="inline-flex items-center gap-1.5 tabular-nums">
-                      <FileDiffIcon className="size-3.5" />
-                      {detail.changedFiles.toLocaleString()}{" "}
-                      {detail.changedFiles === 1 ? "file" : "files"}
-                    </span>
-                    <PullRequestDiffStat
-                      additions={detail.additions}
-                      deletions={detail.deletions}
-                      className="shrink-0 font-mono text-xs"
-                    />
-                  </span>
-                </div>
-              </div>
-            ) : null}
-
-            {detail && conflicting ? (
-              <div className="col-span-2 flex items-center gap-1 px-4 pb-3">
-                <Badge
-                  variant="error"
-                  className="h-auto gap-1.5 rounded-md px-3 py-1.5 text-xs text-destructive"
-                >
-                  <TriangleAlertIcon className="size-3.5" />
-                  Merge conflicts
-                </Badge>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  className="ml-auto text-destructive hover:bg-destructive/8 hover:text-destructive"
-                  disabled={handoff !== null}
-                  onClick={startResolveConflicts}
-                >
-                  {handoff === "conflicts" ? "Preparing..." : handoffLabels.resolve}
-                  <ArrowUpRightIcon className="size-3.5 text-destructive" />
-                </Button>
-              </div>
-            ) : null}
-
-            {detail ? (
-              <nav
-                className="col-span-2 flex min-w-0 items-center gap-1 overflow-x-auto border-t border-border/60 px-4 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                aria-label="Pull request tabs"
-              >
-                {visibleTabs.map((item) => (
-                  <button
-                    key={item.value}
-                    type="button"
-                    aria-pressed={tab === item.value}
-                    onClick={() => setTab(item.value)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors",
-                      tab === item.value
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                {tab === "summary" ? (
-                  <span
-                    className="ml-auto inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground"
-                    aria-label={checksSummary ? `Checks: ${checksSummary}` : "Checks"}
-                  >
-                    {/* The rollup icon opens the checks behind the summary; with none reported
-                        there is nothing to open, so the plain glyph stays. */}
-                    {detail && checksState !== null ? (
-                      <PullRequestChecksPopover checks={detail.checks} checksState={checksState} />
-                    ) : (
-                      <CircleDotIcon aria-hidden className="size-3.5" />
-                    )}
-                    {checksSummary}
-                  </span>
-                ) : tab === "timeline" ? (
-                  <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                    <PullRequestMetaLine
-                      className={cn(
-                        "whitespace-nowrap text-[11px] transition-opacity",
-                        (activityPending || activityError) && "opacity-35",
-                      )}
-                    >
-                      <span
-                        className="inline-flex items-center gap-1"
-                        aria-label={
-                          activityError
-                            ? "Comments unavailable"
-                            : `${detail.commentCount.toLocaleString()} ${
-                                detail.commentCount === 1 ? "comment" : "comments"
-                              }`
-                        }
-                      >
-                        <MessageSquareIcon aria-hidden className="size-3" />
-                        {activityError
-                          ? "—"
-                          : activityPending
-                            ? "…"
-                            : detail.commentCount.toLocaleString()}
-                      </span>
-                      <span
-                        className="inline-flex items-center gap-1"
-                        aria-label={
-                          activityError
-                            ? "Commits unavailable"
-                            : `${detail.commits.length.toLocaleString()} ${
-                                detail.commits.length === 1 ? "commit" : "commits"
-                              }`
-                        }
-                      >
-                        <GitCommitHorizontalIcon aria-hidden className="size-3" />
-                        {activityError
-                          ? "—"
-                          : activityPending
-                            ? "…"
-                            : detail.commits.length.toLocaleString()}
-                      </span>
-                      {/* Only once somebody has approved: a nought beside a tick would read as a
-                          verdict of its own on a change nobody has looked at yet. */}
-                      {approvalCount > 0 ? (
-                        <span
-                          className={cn(
-                            "inline-flex items-center gap-1",
-                            pullRequestReviewOutcomeToneClassName("approved"),
-                          )}
-                        >
-                          <PullRequestReviewOutcomeIcon outcome="approved" className="size-3" />
-                          {approvalCount.toLocaleString()}
-                          {/* The icon is decorative and a name written onto a generic span is
-                              not announced, so the bare number says what it counts in words. */}
-                          <span className="sr-only">
-                            {approvalCount === 1 ? "approval" : "approvals"}
-                          </span>
-                        </span>
                       ) : null}
-                    </PullRequestMetaLine>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      className="h-7 px-2 text-[10px] text-muted-foreground"
-                      aria-label={
-                        timelineOrder === "newest"
-                          ? "Show oldest activity first"
-                          : "Show newest activity first"
-                      }
-                      onClick={() =>
-                        setTimelineOrder((value) => (value === "newest" ? "oldest" : "newest"))
-                      }
-                    >
-                      <ArrowDownUpIcon aria-hidden className="size-3" />
-                      {timelineOrder === "newest" ? "Newest first" : "Oldest first"}
-                    </Button>
-                  </div>
-                ) : null}
-              </nav>
+                      <code className="flex min-w-0">
+                        <MiddleTruncate value={detail.baseBranch} showTitle={false} />
+                      </code>
+                    </PullRequestBaseFreshnessWarning>
+                  ) : (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span className="inline-flex min-w-0 max-w-[40%] shrink-0 items-center gap-1">
+                            {isStackedPullRequest ? (
+                              <PullRequestGlyph.stack
+                                aria-label="Stacked pull request"
+                                className="size-3 shrink-0"
+                              />
+                            ) : null}
+                            <code className="flex min-w-0">
+                              <MiddleTruncate value={detail.baseBranch} showTitle={false} />
+                            </code>
+                          </span>
+                        }
+                      />
+                      <TooltipPopup side="top">
+                        {isStackedPullRequest
+                          ? `Stacked on ${detail.baseBranch}`
+                          : detail.baseBranch}
+                      </TooltipPopup>
+                    </Tooltip>
+                  )
+                }
+                head={
+                  <PullRequestCopyableCode
+                    key={detail.headBranch}
+                    value={detail.headBranch}
+                    target="branch name"
+                    copyLabel="Copy pull request branch"
+                    copiedLabel="Branch name copied"
+                  />
+                }
+                files={`${detail.changedFiles.toLocaleString()} ${detail.changedFiles === 1 ? "file" : "files"}`}
+                diffStat={
+                  <PullRequestDiffStat
+                    additions={detail.additions}
+                    deletions={detail.deletions}
+                    className="shrink-0 font-mono text-xs"
+                  />
+                }
+              />
             ) : null}
           </div>
         </div>
+
+        {detail ? (
+          <PullRequestDetailTabBar
+            tabs={visibleTabs}
+            value={tab}
+            onValueChange={setTab}
+            onTabIntent={(item) => {
+              if (item === "code") void loadCodeTab();
+            }}
+          >
+            {tab === "summary" ? (
+              showsApproveWorkflows ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <span className="ml-auto inline-flex shrink-0">
+                        <Button
+                          size="xs"
+                          variant="warning-outline"
+                          disabled={actionPending}
+                          {...inlineConfirm.props(
+                            "approve-workflows",
+                            () => void perform("approve-workflows"),
+                          )}
+                          aria-label={
+                            pendingAction === "approve-workflows"
+                              ? "Approving..."
+                              : inlineConfirm.isArmed("approve-workflows")
+                                ? "Confirm approve?"
+                                : "Approve workflows to run"
+                          }
+                        >
+                          <PlayIcon aria-hidden className="size-3.5" />
+                          <span className="inline-grid">
+                            <span aria-hidden className="invisible col-start-1 row-start-1">
+                              Approve workflows to run
+                            </span>
+                            <span aria-hidden className="invisible col-start-1 row-start-1">
+                              Confirm approve?
+                            </span>
+                            <span className="col-start-1 row-start-1">
+                              {pendingAction === "approve-workflows"
+                                ? "Approving..."
+                                : inlineConfirm.isArmed("approve-workflows")
+                                  ? "Confirm approve?"
+                                  : "Approve workflows to run"}
+                            </span>
+                          </span>
+                        </Button>
+                      </span>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    {pendingAction === "approve-workflows"
+                      ? "Approving..."
+                      : inlineConfirm.isArmed("approve-workflows")
+                        ? "Confirm approve?"
+                        : "Approve workflows to run"}
+                  </TooltipPopup>
+                </Tooltip>
+              ) : (
+                <PullRequestChecksStatusLine
+                  className="text-muted-foreground"
+                  aria-label={checksSummary ? `Checks: ${checksSummary}` : "Checks"}
+                  icon={
+                    checksState !== null ? (
+                      <PullRequestChecksPopover
+                        checks={detail.checks}
+                        stale={checksStale}
+                        checksState={checksState}
+                        threadRef={threadRef}
+                      />
+                    ) : (
+                      <CircleDotIcon aria-hidden className="size-3.5" />
+                    )
+                  }
+                  label={checksSummary}
+                />
+              )
+            ) : tab === "timeline" ? (
+              <div className="ml-auto flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                <PullRequestMetaLine
+                  className={cn(
+                    "whitespace-nowrap text-2xs transition-opacity",
+                    (activityPending || activityError) && "opacity-35",
+                  )}
+                >
+                  <span
+                    className="inline-flex items-center gap-1"
+                    aria-label={
+                      activityError
+                        ? "Comments unavailable"
+                        : `${detail.commentCount.toLocaleString()} ${
+                            detail.commentCount === 1 ? "comment" : "comments"
+                          }`
+                    }
+                  >
+                    <MessageSquareIcon aria-hidden className="size-3" />
+                    {activityError
+                      ? "—"
+                      : activityPending
+                        ? "…"
+                        : detail.commentCount.toLocaleString()}
+                  </span>
+                  <span
+                    className="inline-flex items-center gap-1"
+                    aria-label={
+                      activityError
+                        ? "Commits unavailable"
+                        : `${detail.commits.length.toLocaleString()} ${
+                            detail.commits.length === 1 ? "commit" : "commits"
+                          }`
+                    }
+                  >
+                    <GitCommitHorizontalIcon aria-hidden className="size-3" />
+                    {activityError
+                      ? "—"
+                      : activityPending
+                        ? "…"
+                        : detail.commits.length.toLocaleString()}
+                  </span>
+                  {approvalCount > 0 ? (
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1",
+                        pullRequestReviewOutcomeToneClassName("approved"),
+                      )}
+                    >
+                      <PullRequestReviewOutcomeIcon outcome="approved" className="size-3" />
+                      {approvalCount.toLocaleString()}
+                      <span className="sr-only">
+                        {approvalCount === 1 ? "approval" : "approvals"}
+                      </span>
+                    </span>
+                  ) : null}
+                </PullRequestMetaLine>
+                <Button
+                  size="xs"
+                  variant="ghost-muted"
+                  aria-label={
+                    timelineOrder === "newest"
+                      ? "Show oldest activity first"
+                      : "Show newest activity first"
+                  }
+                  onClick={() =>
+                    setTimelineOrder((value) => (value === "newest" ? "oldest" : "newest"))
+                  }
+                >
+                  <ArrowDownUpIcon aria-hidden className="size-3" />
+                  {timelineOrder === "newest" ? "Newest first" : "Oldest first"}
+                </Button>
+              </div>
+            ) : null}
+          </PullRequestDetailTabBar>
+        ) : null}
       </div>
 
       <div
-        className="relative min-h-0 flex-1 overflow-hidden"
-        // Scroll does not bubble, but it captures: one listener hears every tab's own scroll
-        // container. Collapse past two line-heights, expand only back at the very top, so the
-        // boundary row cannot flap the chrome open and shut.
+        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
         onScrollCapture={(event) => {
-          if (chromeVariant !== "collapse") return;
-          const scroller = event.target as HTMLElement;
-          scrollerRef.current = scroller;
+          const scroller = scrollerByTab.current[tab];
+          if (event.target !== scroller || scroller === null || scroller === undefined) return;
           const top = scroller.scrollTop;
           setChromeCondensed((previous) => {
             let next = previous;
-            // `scrollHeight` reads the fold's natural height whichever state the track is in.
             const foldHeight = foldRef.current?.scrollHeight ?? 0;
-            // The chrome trades the fold for the condensed second row, so the height the
-            // scrollport actually gains is the difference between the two.
+            // The condensed row remains mounted, so refund only the height that actually leaves.
             const chromeDelta = foldHeight - (condensedRowRef.current?.scrollHeight ?? 0);
             if (previous) {
               // The hard top reopens the chrome with no refund: the reader asked for the top,
@@ -1897,7 +2905,7 @@ export function PullRequestDetailPanel({
                 next = false;
               }
             } else if (foldHeight > 0 && top > foldHeight + 32) {
-              compensationRef.current = -chromeDelta;
+              compensationRef.current = { tab, scroller, delta: -chromeDelta };
               next = true;
             }
             chromeStateByTab.current[tab] = next;
@@ -1905,33 +2913,65 @@ export function PullRequestDetailPanel({
           });
         }}
       >
-        {detailQuery.isPending && !detail ? (
-          // The ghost wears the shape of the tab being waited on, so switching tabs mid-load
-          // does not flash a summary outline under a timeline heading.
-          tab === "timeline" ? (
-            <PullRequestTimelineGhost />
-          ) : tab === "code" ? (
-            <DiffPanelLoadingState label="Loading pull request diff..." />
-          ) : (
-            <PullRequestDetailGhost />
-          )
-        ) : detailQuery.error && !detail ? (
-          <PullRequestsUnavailableState error={detailQuery.error} onRetry={refreshDetail} />
+        {detailQuery.error && !detail ? (
+          <PullRequestsUnavailableState
+            {...(isPullRequestNotFound(detailQuery.failure)
+              ? {
+                  title: `Pull request #${reference.number} not found`,
+                  error:
+                    "It may be an issue rather than a pull request, or this account can't see it.",
+                }
+              : { error: detailQuery.error })}
+            refreshing={detailQuery.isPending}
+            onRetry={refreshDetail}
+            {...(unavailableGitHubUrl ? { gitHubUrl: unavailableGitHubUrl } : {})}
+          />
         ) : detail ? (
-          <>
+          <PullRequestMarkdownContext value={markdownContext}>
             {mountedTabs.has("summary") ? (
               <div className={cn("absolute inset-0", tab !== "summary" && "invisible")}>
                 <PullRequestSummaryTab
+                  scrollerRef={scrollerRefs.summary}
                   environmentId={environmentId}
+                  threadRef={threadRef}
                   reference={reference}
                   detail={detail}
                   activityPending={activityPending}
+                  checksStale={checksStale}
                   activityError={activityError}
                   pendingFinding={handoff}
                   fixFindingLabel={handoffLabels.fixFinding}
                   fixCheckLabel={handoffLabels.fixCheck}
-                  onFixFinding={startFixFinding}
+                  {...(canFixFindings ? { onFixFinding: startFixFinding } : {})}
                   onRefresh={refreshDetail}
+                  onRefreshChecks={refreshFromHost}
+                />
+              </div>
+            ) : null}
+            {mountedTabs.has("guide") ? (
+              <div className={cn("absolute inset-0", tab !== "guide" && "invisible")}>
+                <PullRequestGuideTab
+                  environmentId={environmentId}
+                  reference={reference}
+                  active={tab === "guide"}
+                  title={detail.title}
+                  workspaceRoot={detail.workspaceRoot}
+                  canComment={
+                    detail.capabilities.review.inlineComment && detail.viewerPermissions.comment
+                  }
+                  onAskAboutLines={(comment, request) =>
+                    addSelectionToAgent({ comment, request }, { keepGuide: true })
+                  }
+                  onAskAboutStop={askAboutGuideStop}
+                  onFinishReview={
+                    detail.capabilities.review.verdicts.some((verdict) =>
+                      detail.viewerPermissions.verdicts.includes(verdict),
+                    )
+                      ? () => setOpenReviewRequest((count) => count + 1)
+                      : null
+                  }
+                  onOpenFile={openFileInCode}
+                  onTourShown={onGuideShown}
                 />
               </div>
             ) : null}
@@ -1946,8 +2986,10 @@ export function PullRequestDetailPanel({
                   />
                 ) : (
                   <PullRequestTimelineTab
+                    scrollerRef={scrollerRefs.timeline}
                     detail={detail}
                     environmentId={environmentId}
+                    threadRef={threadRef}
                     reference={reference}
                     order={timelineOrder}
                     onOpenCommit={openCommit}
@@ -1960,7 +3002,8 @@ export function PullRequestDetailPanel({
               <div className={cn("absolute inset-0", tab !== "code" && "invisible")}>
                 <Suspense fallback={<DiffPanelLoadingState label="Loading pull request diff..." />}>
                   <PullRequestCodeTab
-                    {...(attachTarget ? { onAddToAgentSelection: addSelectionToAgent } : {})}
+                    scrollerRef={scrollerRefs.code}
+                    onAddToAgentSelection={addSelectionToAgent}
                     environmentId={environmentId}
                     reference={reference}
                     detail={detail}
@@ -1968,67 +3011,40 @@ export function PullRequestDetailPanel({
                     onSelectedCommitChange={selectCodeCommit}
                     pendingFinding={handoff}
                     fixFindingLabel={handoffLabels.fixFinding}
-                    onFixFinding={startFixFinding}
+                    {...(canFixFindings ? { onFixFinding: startFixFinding } : {})}
                     onRefresh={refreshDetail}
-                    refreshToken={refreshToken}
+                    refreshToken={codeRefreshToken}
+                    revealRequest={codeRevealRequest}
                   />
                 </Suspense>
               </div>
             ) : null}
-          </>
+          </PullRequestMarkdownContext>
         ) : null}
       </div>
 
-      <AlertDialog
-        open={confirmAction !== null}
-        onOpenChange={(open) => !open && setConfirmAction(null)}
-      >
-        <AlertDialogPopup>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmAction === "merge"
-                ? "Merge pull request?"
-                : confirmAction === "enable-auto-merge"
-                  ? "Enable auto-merge?"
-                  : "Close pull request?"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmAction === "merge"
-                ? `This merges #${reference.number} using ${selectedMergeMethod}.`
-                : confirmAction === "enable-auto-merge"
-                  ? // The host merges this as soon as it considers the pull request ready, which
-                    // may be immediately — there is no telling from here whether anything is
-                    // still outstanding.
-                    `This merges #${reference.number} using ${selectedMergeMethod} as soon as the host considers it ready, which may be immediately.`
-                  : `This closes #${reference.number} without merging it.`}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" size="sm" />}>
-              Cancel
-            </AlertDialogClose>
-            <Button
-              size="sm"
-              variant={confirmAction === "close" ? "destructive" : "default"}
-              disabled={actionPending}
-              onClick={() => {
-                const action = confirmAction;
-                setConfirmAction(null);
-                if (action === "merge") void perform("merge", selectedMergeMethod);
-                if (action === "enable-auto-merge")
-                  void perform("enable-auto-merge", selectedMergeMethod);
-                if (action === "close") void perform("close");
-              }}
-            >
-              {confirmAction === "merge"
-                ? "Merge"
-                : confirmAction === "enable-auto-merge"
-                  ? "Enable auto-merge"
-                  : "Close"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogPopup>
-      </AlertDialog>
+      {/* Float over the content; do not reserve a footer or padding in the PR tabs. */}
+      {detail ? (
+        <div className="absolute right-4 bottom-3 z-20">
+          <PullRequestComposer
+            key={JSON.stringify([
+              environmentId,
+              reference.projectId,
+              reference.host,
+              reference.repository,
+              reference.number,
+            ])}
+            environmentId={environmentId}
+            reference={reference}
+            detail={detail}
+            actionPending={actionPending}
+            onCommentAction={performCommentAction}
+            onCommented={refreshDetail}
+            onReviewSubmitted={refreshDetail}
+            openReviewRequest={openReviewRequest}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

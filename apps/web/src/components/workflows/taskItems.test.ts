@@ -1,53 +1,40 @@
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
-import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId, TurnId } from "@t3tools/contracts";
+import { EnvironmentId, RunId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { deriveTasks, TASK_DONE_WINDOW_MS, workflowThreadIds } from "./taskItems";
+import { deriveTasks, TASK_DONE_WINDOW_MS, workflowThreadIds, type TaskShell } from "./taskItems";
 import { bubbleActionsFor, deriveWorkflowSections } from "./workflowsPanel.logic";
 
 const NOW = Date.parse("2026-08-18T12:00:00.000Z");
 const at = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
 
-function shell(
-  id: string,
-  overrides: Partial<EnvironmentThreadShell> = {},
-): EnvironmentThreadShell {
+function shell(id: string, overrides: Partial<TaskShell> = {}): TaskShell {
   return {
     environmentId: EnvironmentId.make("env"),
     id: ThreadId.make(id),
-    projectId: ProjectId.make("project"),
     title: `Thread ${id}`,
-    modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-5" },
-    runtimeMode: "full-access",
-    interactionMode: "default",
-    branch: null,
-    worktreePath: null,
-    latestTurn: null,
-    createdAt: at(-60 * 60_000),
+    latestRun: null,
+    runtime: null,
     updatedAt: at(-60 * 60_000),
     archivedAt: null,
-    settledOverride: null,
-    settledAt: null,
-    session: null,
-    latestUserMessageAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
+    pendingBackgroundTasks: [],
     ...overrides,
   };
 }
 
-const runningTurn = (offsetMs: number) => ({
-  turnId: TurnId.make("t"),
-  state: "running" as const,
+const runningRun = (offsetMs: number) => ({
+  runId: RunId.make("r"),
+  status: "running" as const,
   requestedAt: at(offsetMs),
   startedAt: at(offsetMs),
   completedAt: null,
   assistantMessageId: null,
 });
-const settledTurn = (state: "completed" | "interrupted" | "error", offsetMs: number) => ({
-  turnId: TurnId.make("t"),
-  state,
+const settledRun = (status: "completed" | "interrupted" | "failed", offsetMs: number) => ({
+  runId: RunId.make("r"),
+  status,
   requestedAt: at(offsetMs - 60_000),
   startedAt: at(offsetMs - 60_000),
   completedAt: at(offsetMs),
@@ -59,42 +46,32 @@ describe("deriveTasks", () => {
     const tasks = deriveTasks(
       [
         shell("running", {
-          latestTurn: runningTurn(-5 * 60_000),
-          session: {
-            threadId: ThreadId.make("running"),
-            status: "running",
-            providerName: "claude",
-            runtimeMode: "full-access",
-            activeTurnId: TurnId.make("t"),
-            lastError: null,
-            updatedAt: at(-1000),
-          },
-          planProgress: { step: "Writing tests", completedSteps: 2, totalSteps: 5 },
+          latestRun: runningRun(-5 * 60_000),
           updatedAt: at(-1000),
         }),
         shell("approval", {
-          latestTurn: runningTurn(-9 * 60_000),
+          latestRun: runningRun(-9 * 60_000),
           hasPendingApprovals: true,
           updatedAt: at(-2000),
         }),
         shell("plan", {
-          latestTurn: settledTurn("completed", -3 * 60_000),
+          latestRun: settledRun("completed", -3 * 60_000),
           hasActionableProposedPlan: true,
           updatedAt: at(-3000),
         }),
         shell("stopped", {
-          latestTurn: settledTurn("interrupted", -10 * 60_000),
+          latestRun: settledRun("interrupted", -10 * 60_000),
           updatedAt: at(-4000),
         }),
-        shell("errored", { latestTurn: settledTurn("error", -20 * 60_000), updatedAt: at(-5000) }),
-        shell("done", { latestTurn: settledTurn("completed", -30 * 60_000), updatedAt: at(-6000) }),
+        shell("errored", { latestRun: settledRun("failed", -20 * 60_000), updatedAt: at(-5000) }),
+        shell("done", { latestRun: settledRun("completed", -30 * 60_000), updatedAt: at(-6000) }),
         shell("old", {
-          latestTurn: settledTurn("completed", -TASK_DONE_WINDOW_MS - 1),
+          latestRun: settledRun("completed", -TASK_DONE_WINDOW_MS - 1),
           updatedAt: at(-7000),
         }),
-        shell("archived", { latestTurn: runningTurn(-1000), archivedAt: at(-500) }),
+        shell("archived", { latestRun: runningRun(-1000), archivedAt: at(-500) }),
         shell("untouched"),
-        shell("workflow", { latestTurn: runningTurn(-1000), updatedAt: at(0) }),
+        shell("workflow", { latestRun: runningRun(-1000), updatedAt: at(0) }),
       ],
       { nowMs: NOW, excludeThreadIds: new Set(["workflow"]) },
     );
@@ -106,7 +83,7 @@ describe("deriveTasks", () => {
       ["errored", "failed", null],
       ["done", "done", null],
     ]);
-    expect(tasks[0]!.progress).toEqual({ step: "Writing tests", completed: 2, total: 5 });
+    expect(tasks[0]!.progress).toBeNull();
     expect(tasks[3]!.finishedAt).toBe(at(-10 * 60_000));
   });
 
@@ -129,14 +106,14 @@ describe("deriveTasks", () => {
   it("lands tasks in the section matching their status and offers Stop/Resume/Open", () => {
     const tasks = deriveTasks(
       [
-        shell("running", { latestTurn: runningTurn(-1000), updatedAt: at(-1000) }),
-        shell("stopped", { latestTurn: settledTurn("interrupted", -2000), updatedAt: at(-2000) }),
+        shell("running", { latestRun: runningRun(-1000), updatedAt: at(-1000) }),
+        shell("stopped", { latestRun: settledRun("interrupted", -2000), updatedAt: at(-2000) }),
         shell("input", {
-          latestTurn: runningTurn(-3000),
+          latestRun: runningRun(-3000),
           hasPendingUserInput: true,
           updatedAt: at(-3000),
         }),
-        shell("done", { latestTurn: settledTurn("completed", -4000), updatedAt: at(-4000) }),
+        shell("done", { latestRun: settledRun("completed", -4000), updatedAt: at(-4000) }),
       ],
       { nowMs: NOW },
     );

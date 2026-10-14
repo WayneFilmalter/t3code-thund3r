@@ -1,10 +1,40 @@
+import { EnvironmentId, type ThreadPullRequestLink } from "@t3tools/contracts";
 import type { DesktopPreviewFavicon, PreviewSessionSnapshot } from "@t3tools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
+import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
 import { describe, expect, it } from "vite-plus/test";
 
-import type { RightPanelSurface } from "~/rightPanelStore";
+import {
+  RightPanelTabs,
+  resolvePullRequestTabLink,
+  shouldOpenDefaultBrowserProfileFromMenuClick,
+  surfaceShortcutActionForKey,
+  surfaceShortcutTargetsTypingContext,
+  tabMuteMenuItem,
+} from "./RightPanelTabs";
 
-import { RightPanelTabs, type RightPanelKindTabId } from "./RightPanelTabs";
+describe("browser profile submenu", () => {
+  it("reserves touch clicks for opening the choices while mouse clicks use the default", () => {
+    expect(shouldOpenDefaultBrowserProfileFromMenuClick("touch")).toBe(false);
+    expect(shouldOpenDefaultBrowserProfileFromMenuClick("mouse")).toBe(true);
+    expect(shouldOpenDefaultBrowserProfileFromMenuClick(undefined)).toBe(true);
+  });
+});
+
+function shortcutEvent(
+  key: string,
+  overrides: Partial<Parameters<typeof surfaceShortcutActionForKey>[1]> = {},
+): Parameters<typeof surfaceShortcutActionForKey>[1] {
+  return {
+    key,
+    altKey: false,
+    ctrlKey: false,
+    defaultPrevented: false,
+    isComposing: false,
+    metaKey: false,
+    ...overrides,
+  };
+}
 
 const previewSurface = {
   id: "browser:tab-1" as const,
@@ -41,7 +71,10 @@ const favicon = (dataUrl: string, pageUrl: string): DesktopPreviewFavicon => ({
   capturedAt: 1,
 });
 
-function overlay(icon: DesktopPreviewFavicon | null) {
+function overlay(
+  icon: DesktopPreviewFavicon | null,
+  audio?: { audible?: boolean; audioMuted?: boolean },
+) {
   return {
     hasWebContents: true,
     canGoBack: false,
@@ -50,38 +83,41 @@ function overlay(icon: DesktopPreviewFavicon | null) {
     zoomFactor: 1,
     pictureInPicture: false,
     colorScheme: "system" as const,
+    audioMuted: audio?.audioMuted ?? false,
+    audible: audio?.audible ?? false,
     controller: "none" as const,
     favicon: icon,
   };
 }
 
-const KIND_TAB_IDS: readonly RightPanelKindTabId[] = [
-  "workflows",
-  "browser",
-  "terminal",
-  "files",
-  "diff",
-];
-
-const allKindTabs = Object.fromEntries(
-  KIND_TAB_IDS.map((id) => [id, { available: true, onSelect: () => undefined }]),
-) as Record<RightPanelKindTabId, { available: boolean; onSelect: () => void }>;
-
-function renderPanel(options: {
-  surfaces: readonly RightPanelSurface[];
-  activeSurfaceId: string | null;
-  kindTabs?: typeof allKindTabs;
-  desktopByTabId?: Record<string, ReturnType<typeof overlay>>;
-}) {
+function renderTabs(
+  first: DesktopPreviewFavicon | null,
+  second?: DesktopPreviewFavicon,
+  audio?: { audible?: boolean; audioMuted?: boolean },
+  previewRuntimeTabId: ((tabId: string) => string) | null = (tabId) => `runtime:${tabId}`,
+) {
   return renderToStaticMarkup(
     <RightPanelTabs
       mode="inline"
-      {...(options.kindTabs ? { kindTabs: options.kindTabs } : {})}
-      surfaces={options.surfaces}
-      activeSurfaceId={options.activeSurfaceId}
+      keybindings={DEFAULT_RESOLVED_KEYBINDINGS}
+      getShortcutContext={() => ({
+        terminalFocus: false,
+        terminalOpen: false,
+        previewFocus: false,
+        previewOpen: false,
+        isWeb: true,
+        isDesktop: false,
+      })}
+      surfaces={second ? [previewSurface, secondSurface] : [previewSurface]}
+      environmentId={null}
+      activeSurfaceId={previewSurface.id}
       pendingSurfaceIds={new Set()}
       previewSessions={sessions}
-      desktopByTabId={options.desktopByTabId ?? {}}
+      desktopByTabId={{
+        "tab-1": overlay(first, audio),
+        ...(second ? { "tab-2": overlay(second) } : {}),
+      }}
+      {...(previewRuntimeTabId ? { previewRuntimeTabId } : {})}
       terminalLabelsById={new Map()}
       onActivate={() => undefined}
       onCloseSurface={() => undefined}
@@ -89,31 +125,26 @@ function renderPanel(options: {
       onCloseSurfacesToRight={() => undefined}
       onCloseAllSurfaces={() => undefined}
       onCopyFilePath={() => undefined}
+      onAddBrowser={() => undefined}
+      onAddBrowserInProfile={() => undefined}
+      onAddTerminal={() => undefined}
+      onAddPullRequest={() => undefined}
+      onAddPullRequests={() => undefined}
+      onAddDiff={() => undefined}
+      onAddFiles={() => undefined}
+      onAddDevice={() => undefined}
+      onAddWorkflows={() => undefined}
+      browserAvailable
+      terminalAvailable={false}
+      diffAvailable={false}
+      filesAvailable={false}
+      pullRequestAvailable={false}
+      pullRequestsAvailable={false}
+      deviceAvailable={false}
+      workflowsAvailable={false}
     >
       <div>content</div>
     </RightPanelTabs>,
-  );
-}
-
-function renderTabs(first: DesktopPreviewFavicon | null, second?: DesktopPreviewFavicon) {
-  return renderPanel({
-    surfaces: second ? [previewSurface, secondSurface] : [previewSurface],
-    activeSurfaceId: previewSurface.id,
-    desktopByTabId: {
-      "tab-1": overlay(first),
-      ...(second ? { "tab-2": overlay(second) } : {}),
-    },
-  });
-}
-
-/** Text of every kind tab and surface tab in the order they render. */
-function tabOrder(html: string): string[] {
-  return [...html.matchAll(/aria-label="(?:Close )?([^"]+)"/g)].map((match) => match[1]!);
-}
-
-function pressedKindTabs(html: string): string[] {
-  return [...html.matchAll(/aria-pressed="true"[^>]*aria-label="([^"]+)"/g)].map(
-    (match) => match[1]!,
   );
 }
 
@@ -140,74 +171,169 @@ describe("RightPanelTabs preview favicon", () => {
   });
 });
 
-describe("RightPanelTabs kind tabs", () => {
-  const pullRequestSurface: RightPanelSurface = {
-    id: "pull-request:project:repo:7",
-    kind: "pull-request",
-    projectId: "project",
-    repository: "repo",
+describe("surface shortcuts", () => {
+  const actions = [
+    { shortcut: "B", available: true, label: "Browser" },
+    { shortcut: "D", available: false, label: "Diff" },
+  ] as const;
+
+  it("matches available surface shortcuts case-insensitively", () => {
+    expect(surfaceShortcutActionForKey(actions, shortcutEvent("b"))).toBe(actions[0]);
+    expect(surfaceShortcutActionForKey(actions, shortcutEvent("B"))).toBe(actions[0]);
+  });
+
+  it("does not activate unavailable surfaces", () => {
+    expect(surfaceShortcutActionForKey(actions, shortcutEvent("d"))).toBeNull();
+  });
+
+  it("leaves modified, composing, and already-handled key events alone", () => {
+    expect(surfaceShortcutActionForKey(actions, shortcutEvent("b", { metaKey: true }))).toBeNull();
+    expect(
+      surfaceShortcutActionForKey(actions, shortcutEvent("b", { isComposing: true })),
+    ).toBeNull();
+    expect(
+      surfaceShortcutActionForKey(actions, shortcutEvent("b", { defaultPrevented: true })),
+    ).toBeNull();
+  });
+});
+
+describe("surface shortcut typing contexts", () => {
+  // Selector-aware stub: closest() answers only tokens the combined selector
+  // would actually match, mirroring how the browser resolves it.
+  const makeTarget = (matches: string | null) => ({
+    closest(selectors: string) {
+      if (matches === null || !selectors.includes(matches)) return null;
+      return {};
+    },
+  });
+
+  it("treats form fields and every editable region as typing contexts", () => {
+    expect(surfaceShortcutTargetsTypingContext(makeTarget("input"))).toBe(true);
+    expect(surfaceShortcutTargetsTypingContext(makeTarget("textarea"))).toBe(true);
+    expect(surfaceShortcutTargetsTypingContext(makeTarget("select"))).toBe(true);
+    // The chat composer is a contenteditable that sits empty until a draft
+    // exists; launcher letters claimed from it redirected prompts into shells.
+    // The :not clause sees past contenteditable="false" islands to an editable
+    // host around them, so nested editors stay protected too.
+    expect(surfaceShortcutTargetsTypingContext(makeTarget("[contenteditable]"))).toBe(true);
+  });
+
+  it("claims letters when focus sits outside any editable region", () => {
+    expect(surfaceShortcutTargetsTypingContext(null)).toBe(false);
+    expect(surfaceShortcutTargetsTypingContext(makeTarget(null))).toBe(false);
+  });
+});
+
+describe("RightPanelTabs audio indicator", () => {
+  // A muted tab only shows the indicator while it is actually making sound:
+  // arming mute on a quiet tab is deliberate and stays invisible until there
+  // is something to suppress.
+  const cases = [
+    { audible: false, audioMuted: false, label: null },
+    { audible: false, audioMuted: true, label: null },
+    { audible: true, audioMuted: false, label: "Mute Local site" },
+    { audible: true, audioMuted: true, label: "Unmute Local site" },
+  ] as const;
+
+  it.each(cases)("audible=$audible muted=$audioMuted", ({ audible, audioMuted, label }) => {
+    const html = renderTabs(null, undefined, { audible, audioMuted });
+    if (label === null) {
+      expect(html).not.toContain("Mute Local site");
+      expect(html).not.toContain("Unmute Local site");
+    } else {
+      expect(html).toContain(`aria-label="${label}"`);
+    }
+  });
+
+  it("addresses the desktop by runtime tab id, never the server session id", () => {
+    // Session ids are only unique per server process; sending one to the
+    // Electron manager raises PreviewTabNotFoundError and silently no-ops.
+    const seen: string[] = [];
+    renderTabs(null, undefined, { audible: true }, (tabId) => {
+      seen.push(tabId);
+      return `runtime:${tabId}`;
+    });
+    expect(seen).toContain("tab-1");
+  });
+
+  it("hides the toggle when no runtime tab id can be resolved", () => {
+    const html = renderTabs(null, undefined, { audible: true }, null);
+    expect(html).not.toContain("Mute Local site");
+  });
+});
+
+describe("tabMuteMenuItem", () => {
+  const overlay = (audioMuted: boolean) =>
+    ({ audioMuted, audible: false }) as Parameters<typeof tabMuteMenuItem>[0]["overlay"];
+
+  it("stays disabled until the desktop tab exists", () => {
+    // The server session id resolves before the preview manager finishes
+    // createTab. Muting in that window fails with an error nobody surfaces.
+    expect(tabMuteMenuItem({ overlay: null, canResolveRuntimeTabId: true })).toEqual({
+      label: "Mute tab",
+      disabled: true,
+    });
+  });
+
+  it("stays disabled when no runtime tab id can be resolved", () => {
+    expect(tabMuteMenuItem({ overlay: overlay(false), canResolveRuntimeTabId: false })).toEqual({
+      label: "Mute tab",
+      disabled: true,
+    });
+  });
+
+  it("offers mute and unmute once the tab is addressable", () => {
+    expect(tabMuteMenuItem({ overlay: overlay(false), canResolveRuntimeTabId: true })).toEqual({
+      label: "Mute tab",
+      disabled: false,
+    });
+    expect(tabMuteMenuItem({ overlay: overlay(true), canResolveRuntimeTabId: true })).toEqual({
+      label: "Unmute tab",
+      disabled: false,
+    });
+  });
+});
+
+describe("pull request tab snapshots", () => {
+  const environmentId = EnvironmentId.make("local");
+  const link: ThreadPullRequestLink = {
+    host: "github.com",
+    repository: "acme/api",
     number: 7,
+    url: "https://github.com/acme/api/pull/7",
+    source: "manual",
+    linkedAt: "2026-01-01T00:00:00Z",
+    stack: null,
+    snapshot: null,
   };
-
-  it("renders every surface as a closable tab when no kind tabs are given", () => {
-    const html = renderPanel({
-      surfaces: [previewSurface, secondSurface],
-      activeSurfaceId: previewSurface.id,
-    });
-    expect(tabOrder(html)).toEqual(["Local site", "Admin"]);
-    expect(html).not.toContain("data-right-panel-surface-tabs");
+  it("keeps unknown linked state authoritative and scopes matches to environment and host", () => {
+    const threads = [{ environmentId, pullRequests: [link] }];
+    expect(resolvePullRequestTabLink(threads, environmentId, "github.com", link)).toBe(link);
+    expect(
+      resolvePullRequestTabLink(threads, EnvironmentId.make("remote"), "github.com", link),
+    ).toBeUndefined();
+    expect(
+      resolvePullRequestTabLink(threads, environmentId, "github.enterprise.test", link),
+    ).toBeUndefined();
   });
-
-  it("lists the fixed kind tabs with Workflows first and moves owned surfaces to a second row", () => {
-    const html = renderPanel({
-      surfaces: [previewSurface, secondSurface],
-      activeSurfaceId: previewSurface.id,
-      kindTabs: allKindTabs,
-      desktopByTabId: {
-        "tab-1": overlay(favicon("data:image/png;base64,AAAA", "http://24x.xf.local/")),
-        "tab-2": overlay(favicon("data:image/png;base64,BBBB", "http://24x.xf.local/admin")),
-      },
-    });
-    expect(tabOrder(html)).toEqual([
-      "Workflows",
-      "Browser",
-      "Terminal",
-      "Files",
-      "Diff",
-      "Local site",
-      "Admin",
-    ]);
-    expect(pressedKindTabs(html)).toEqual(["Browser"]);
-    expect(html).toContain("data-right-panel-surface-tabs");
-    expect(html).toContain("data:image/png;base64,AAAA");
-    expect(html).toContain("data:image/png;base64,BBBB");
-  });
-
-  it("appends surfaces no kind tab owns after the fixed tabs", () => {
-    const html = renderPanel({
-      surfaces: [{ id: "diff", kind: "diff" }, pullRequestSurface],
-      activeSurfaceId: pullRequestSurface.id,
-      kindTabs: allKindTabs,
-    });
-    expect(tabOrder(html)).toEqual(["Workflows", "Browser", "Terminal", "Files", "Diff", "#7"]);
-    // A pull request is not a kind tab, so nothing in the fixed row is pressed.
-    expect(pressedKindTabs(html)).toEqual([]);
-    expect(html).not.toContain("data-right-panel-surface-tabs");
-  });
-
-  it("treats an empty panel as the Workflows tab", () => {
-    const html = renderPanel({ surfaces: [], activeSurfaceId: null, kindTabs: allKindTabs });
-    expect(pressedKindTabs(html)).toEqual(["Workflows"]);
-    expect(html).not.toContain("data-right-panel-surface-tabs");
-  });
-
-  it("dims an unavailable kind tab instead of hiding it", () => {
-    const html = renderPanel({
-      surfaces: [],
-      activeSurfaceId: null,
-      kindTabs: { ...allKindTabs, diff: { available: false, onSelect: () => undefined } },
-    });
-    expect(tabOrder(html)).toEqual(["Workflows", "Browser", "Terminal", "Files", "Diff"]);
-    expect(html).toMatch(/aria-disabled="true"[^>]*aria-label="Diff"/);
+  it("uses the newest snapshot when several threads link the same PR", () => {
+    const snapshot = {
+      state: "merged" as const,
+      title: "API",
+      headBranch: "api",
+      baseBranch: "main",
+      isDraft: false,
+      updatedAt: null,
+      syncedAt: "2026-02-01T00:00:00Z",
+    };
+    const newer = { ...link, snapshot };
+    expect(
+      resolvePullRequestTabLink(
+        [{ environmentId, pullRequests: [link, newer] }],
+        environmentId,
+        "github.com",
+        link,
+      ),
+    ).toBe(newer);
   });
 });

@@ -3,7 +3,10 @@
  * their agents are doing sits next to the workflow runs. Nothing is persisted — a task is a
  * live view over a thread shell. Threads a workflow spawned are left out; their run tracks them.
  */
-import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
+import {
+  threadRuntimeIsActive,
+  type EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 
 /**
@@ -13,6 +16,22 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
  */
 export type TaskStatus = "running" | "attention" | "stopped" | "failed" | "done";
 export type TaskAttention = "approval" | "input" | "plan";
+
+/** The slice of a thread shell tasks read; tests build this instead of a full shell. */
+export type TaskShell = Pick<
+  EnvironmentThreadShell,
+  | "environmentId"
+  | "id"
+  | "title"
+  | "latestRun"
+  | "runtime"
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "hasActionableProposedPlan"
+  | "pendingBackgroundTasks"
+  | "archivedAt"
+  | "updatedAt"
+>;
 
 export interface TaskItem {
   ref: ScopedThreadRef;
@@ -34,21 +53,27 @@ export interface TaskItem {
 /** Finished tasks stay listed this long after settling; older ones belong to the thread list. */
 export const TASK_DONE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function taskStatus(shell: EnvironmentThreadShell): {
+function taskStatus(shell: TaskShell): {
   status: TaskStatus;
   attention: TaskAttention | null;
 } {
   if (shell.hasPendingApprovals) return { status: "attention", attention: "approval" };
   if (shell.hasPendingUserInput) return { status: "attention", attention: "input" };
-  const turn = shell.latestTurn;
+  const run = shell.latestRun;
   const running =
-    shell.session?.status === "running" ||
-    (turn !== null && turn.state === "running" && !turn.completedAt);
+    threadRuntimeIsActive(shell.runtime) ||
+    (run !== null &&
+      run.status !== "completed" &&
+      run.status !== "interrupted" &&
+      run.status !== "failed" &&
+      run.status !== "cancelled" &&
+      run.status !== "rolled_back");
   if (running) return { status: "running", attention: null };
   if (shell.hasActionableProposedPlan) return { status: "attention", attention: "plan" };
-  if (!turn) return { status: "done", attention: null };
-  if (turn.state === "interrupted") return { status: "stopped", attention: null };
-  if (turn.state === "error") return { status: "failed", attention: null };
+  if (!run) return { status: "done", attention: null };
+  if (run.status === "interrupted" || run.status === "cancelled" || run.status === "rolled_back")
+    return { status: "stopped", attention: null };
+  if (run.status === "failed") return { status: "failed", attention: null };
   return { status: "done", attention: null };
 }
 
@@ -57,18 +82,18 @@ function taskStatus(shell: EnvironmentThreadShell): {
  * threads that stopped, failed, or finished within the done window. Newest activity first.
  */
 export function deriveTasks(
-  shells: ReadonlyArray<EnvironmentThreadShell>,
+  shells: ReadonlyArray<TaskShell>,
   options: { nowMs: number; excludeThreadIds?: ReadonlySet<string> | undefined },
 ): TaskItem[] {
   const tasks: TaskItem[] = [];
   for (const shell of shells) {
     if (shell.archivedAt) continue;
     if (options.excludeThreadIds?.has(shell.id)) continue;
-    if (!shell.latestTurn && !shell.session) continue;
+    if (!shell.latestRun && !shell.runtime) continue;
     const { status, attention } = taskStatus(shell);
-    const turn = shell.latestTurn;
+    const run = shell.latestRun;
     const finishedAt =
-      status === "running" || status === "attention" ? null : (turn?.completedAt ?? null);
+      status === "running" || status === "attention" ? null : (run?.completedAt ?? null);
     if (
       (status === "done" || status === "stopped" || status === "failed") &&
       (!finishedAt || options.nowMs - Date.parse(finishedAt) > TASK_DONE_WINDOW_MS)
@@ -80,16 +105,11 @@ export function deriveTasks(
       title: shell.title,
       status,
       attention,
-      startedAt: turn?.requestedAt ?? shell.updatedAt,
+      startedAt: run?.requestedAt ?? shell.updatedAt,
       finishedAt,
-      progress: shell.planProgress
-        ? {
-            step: shell.planProgress.step,
-            completed: shell.planProgress.completedSteps,
-            total: shell.planProgress.totalSteps,
-          }
-        : null,
-      background: shell.backgroundLiveness ?? null,
+      // The V2 shell no longer carries per-step plan progress; the bubble shows status only.
+      progress: null,
+      background: shell.pendingBackgroundTasks.length > 0 ? "working" : null,
       updatedAt: shell.updatedAt,
     });
   }

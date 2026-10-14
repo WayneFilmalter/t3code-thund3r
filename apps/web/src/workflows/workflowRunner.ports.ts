@@ -15,18 +15,18 @@ import type {
 } from "@t3tools/contracts";
 import { buildTemporaryWorktreeBranchName } from "@t3tools/shared/git";
 import { applyClaudePromptEffortPrefix, resolvePromptInjectedEffort } from "@t3tools/shared/model";
-import { resolveDefaultThreadEnvMode } from "@t3tools/shared/threadEnvMode";
+import { resolveNewThreadEnvMode, resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Option from "effect/Option";
-import { AsyncResult, type Atom } from "effect/unstable/reactivity";
+import { AsyncResult, type Atom } from "effect/reactivity";
 
 import { getComposerProviderState } from "~/components/chat/composerProviderState";
-import { readT3ProjectFileDefaultThreadEnvMode } from "~/lib/t3ProjectFileDefaults";
-import { newMessageId, newThreadId, randomHex } from "~/lib/utils";
+import { readT3ProjectFile } from "~/lib/t3ProjectFileDefaults";
+import { newMessageId, newThreadId } from "~/lib/utils";
 import { deriveProviderInstanceEntries } from "~/providerInstances";
 import { getDefaultServerModel, getProviderModelCapabilities } from "~/providerModels";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { environmentCatalog } from "~/connection/catalog";
-import { readProject, readThreadShell } from "~/state/entities";
+import { readProject, readThreadShell, readThreadShells } from "~/state/entities";
 import {
   environmentServerConfigsAtom,
   primaryServerProvidersAtom,
@@ -38,7 +38,7 @@ import {
   threadEnvironment,
 } from "~/state/threads";
 import { vcsEnvironment } from "~/state/vcs";
-import { isLatestTurnSettled } from "~/session-logic";
+import { isLatestRunSettled } from "~/session-logic";
 import type { WorkflowInstanceThread } from "~/workflowsStore";
 
 import type { HarvestedTurn, StartAgentRequest } from "./workflowRunner.logic";
@@ -67,10 +67,32 @@ export interface RunnerPorts {
   schedule: (delayMs: number, callback: () => void) => () => void;
 }
 
+/** V2 run statuses folded onto the runner's three outcomes. */
+function settledTurnState(
+  status: import("@t3tools/contracts").OrchestrationV2RunStatus,
+): "completed" | "interrupted" | "error" {
+  switch (status) {
+    case "failed":
+      return "error";
+    case "interrupted":
+    case "cancelled":
+    case "rolled_back":
+      return "interrupted";
+    default:
+      return "completed";
+  }
+}
+
 /** How long a fresh thread may stay absent from the shell before we call the dispatch lost. */
 const MISSING_SHELL_GRACE_MS = 60_000;
 /** How long harvest waits for the final assistant message to land in the detail projection. */
 const HARVEST_TIMEOUT_MS = 20_000;
+
+function randomHex(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function threadRef(thread: WorkflowInstanceThread): ScopedThreadRef {
   return { environmentId: thread.environmentId, threadId: thread.threadId };
@@ -105,13 +127,21 @@ async function resolveEnvMode(
   project: EnvironmentProject,
 ): Promise<ThreadEnvMode> {
   const settings = appAtomRegistry.get(primaryServerSettingsAtom);
-  const consultProjectFile = project.defaultThreadEnvMode == null;
-  return resolveDefaultThreadEnvMode({
-    projectSetting: project.defaultThreadEnvMode,
-    projectFile: consultProjectFile
-      ? await readT3ProjectFileDefaultThreadEnvMode(environmentId, project.workspaceRoot)
-      : null,
-    globalDefault: settings.defaultThreadEnvMode,
+  // The shared resolver owns the priority order; the t3.json read is skipped
+  // when a higher-priority source already decides (see useHandleNewThread).
+  const consultProjectFile =
+    resolveProjectSettings(settings, project.id, project).settings.defaultThreadEnvMode === null;
+  const projectFile = consultProjectFile
+    ? await readT3ProjectFile(environmentId, project.workspaceRoot)
+    : null;
+  return resolveNewThreadEnvMode({
+    projectSettings: resolveProjectSettings(settings, project.id, project, projectFile),
+    workspaceRoot: project.workspaceRoot,
+    newProjectsRoot: appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)
+      ?.newProjectsRoot,
+    projectHasThreads: readThreadShells().some(
+      (thread) => thread.environmentId === environmentId && thread.projectId === project.id,
+    ),
   });
 }
 
@@ -169,12 +199,14 @@ export function createAtomRunnerPorts(): RunnerPorts {
     const provider = providers.find(
       (candidate) => candidate.instanceId === modelSelection.instanceId,
     );
-    const text = provider ? formatPrompt(provider, modelSelection, request.prompt) : request.prompt;
+    const text = provider
+      ? formatPrompt(provider, modelSelection, request.prompt, request.interactionMode === "plan")
+      : request.prompt;
     const now = new Date().toISOString();
 
     if (request.session.kind === "continue") {
       const shell = readThreadShell(threadRef(request.session.thread));
-      const afterTurnId = shell?.latestTurn?.turnId ?? request.session.thread.afterTurnId;
+      const afterTurnId = shell?.latestRun?.runId ?? request.session.thread.afterTurnId;
       const previousModel = shell?.modelSelection;
       if (
         previousModel &&
@@ -302,14 +334,11 @@ export function createAtomRunnerPorts(): RunnerPorts {
           return;
         }
         seen = true;
-        const latestTurn = shell.latestTurn;
-        if (!latestTurn) return;
-        if (thread.afterTurnId !== null && latestTurn.turnId === thread.afterTurnId) return;
-        if (!isLatestTurnSettled(latestTurn, shell.session)) return;
-        finish({
-          kind: "settled",
-          turnState: latestTurn.state === "running" ? "completed" : latestTurn.state,
-        });
+        const latestRun = shell.latestRun;
+        if (!latestRun) return;
+        if (thread.afterTurnId !== null && latestRun.runId === thread.afterTurnId) return;
+        if (!isLatestRunSettled(latestRun, shell.runtime)) return;
+        finish({ kind: "settled", turnState: settledTurnState(latestRun.status) });
       };
       if (signal.aborted) {
         finish({ kind: "aborted" });
@@ -328,13 +357,12 @@ export function createAtomRunnerPorts(): RunnerPorts {
 
   const harvest: RunnerPorts["harvest"] = (thread) => {
     const ref = threadRef(thread);
-    const detailAtom = environmentThreadDetails.detailAtom(ref);
+    const detailAtom = environmentThreadDetails.threadAtom(ref);
     const shell = readThreadShell(ref);
-    const latestTurn = shell?.latestTurn ?? null;
-    const turnState: HarvestedTurn["turnState"] =
-      latestTurn?.state === "interrupted" || latestTurn?.state === "error"
-        ? latestTurn.state
-        : "completed";
+    const latestRun = shell?.latestRun ?? null;
+    const turnState: HarvestedTurn["turnState"] = latestRun
+      ? settledTurnState(latestRun.status)
+      : "completed";
     return new Promise<HarvestedTurn>((resolve) => {
       let finished = false;
       let unsubscribe = () => {};
@@ -343,18 +371,22 @@ export function createAtomRunnerPorts(): RunnerPorts {
         finished = true;
         clearTimeout(timer);
         unsubscribe();
-        const message = latestTurn?.assistantMessageId
-          ? detail?.messages.find((candidate) => candidate.id === latestTurn.assistantMessageId)
-          : detail?.messages.findLast((candidate) => candidate.role === "assistant");
-        const checkpoint = latestTurn
-          ? detail?.checkpoints.find((candidate) => candidate.turnId === latestTurn.turnId)
+        const projection = detail?.projection ?? null;
+        const message = latestRun?.assistantMessageId
+          ? projection?.messages.find((candidate) => candidate.id === latestRun.assistantMessageId)
+          : projection?.messages.findLast((candidate) => candidate.role === "assistant");
+        const checkpoint = latestRun
+          ? projection?.checkpoints.find((candidate) => candidate.runId === latestRun.runId)
           : undefined;
         // A plan-mode turn's deliverable is the proposed plan, not the chat message around it.
-        const plan = latestTurn
-          ? detail?.proposedPlans.find((candidate) => candidate.turnId === latestTurn.turnId)
+        const plan = latestRun
+          ? projection?.plans.find(
+              (candidate) =>
+                candidate.kind === "proposed_plan" && candidate.runId === latestRun.runId,
+            )
           : undefined;
         resolve({
-          text: plan?.planMarkdown ?? message?.text ?? "",
+          text: (plan?.kind === "proposed_plan" ? plan.markdown : null) ?? message?.text ?? "",
           files: (checkpoint?.files ?? []).map((file) => ({
             path: file.path,
             additions: file.additions,
@@ -365,9 +397,9 @@ export function createAtomRunnerPorts(): RunnerPorts {
       };
       const ready = (detail: EnvironmentThread | null) => {
         if (!detail) return false;
-        if (!latestTurn?.assistantMessageId) return true;
-        const message = detail.messages.find(
-          (candidate) => candidate.id === latestTurn.assistantMessageId,
+        if (!latestRun?.assistantMessageId) return true;
+        const message = detail.projection.messages.find(
+          (candidate) => candidate.id === latestRun.assistantMessageId,
         );
         return message !== undefined && !message.streaming;
       };
@@ -436,12 +468,18 @@ export function createAtomRunnerPorts(): RunnerPorts {
 }
 
 /** Same effort prefixing the composer applies before sending (see ChatView.formatOutgoingPrompt). */
-function formatPrompt(provider: ServerProvider, selection: ModelSelection, prompt: string): string {
+function formatPrompt(
+  provider: ServerProvider,
+  selection: ModelSelection,
+  prompt: string,
+  planModeEnabled: boolean,
+): string {
   const state = getComposerProviderState({
     provider: provider.driver,
     model: selection.model,
     models: provider.models,
     modelOptions: selection.options,
+    planModeEnabled,
   });
   const caps = getProviderModelCapabilities(provider.models, selection.model, provider.driver);
   const effort = resolvePromptInjectedEffort(caps, state.promptEffort);

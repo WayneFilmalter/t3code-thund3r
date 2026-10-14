@@ -15,6 +15,8 @@ describe("needsWorkspaceBasenameLookup", () => {
   it("leaves anything with a directory alone", () => {
     expect(needsWorkspaceBasenameLookup("apps/web/src/components/ChatView.tsx")).toBe(false);
     expect(needsWorkspaceBasenameLookup("apps\\web\\ChatView.tsx")).toBe(false);
+    expect(needsWorkspaceBasenameLookup(".")).toBe(false);
+    expect(needsWorkspaceBasenameLookup("..")).toBe(false);
     expect(needsWorkspaceBasenameLookup("   ")).toBe(false);
   });
 });
@@ -87,7 +89,6 @@ describe("claimWorkspaceBasenameLookup", () => {
 
   it("stays valid while it is the only claim", () => {
     const only = claimWorkspaceBasenameLookup();
-    expect(only()).toBe(true);
     expect(only()).toBe(true);
   });
 });

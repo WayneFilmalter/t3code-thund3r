@@ -35,7 +35,7 @@ export function ModelSelectionField(props: {
   const settings = usePrimarySettings();
   const providers = useAtomValue(primaryServerProvidersAtom);
   const instanceEntries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings),
+    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
   );
   const modelOptionsByInstance = getCustomModelOptionsByInstance(settings, providers);
   const firstEntry =
@@ -92,12 +92,12 @@ export function ModelSelectionField(props: {
           />
           {props.value && activeEntry ? (
             <ProviderModelPicker
+              environmentId={null}
               activeInstanceId={activeEntry.instanceId as ProviderInstanceId}
               model={props.value.model}
               lockedProvider={null}
               instanceEntries={instanceEntries}
               modelOptionsByInstance={modelOptionsByInstance}
-              triggerVariant="outline"
               triggerClassName="min-w-0 max-w-none flex-1 text-foreground/90"
               triggerAriaLabel="Agent model"
               onInstanceModelChange={(instanceId, model) =>
