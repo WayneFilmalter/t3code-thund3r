@@ -13,8 +13,9 @@ import {
 } from "@t3tools/contracts";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { usePanelAnimationSettings } from "~/panelAnimations";
-import { useThreadProjection, useThreadVisibleTurnItems } from "~/state/entities";
+import { observeResize } from "~/lib/observeResize";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
+import { useThreadProjection, useThreadStatus, useThreadVisibleTurnItems } from "~/state/entities";
 
 import {
   assignChildFeeds,
@@ -24,13 +25,31 @@ import {
   type AgentMapFeed,
   type SettledChildSnapshot,
 } from "./agentMap.logic";
-import { layoutAgentMap } from "./agentMapLayout";
+import { createAgentMapPacker, limitVisibleChildren } from "./agentMapLayout";
 import { AgentMapCanvas } from "./AgentMapCanvas";
 import { AgentMapLegend } from "./AgentMapLegend";
 
 export const AGENT_MAP_MAX_CHILD_FEEDS = 10;
-const VIEWBOX = { width: 420, height: 300 };
 const EMPTY_FEEDS: ReadonlyMap<ThreadId, AgentMapFeed> = new Map();
+
+/** The element's content size, from the shared resize observer. */
+function useElementSize() {
+  const [element, setElement] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    if (element === null) return;
+    return observeResize(element, (entries) => {
+      const entry = entries.at(-1);
+      if (!entry) return;
+      const width = Math.round(entry.contentRect.width);
+      const height = Math.round(entry.contentRect.height);
+      setSize((previous) =>
+        previous.width === width && previous.height === height ? previous : { width, height },
+      );
+    });
+  }, [element]);
+  return { measure: setElement, width: size.width, height: size.height };
+}
 
 function useClock(live: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -55,6 +74,7 @@ function ChildThread(props: {
 }) {
   const thread = useThreadProjection(props.threadRef);
   const items = useThreadVisibleTurnItems(props.threadRef);
+  const status = useThreadStatus(props.threadRef);
   const { onFeed, onSettled, subagent, threadRef } = props;
   const live = isOrchestrationV2WorkActive(subagent.status);
   useEffect(() => {
@@ -62,13 +82,15 @@ function ChildThread(props: {
       onFeed(threadRef.threadId, { projection: thread?.projection ?? null, items });
       return;
     }
-    if (thread === null) return;
+    // A cached or still-synchronising copy can be missing items; snapshot only the
+    // fully synced thread, or the cell would keep "no tasks" forever.
+    if (thread === null || status !== "live") return;
     onSettled(
       subagent.id,
       snapshotChildFromFeed(subagent, { projection: thread.projection, items }, Date.now()),
     );
     onFeed(threadRef.threadId, null);
-  }, [items, live, onFeed, onSettled, subagent, thread, threadRef.threadId]);
+  }, [items, live, onFeed, onSettled, status, subagent, thread, threadRef.threadId]);
   useEffect(() => () => onFeed(threadRef.threadId, null), [onFeed, threadRef.threadId]);
   return null;
 }
@@ -77,7 +99,9 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
   const thread = useThreadProjection(threadRef);
   const items = useThreadVisibleTurnItems(threadRef);
   const projection = thread?.projection ?? null;
-  const { active: animated } = usePanelAnimationSettings();
+  // Cell life is not a panel transition: it follows only the system's reduced-motion
+  // preference, not the panel-animation setting or its post-navigation suppression.
+  const animated = !useMediaQuery("(prefers-reduced-motion: reduce)");
 
   const [feeds, setFeeds] = useState<ReadonlyMap<ThreadId, AgentMapFeed>>(EMPTY_FEEDS);
   const [settled, setSettled] = useState<ReadonlyMap<string, SettledChildSnapshot>>(
@@ -123,7 +147,16 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
   );
   const now = useClock(skeleton.live);
   const model = useMemo(() => resolveAgentMapModel(skeleton, now), [now, skeleton]);
-  const layout = useMemo(() => (model === null ? null : layoutAgentMap(model, VIEWBOX)), [model]);
+  const visibleModel = useMemo(
+    () => (model === null ? null : limitVisibleChildren(model)),
+    [model],
+  );
+  const [packer] = useState(createAgentMapPacker);
+  const { measure, width, height } = useElementSize();
+  const packing =
+    visibleModel === null || width === 0 || height === 0
+      ? null
+      : packer(visibleModel, { width, height });
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -137,13 +170,13 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
         />
       ))}
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="min-h-0 flex-1 p-2">
-          {layout === null ? (
+        <div ref={measure} className="min-h-0 flex-1">
+          {visibleModel === null ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Start a turn to see agents here.
             </div>
-          ) : (
-            <AgentMapCanvas layout={layout} live={model?.live ?? false} animated={animated} />
+          ) : packing === null ? null : (
+            <AgentMapCanvas model={visibleModel} packing={packing} animated={animated} />
           )}
         </div>
         <AgentMapLegend />

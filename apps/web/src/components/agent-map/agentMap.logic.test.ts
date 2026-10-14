@@ -239,6 +239,7 @@ describe("tasks and satellites", () => {
     );
     expect(tasks.map((task) => task.label)).toEqual(["Research ×3", "Edit ×2", "Shell", "Web"]);
     expect(tasks.map((task) => task.category)).toEqual(["read", "edit", "shell", "web"]);
+    expect(tasks.map((task) => task.count)).toEqual([3, 2, 1, 1]);
   });
 
   it("folds tasks beyond the per-run cap into one more bubble", () => {
@@ -434,13 +435,14 @@ describe("children", () => {
       contextFraction: null,
       compacted: false,
       satellites: [],
-      tasks: [{ id: "t", label: "Shell ×2", category: "shell", durationMs: 10 }],
+      tasks: [{ id: "t", label: "Shell ×2", category: "shell", count: 2, durationMs: 10 }],
       children: [],
     });
     const bare = derive({ projection: projection({ subagents: [child] }) })?.root.children[0];
     expect(bare?.tokens).toBeNull();
     expect(bare?.tasks).toEqual([]);
     expect(bare?.status).toBe("done");
+    expect(bare?.subtitle).toBe("Worker");
 
     const fromSnapshot = derive({
       projection: projection({ subagents: [child] }),

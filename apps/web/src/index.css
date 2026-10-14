@@ -563,101 +563,219 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   will-change: var(--visible-animation-will-change, auto);
 }
 
-/* Agents map. Transform-only motion, gated by data-animated and reduced motion. The
-   float and drift run only while the thread is live; spawn and dock play once on mount. */
-@keyframes agent-map-float {
+/* Agents map cells. Motion is transform and opacity only, so it stays on the compositor:
+   physics writes translate3d on .agent-cell from JS only while something moves; the float
+   and breathe wrappers drift in CSS (a signed-off exception to "no continuous animation",
+   kept slow); bud, squish and neck play once. Under reduced motion cells only fade in. */
+.agent-cell {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+
+.agent-cell-float-a,
+.agent-cell-float-b,
+.agent-cell-float-c,
+.agent-cell-float-d {
+  position: relative;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.agent-cell-float-a {
+  animation-name: agent-cell-float-a;
+}
+.agent-cell-float-b {
+  animation-name: agent-cell-float-b;
+}
+.agent-cell-float-c {
+  animation-name: agent-cell-float-c;
+}
+.agent-cell-float-d {
+  animation-name: agent-cell-float-d;
+}
+
+@keyframes agent-cell-float-a {
   0%,
   100% {
     transform: translate(0, 0);
   }
   25% {
-    transform: translate(2px, -3px);
+    transform: translate(5px, -3px);
   }
   50% {
-    transform: translate(-3px, 1px);
+    transform: translate(2px, -7px);
   }
   75% {
-    transform: translate(1px, 3px);
+    transform: translate(-4px, -2px);
   }
 }
 
-@keyframes agent-map-drift {
+@keyframes agent-cell-float-b {
   0%,
   100% {
     transform: translate(0, 0);
   }
   33% {
-    transform: translate(-2px, 2px);
+    transform: translate(-6px, 3px);
   }
   66% {
-    transform: translate(2px, -1px);
+    transform: translate(3px, 6px);
   }
 }
 
-@keyframes agent-map-spawn {
-  from {
-    transform: translate(
-        calc(var(--agent-map-from-x) - var(--agent-map-x)),
-        calc(var(--agent-map-from-y) - var(--agent-map-y))
-      )
-      scale(0.2);
-    opacity: 0;
+@keyframes agent-cell-float-c {
+  0%,
+  100% {
+    transform: translate(0, 0);
   }
-  to {
-    transform: translate(0, 0) scale(1);
-    opacity: 1;
+  50% {
+    transform: translate(4px, -6px);
   }
 }
 
-@keyframes agent-map-dock {
+@keyframes agent-cell-float-d {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-3px, -4px);
+  }
+  45% {
+    transform: translate(-7px, 1px);
+  }
+  70% {
+    transform: translate(-2px, 6px);
+  }
+}
+
+.agent-cell-breathe {
+  animation: agent-cell-breathe 5s ease-in-out infinite;
+}
+
+@keyframes agent-cell-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03, 1.02);
+  }
+}
+
+/* The bubble pop: a bud swells past full size, wobbles, and settles. */
+.agent-cell-bud {
+  animation: agent-cell-bud 750ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+
+@keyframes agent-cell-bud {
   0% {
-    transform: translate(
-      calc((var(--agent-map-x) - var(--agent-map-from-x)) * 0.45),
-      calc((var(--agent-map-y) - var(--agent-map-from-y)) * 0.45)
-    );
+    transform: scale(0.2);
   }
-  60% {
-    transform: translate(0, 0) scale(1);
+  50% {
+    transform: scale(1.16);
   }
-  80% {
-    transform: translate(0, 0) scale(1.15);
+  70% {
+    transform: scale(0.93, 0.97);
+  }
+  85% {
+    transform: scale(1.04);
   }
   100% {
-    transform: translate(0, 0) scale(1);
+    transform: scale(1);
   }
 }
 
-.agent-map-bubble {
-  transform-box: fill-box;
-  transform-origin: center;
+/* The bump: a returning cell, and its parent, squash on contact and wobble back. */
+.agent-cell-squish {
+  animation: agent-cell-squish 650ms ease-out both;
 }
 
-[data-animated="true"] .agent-map-float {
-  animation: agent-map-float 12s ease-in-out infinite;
+@keyframes agent-cell-squish {
+  0% {
+    transform: scale(1.14, 0.88);
+  }
+  35% {
+    transform: scale(0.92, 1.08);
+  }
+  60% {
+    transform: scale(1.05, 0.96);
+  }
+  80% {
+    transform: scale(0.98, 1.02);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
-[data-animated="true"] .agent-map-drift {
-  animation: agent-map-drift 9s ease-in-out infinite;
+/* A 1px bar stretched to the parent's centre by --tether-len and turned by --tether-angle,
+   both set by the physics hook. It starts under the cell body and ends under the parent. */
+.agent-cell-tether,
+.agent-cell-neck {
+  position: absolute;
+  width: 1px;
+  transform-origin: 0 50%;
+  pointer-events: none;
 }
 
-[data-animated="true"] .agent-map-spawn {
-  animation: agent-map-spawn 450ms ease-out both;
+.agent-cell-tether {
+  height: 3px;
+  margin-top: -1.5px;
+  opacity: 0.6;
+  transform: rotate(var(--tether-angle, 0rad)) scaleX(var(--tether-len, 0));
 }
 
-[data-animated="true"] .agent-map-dock {
-  animation: agent-map-dock 700ms ease-out both;
+.agent-cell-neck {
+  height: 18px;
+  margin-top: -9px;
+  opacity: 0;
+  animation: agent-cell-neck 800ms ease-out both;
+}
+
+@keyframes agent-cell-neck {
+  0% {
+    opacity: 0.9;
+    transform: rotate(var(--tether-angle, 0rad)) scaleX(var(--tether-len, 0)) scaleY(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--tether-angle, 0rad)) scaleX(var(--tether-len, 0)) scaleY(0.12);
+  }
 }
 
 [data-animated="true"] .agent-map-ring {
   transition: stroke-dasharray 400ms ease-out;
 }
 
+@keyframes agent-cell-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Reduced motion: nothing moves or scales; new cells and tasks fade in instead. */
 @media (prefers-reduced-motion: reduce) {
-  .agent-map-float,
-  .agent-map-drift,
-  .agent-map-spawn,
-  .agent-map-dock {
-    animation: none !important;
+  .agent-cell-float-a,
+  .agent-cell-float-b,
+  .agent-cell-float-c,
+  .agent-cell-float-d,
+  .agent-cell-squish,
+  .agent-cell-breathe {
+    animation: none;
+    will-change: auto;
+  }
+  .agent-cell-bud {
+    animation: agent-cell-fade-in 300ms ease-out both;
+  }
+  .agent-cell-neck {
+    display: none;
   }
 }
 

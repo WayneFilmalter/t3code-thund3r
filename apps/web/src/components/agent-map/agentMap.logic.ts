@@ -46,6 +46,8 @@ export interface AgentMapTask {
   readonly id: string;
   readonly label: string;
   readonly category: AgentMapCategory;
+  /** How many tool calls the bubble stands for; drives its size. */
+  readonly count: number;
   readonly durationMs: number;
 }
 
@@ -240,6 +242,7 @@ export function groupTasks(items: ReadonlyArray<Item>, idPrefix: string): AgentM
   const tasks = groups.map((group, index) => ({
     id: `${idPrefix}:${index}`,
     category: group.category,
+    count: group.count,
     label:
       group.category === "plan" || group.count === 1
         ? TASK_LABELS[group.category]
@@ -252,6 +255,7 @@ export function groupTasks(items: ReadonlyArray<Item>, idPrefix: string): AgentM
   kept.push({
     id: `${idPrefix}:more`,
     category: "other",
+    count: rest.reduce((total, task) => total + task.count, 0),
     label: `+${rest.length} more`,
     durationMs: rest.reduce((total, task) => total + task.durationMs, 0),
   });
@@ -402,6 +406,12 @@ function isRunSettled(run: OrchestrationV2Run): boolean {
   return !ACTIVE_RUN_STATUSES.has(run.status) && run.status !== "queued";
 }
 
+/** A finished child is named by what it was asked to do; its tasks show as cells. */
+function settledChildSubtitle(subagent: OrchestrationV2Subagent, failed: boolean): string {
+  if (failed) return "Failed";
+  return truncate(subagent.title ?? subagent.progress ?? "Done", SUBTITLE_MAX_LENGTH);
+}
+
 function deriveChildFromFeed(
   subagent: OrchestrationV2Subagent,
   feed: AgentMapFeed,
@@ -414,7 +424,9 @@ function deriveChildFromFeed(
     name: agentName(subagent.id),
     kind: "subagent",
     status,
-    subtitle: deriveSubtitle(status, items, feed.projection?.runs.length ?? 1),
+    subtitle: live
+      ? deriveSubtitle(status, items, feed.projection?.runs.length ?? 1)
+      : settledChildSubtitle(subagent, status === "failed"),
     tokens: feed.projection ? deriveThreadTokens(feed.projection) : null,
     contextFraction: null,
     compacted: false,
@@ -442,10 +454,7 @@ function deriveChildFromSnapshot(
     name: agentName(subagent.id),
     kind: "subagent",
     status: snapshot.status === "stalled" ? "done" : snapshot.status,
-    subtitle:
-      snapshot.status === "failed"
-        ? "Failed"
-        : `${snapshot.tasks.length} ${snapshot.tasks.length === 1 ? "task" : "tasks"}`,
+    subtitle: settledChildSubtitle(subagent, snapshot.status === "failed"),
     tokens: snapshot.tokens,
     contextFraction: null,
     compacted: false,
@@ -468,9 +477,7 @@ function deriveChildFromRecord(subagent: OrchestrationV2Subagent): BubbleSkeleto
     status,
     subtitle: live
       ? truncate(subagent.progress ?? subagent.title ?? "", SUBTITLE_MAX_LENGTH)
-      : status === "failed"
-        ? "Failed"
-        : "",
+      : settledChildSubtitle(subagent, status === "failed"),
     tokens: null,
     contextFraction: null,
     compacted: false,
@@ -513,6 +520,9 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
           {
             id: `${projection.thread.id}:earlier`,
             category: "other" as const,
+            count: tasks
+              .slice(0, tasks.length - AGENT_MAP_MAX_DOCKED_TASKS + 1)
+              .reduce((total, task) => total + task.count, 0),
             label: `+${tasks.length - AGENT_MAP_MAX_DOCKED_TASKS + 1} earlier`,
             durationMs: 0,
           },
