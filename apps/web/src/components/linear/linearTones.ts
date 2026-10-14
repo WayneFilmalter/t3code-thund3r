@@ -28,24 +28,24 @@ export const STATUS_TONES: Record<LinearIssueStatus, { label: string; rule: stri
     rule: "bg-purple-500/40 dark:bg-purple-400/30",
   },
   testflight: {
-    label: "text-sky-600 dark:text-sky-400",
-    rule: "bg-sky-500/40 dark:bg-sky-400/30",
-  },
-  "in-review": {
     label: "text-blue-600 dark:text-blue-400",
     rule: "bg-blue-500/40 dark:bg-blue-400/30",
+  },
+  "in-review": {
+    label: "text-emerald-600 dark:text-emerald-400",
+    rule: "bg-emerald-500/40 dark:bg-emerald-400/30",
   },
   "in-progress": {
     label: "text-yellow-600 dark:text-yellow-400",
     rule: "bg-yellow-500/40 dark:bg-yellow-400/30",
   },
   todo: {
-    label: "text-emerald-600 dark:text-emerald-400",
-    rule: "bg-emerald-500/40 dark:bg-emerald-400/30",
-  },
-  backlog: {
     label: "text-muted-foreground",
     rule: "bg-border",
+  },
+  backlog: {
+    label: "text-muted-foreground/60",
+    rule: "bg-border/60",
   },
 };
 
