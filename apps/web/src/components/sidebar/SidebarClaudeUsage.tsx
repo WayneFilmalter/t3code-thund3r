@@ -1,12 +1,19 @@
-import type { ServerProviderUsageWindow } from "@t3tools/contracts";
+import { AuthOrchestrationReadScope, type ServerProviderUsageWindow } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { refreshUsageLimits } from "@t3tools/client-runtime/state/usage";
 import { providersWithLimits } from "@t3tools/shared/usageLimits";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
-import { primaryServerConfigAtom } from "../../state/server";
+import { primaryEnvironmentIdAtom } from "../../state/primaryEnvironment";
+import { primaryServerConfigAtom, serverEnvironment } from "../../state/server";
+import { useEnvironmentScope } from "../../state/session";
+import { useAtomCommand } from "../../state/use-atom-command";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
+import { Button } from "../ui/button";
+import { RefreshIcon } from "../ui/refresh-icon";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { usageTone, usageWindowTitle } from "./SidebarClaudeUsage.logic";
 
 const KIND_ORDER: Record<ServerProviderUsageWindow["kind"], number> = {
@@ -27,12 +34,20 @@ function isSameDay(left: Date, right: Date): boolean {
 /**
  * The primary environment's Claude quota windows, pinned under the sidebar's
  * scroll area. It follows the pushed server config, so mid-turn rate-limit
- * events and the periodic probe land here without polling. Reset times are
- * absolute and measured from the snapshot's `checkedAt`, so nothing ticks.
+ * events and the periodic probe land here without polling. Between those the
+ * snapshot can sit stale for a while, so the header carries a manual refresh
+ * that re-probes just the Claude instance. Reset times are absolute and
+ * measured from the snapshot's `checkedAt`, so nothing ticks.
  */
 export const SidebarClaudeUsage = memo(function SidebarClaudeUsage() {
+  const environmentId = useAtomValue(primaryEnvironmentIdAtom);
   const config = useAtomValue(primaryServerConfigAtom);
   const timestampFormat = usePrimarySettings((settings) => settings.timestampFormat);
+  const canRefresh = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
+  const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
+    reportFailure: false,
+  });
+  const [refreshing, setRefreshing] = useState(false);
   const claude = providersWithLimits(config?.providers ?? []).find(
     (provider) =>
       provider.driver === "claudeAgent" &&
@@ -40,6 +55,19 @@ export const SidebarClaudeUsage = memo(function SidebarClaudeUsage() {
       provider.usageLimits.unavailable === undefined &&
       provider.usageLimits.windows.length > 0,
   );
+  const instanceId = claude?.instanceId;
+
+  const refresh = () => {
+    if (environmentId === null || instanceId === undefined || refreshing) return;
+    setRefreshing(true);
+    // Shares the per-environment in-flight check with the Usage page, so a
+    // click here while that page is already probing waits instead of
+    // spawning a second Claude process.
+    void refreshUsageLimits(environmentId, () =>
+      refreshProviders({ environmentId, input: { instanceId } }),
+    ).finally(() => setRefreshing(false));
+  };
+
   if (!claude?.usageLimits) return null;
 
   // Each pushed snapshot is stamped, so "today" advances with the data.
@@ -60,7 +88,28 @@ export const SidebarClaudeUsage = memo(function SidebarClaudeUsage() {
 
   return (
     <div className="mb-1 flex flex-col gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5">
-      <span className="text-sm font-medium text-foreground">Claude Usage</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">Claude Usage</span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                size="icon-micro"
+                variant="ghost-muted"
+                disabled={!canRefresh || refreshing}
+                aria-busy={refreshing}
+                onClick={refresh}
+              >
+                <RefreshIcon refreshing={refreshing} />
+                <span className="sr-only">Refresh Claude usage</span>
+              </Button>
+            }
+          />
+          <TooltipPopup side="top">
+            {refreshing ? "Refreshing Claude usage" : "Refresh Claude usage"}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
       {windows.map((window) => {
         const used = Math.round(Math.max(0, Math.min(100, window.usedPercent)));
         const resets = resetLabel(window.resetsAt);
