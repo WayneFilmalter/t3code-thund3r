@@ -25,6 +25,7 @@ interface NewThreadHandler {
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
       startFromOrigin?: boolean;
+      openDraftIds?: ReadonlySet<string>;
     },
     // The opened draft's identity, which most callers have no use for.
   ): Promise<unknown>;
@@ -91,12 +92,19 @@ export function resolveThreadActionProjectRef(
 // directly instead.
 export async function startNewThreadFromContext(
   context: ChatThreadActionContext,
+  options?: {
+    /** Drafts on screen in some pane; a split passes them so it never reuses one. */
+    readonly openDraftIds?: ReadonlySet<string>;
+  },
 ): Promise<boolean> {
   const projectRef = resolveThreadActionProjectRef(context);
   if (!projectRef) {
     return false;
   }
 
-  await context.handleNewThread(projectRef);
+  await context.handleNewThread(
+    projectRef,
+    options?.openDraftIds ? { openDraftIds: options.openDraftIds } : undefined,
+  );
   return true;
 }

@@ -79,6 +79,11 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        /**
+         * Drafts on screen in some pane. They are never reused, so a split gets its own
+         * thread, and a draft the new one replaces in the project's mapping stays alive.
+         */
+        openDraftIds?: ReadonlySet<string>;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
@@ -208,8 +213,10 @@ export function useNewThreadHandler() {
       // (reachable from the sidebar draft rows) and this request mints a
       // fresh draft instead — the remap in the store preserves invested
       // drafts rather than deleting them.
+      const openDraftIds = options?.openDraftIds;
       const emptyStoredDraftThread =
         reusableStoredDraftThread &&
+        !openDraftIds?.has(reusableStoredDraftThread.draftId) &&
         !composerDraftHasUserContent(getComposerDraft(reusableStoredDraftThread.draftId))
           ? reusableStoredDraftThread
           : null;
@@ -351,6 +358,7 @@ export function useNewThreadHandler() {
         currentRouteTarget?.kind === "draft" &&
         latestActiveDraftThread.logicalProjectKey === logicalProjectKey &&
         latestActiveDraftThread.promotedTo == null &&
+        !openDraftIds?.has(currentRouteTarget.draftId) &&
         // Same content rule as above: a new-thread request while viewing an
         // invested draft mints a fresh one instead of repurposing it.
         !composerDraftHasUserContent(getComposerDraft(currentRouteTarget.draftId))
@@ -434,6 +442,9 @@ export function useNewThreadHandler() {
             }),
           runtimeMode: defaultRuntimeMode,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
+          ...(storedDraftThread && openDraftIds?.has(storedDraftThread.draftId)
+            ? { keepPrevious: true }
+            : {}),
         });
         applyStickyState(draftId);
         const modelSelectionOverride = resolveModelSelectionOverride(draftId);

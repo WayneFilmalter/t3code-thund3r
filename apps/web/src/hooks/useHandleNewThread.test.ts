@@ -317,3 +317,45 @@ describe.each([
     },
   );
 });
+
+describe("useNewThreadHandler beside an open draft", () => {
+  const reusable = {
+    draftId: "draft-existing",
+    environmentId: "environment-ssh",
+    promotedTo: null,
+    threadId: "thread-existing",
+  } as const;
+  const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+
+  it("mints a fresh draft when the project's empty draft is open in a pane, keeping the old one", async () => {
+    testState.reset(reusable);
+    const pendingOpen = useNewThreadHandler()(projectRef, {
+      openDraftIds: new Set([reusable.draftId]),
+    });
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(opened).toEqual({ draftId: "draft-delayed", threadId: "thread-delayed" });
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      "draft-delayed",
+      expect.objectContaining({ keepPrevious: true }),
+    );
+    expect(testState.router.navigate).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { draftId: "draft-delayed" } }),
+    );
+  });
+
+  it("still reuses the empty draft when no pane shows it", async () => {
+    testState.reset(reusable);
+    const pendingOpen = useNewThreadHandler()(projectRef, {
+      openDraftIds: new Set(["draft-elsewhere"]),
+    });
+    testState.completeProjectFileRead(null);
+    expect(await pendingOpen).toEqual({
+      draftId: reusable.draftId,
+      threadId: reusable.threadId,
+    });
+  });
+});

@@ -544,6 +544,11 @@ interface ComposerDraftStoreState {
       interactionMode?: ProviderInteractionMode;
       environmentSelection?: "auto" | "manual";
       loadBalancedEnvironmentId?: EnvironmentId | null;
+      /**
+       * Keep the previously mapped draft instead of collecting it, because it is still
+       * on screen (a split pane opened a fresh draft beside it).
+       */
+      keepPrevious?: boolean;
     },
   ) => void;
   /** Creates or updates the draft session tracked for a concrete project ref. */
@@ -2795,6 +2800,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             // every such session, so "new thread" can mint a fresh draft
             // without destroying the one the user walked away from.
             if (
+              !options?.keepPrevious &&
               previousThreadKeyForLogicalProject &&
               previousThreadKeyForLogicalProject !== draftId &&
               !isComposerThreadKeyInUse(

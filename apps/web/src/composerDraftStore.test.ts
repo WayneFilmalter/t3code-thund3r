@@ -1468,6 +1468,21 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(draftByKey(draftId)).toBeUndefined();
   });
 
+  it("keeps the previous empty draft when a split opens a fresh one beside it", () => {
+    const store = useComposerDraftStore.getState();
+    store.setLogicalProjectDraftThreadId("logical-split", projectRef, draftId, { threadId });
+
+    store.setLogicalProjectDraftThreadId("logical-split", projectRef, otherDraftId, {
+      threadId: otherThreadId,
+      keepPrevious: true,
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.threadId).toBe(threadId);
+    expect(useComposerDraftStore.getState().getDraftThread(otherDraftId)?.threadId).toBe(
+      otherThreadId,
+    );
+  });
+
   it("keeps a draft with an open page when remapping a project to a new draft thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });
