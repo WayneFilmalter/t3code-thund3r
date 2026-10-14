@@ -26,7 +26,8 @@ import { LinearPayloadError, extractToolPayload, parseLinearIssues } from "./lin
 
 export const LINEAR_MCP_URL = "https://mcp.linear.app/mcp";
 const LIST_TIMEOUT = "20 seconds";
-const LIST_LIMIT = 50;
+/** Linear's maximum page; a busy backlog can hold a couple of hundred issues. */
+const LIST_LIMIT = 250;
 
 export class LinearIssues extends Context.Service<
   LinearIssues,

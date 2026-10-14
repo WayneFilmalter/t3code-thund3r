@@ -21,8 +21,8 @@ export const LINEAR_ISSUE_STATUSES: ReadonlyArray<{
   readonly label: string;
   readonly linearState: string;
 }> = [
-  { id: "qa", label: "QA", linearState: "QA" },
-  { id: "testflight", label: "TestFlight", linearState: "TestFlight" },
+  { id: "qa", label: "QA", linearState: "QA Approved" },
+  { id: "testflight", label: "TestFlight", linearState: "Testflight" },
   { id: "in-review", label: "In Review", linearState: "In Review" },
   { id: "in-progress", label: "In Progress", linearState: "In Progress" },
   { id: "todo", label: "Todo", linearState: "Todo" },

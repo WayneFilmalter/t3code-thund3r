@@ -83,8 +83,46 @@ describe("parseLinearIssues", () => {
     });
   });
 
+  it("reads the hosted MCP shape: identifier in id, uuid, and value-wrapped numbers", () => {
+    const [issue] = parseLinearIssues({
+      issues: [
+        {
+          id: "KRE-1756",
+          uuid: "d65d59f7-77d5-4a90-8b71-61a59a1c4ccd",
+          title: "Autonomous Hangout Testing",
+          priority: { value: 1, name: "Urgent" },
+          estimate: { value: 3, name: "3 Points" },
+          url: "https://linear.app/krew/issue/KRE-1756/autonomous-hangout-testing",
+          gitBranchName: "wayne/kre-1756",
+          status: "In Progress",
+          statusType: "started",
+        },
+      ],
+      hasNextPage: false,
+      cursor: "abc",
+    });
+    assert.deepEqual(issue, {
+      id: "d65d59f7-77d5-4a90-8b71-61a59a1c4ccd",
+      identifier: "KRE-1756",
+      title: "Autonomous Hangout Testing",
+      url: "https://linear.app/krew/issue/KRE-1756/autonomous-hangout-testing",
+      priority: "urgent",
+      estimate: 3,
+      stateName: "In Progress",
+      branchName: "wayne/kre-1756",
+    });
+  });
+
   it("skips entries without an identifier and title", () => {
-    assert.deepEqual(parseLinearIssues([{ title: "No id" }, { identifier: "KRW-2" }, 42]), []);
+    assert.deepEqual(
+      parseLinearIssues([
+        { title: "No id" },
+        { identifier: "KRE-2" },
+        { id: "uuid", title: "x" },
+        42,
+      ]),
+      [],
+    );
   });
 
   it("fails when there is no list at all", () => {

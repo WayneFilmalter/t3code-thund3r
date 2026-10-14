@@ -43,6 +43,13 @@ const readString = (value: unknown): string | null =>
 const readNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;
 
+/** A number, or Linear's `{ value, name }` wrapper around one. */
+const readValueNumber = (value: unknown): number | null =>
+  isRecord(value) ? readNumber(value.value) : readNumber(value);
+
+/** Linear's hosted MCP puts the human identifier (`KRE-12`) in `id` and the UUID in `uuid`. */
+const IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]*-\d+$/;
+
 /** The name under `state`, `status`, or `workflowState`, as a string or an object with a name. */
 function readStateName(issue: Record<string, unknown>): string {
   for (const key of ["state", "status", "workflowState", "stateName"]) {
@@ -102,17 +109,21 @@ export function parseLinearIssues(payload: unknown): ReadonlyArray<LinearIssue> 
   const issues: LinearIssue[] = [];
   for (const entry of readIssueList(payload)) {
     if (!isRecord(entry)) continue;
-    const identifier = readString(entry.identifier) ?? readString(entry.key);
+    const rawId = readString(entry.id);
+    const identifier =
+      readString(entry.identifier) ??
+      readString(entry.key) ??
+      (rawId !== null && IDENTIFIER_PATTERN.test(rawId) ? rawId : null);
     const title = readString(entry.title);
     if (!identifier || !title) continue;
-    const id = readString(entry.id) ?? identifier;
+    const id = readString(entry.uuid) ?? rawId ?? identifier;
     issues.push({
       id,
       identifier,
       title,
       url: readString(entry.url) ?? "",
       priority: readPriority(entry.priority ?? entry.priorityLabel),
-      estimate: readNumber(entry.estimate),
+      estimate: readValueNumber(entry.estimate),
       stateName: readStateName(entry),
       branchName: readString(entry.gitBranchName) ?? readString(entry.branchName),
     });
