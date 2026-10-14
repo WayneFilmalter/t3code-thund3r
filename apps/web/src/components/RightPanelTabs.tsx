@@ -33,6 +33,7 @@ import {
   FileDiff,
   Files,
   Globe2,
+  Orbit,
   Plus,
   TerminalSquare,
   Workflow,
@@ -145,6 +146,7 @@ interface RightPanelTabsProps {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddWorkflows: () => void;
+  onAddAgentMap: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -153,6 +155,7 @@ interface RightPanelTabsProps {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   workflowsAvailable: boolean;
+  agentMapAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -182,6 +185,7 @@ const SURFACE_DISABLED_REASONS = {
   pullRequests: "No linked pull requests are available for this thread.",
   device: "Devices are only available from a thread.",
   workflows: "Workflows are only available from a project thread.",
+  agentMap: "The agent map is only available from a thread.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -206,6 +210,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   pullRequests: "No linked pull requests available.",
   device: "Available from a thread.",
   workflows: "Available from a project thread.",
+  agentMap: "Available from a thread.",
 } as const;
 
 type TabContextMenuAction =
@@ -347,6 +352,7 @@ function RightPanelEmptyState(props: {
   onAddPullRequests: () => void;
   onAddDevice: () => void;
   onAddWorkflows: () => void;
+  onAddAgentMap: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -355,6 +361,7 @@ function RightPanelEmptyState(props: {
   pullRequestsAvailable: boolean;
   deviceAvailable: boolean;
   workflowsAvailable: boolean;
+  agentMapAvailable: boolean;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -424,6 +431,14 @@ function RightPanelEmptyState(props: {
       available: props.deviceAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.device,
       onClick: props.onAddDevice,
+    },
+    {
+      label: "Agents",
+      icon: Orbit,
+      shortcut: "A",
+      available: props.agentMapAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.agentMap,
+      onClick: props.onAddAgentMap,
     },
   ] as const;
 
@@ -618,6 +633,8 @@ function surfaceTitle(
   switch (surface.kind) {
     case "workflows":
       return "Workflows";
+    case "agent-map":
+      return "Agents";
     case "diff":
       return "Diff";
     case "files":
@@ -695,6 +712,8 @@ function SurfaceIcon({
     }
     case "workflows":
       return <Workflow className="size-3 shrink-0" />;
+    case "agent-map":
+      return <Orbit className="size-3 shrink-0" />;
     case "diff":
       return <FileDiff className="size-3 shrink-0" />;
     case "files":
@@ -1017,6 +1036,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.deviceAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.device,
       onClick: props.onAddDevice,
+    },
+    {
+      label: "Agents",
+      icon: Orbit,
+      shortcut: "A",
+      available: props.agentMapAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.agentMap,
+      onClick: props.onAddAgentMap,
     },
   ] as const;
 
@@ -1511,6 +1538,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddPullRequests={props.onAddPullRequests}
             onAddDevice={props.onAddDevice}
             onAddWorkflows={props.onAddWorkflows}
+            onAddAgentMap={props.onAddAgentMap}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1519,6 +1547,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             pullRequestsAvailable={props.pullRequestsAvailable}
             deviceAvailable={props.deviceAvailable}
             workflowsAvailable={props.workflowsAvailable}
+            agentMapAvailable={props.agentMapAvailable}
           />
         ) : (
           props.children

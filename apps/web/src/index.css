@@ -563,6 +563,104 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   will-change: var(--visible-animation-will-change, auto);
 }
 
+/* Agents map. Transform-only motion, gated by data-animated and reduced motion. The
+   float and drift run only while the thread is live; spawn and dock play once on mount. */
+@keyframes agent-map-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(2px, -3px);
+  }
+  50% {
+    transform: translate(-3px, 1px);
+  }
+  75% {
+    transform: translate(1px, 3px);
+  }
+}
+
+@keyframes agent-map-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  33% {
+    transform: translate(-2px, 2px);
+  }
+  66% {
+    transform: translate(2px, -1px);
+  }
+}
+
+@keyframes agent-map-spawn {
+  from {
+    transform: translate(
+        calc(var(--agent-map-from-x) - var(--agent-map-x)),
+        calc(var(--agent-map-from-y) - var(--agent-map-y))
+      )
+      scale(0.2);
+    opacity: 0;
+  }
+  to {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes agent-map-dock {
+  0% {
+    transform: translate(
+      calc((var(--agent-map-x) - var(--agent-map-from-x)) * 0.45),
+      calc((var(--agent-map-y) - var(--agent-map-from-y)) * 0.45)
+    );
+  }
+  60% {
+    transform: translate(0, 0) scale(1);
+  }
+  80% {
+    transform: translate(0, 0) scale(1.15);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.agent-map-bubble {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+[data-animated="true"] .agent-map-float {
+  animation: agent-map-float 12s ease-in-out infinite;
+}
+
+[data-animated="true"] .agent-map-drift {
+  animation: agent-map-drift 9s ease-in-out infinite;
+}
+
+[data-animated="true"] .agent-map-spawn {
+  animation: agent-map-spawn 450ms ease-out both;
+}
+
+[data-animated="true"] .agent-map-dock {
+  animation: agent-map-dock 700ms ease-out both;
+}
+
+[data-animated="true"] .agent-map-ring {
+  transition: stroke-dasharray 400ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-map-float,
+  .agent-map-drift,
+  .agent-map-spawn,
+  .agent-map-dock {
+    animation: none !important;
+  }
+}
+
 @keyframes live-activity-focus {
   from {
     transform: translateX(0);

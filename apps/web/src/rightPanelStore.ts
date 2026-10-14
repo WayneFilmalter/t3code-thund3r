@@ -31,6 +31,7 @@ const RIGHT_PANEL_KINDS = [
   "pull-request",
   "pull-requests",
   "workflows",
+  "agent-map",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -87,7 +88,9 @@ export type RightPanelSurface =
     }
   /** The thread's linked pull requests, one singleton tab beside any number of `pull-request` tabs. */
   | { id: "pull-requests"; kind: "pull-requests" }
-  | { id: "workflows"; kind: "workflows" };
+  | { id: "workflows"; kind: "workflows" }
+  /** The thread drawn as a bubble map of its agent and subagents. */
+  | { id: "agent-map"; kind: "agent-map" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
@@ -229,6 +232,8 @@ const singletonSurface = (
       return { id: "device", kind };
     case "workflows":
       return { id: "workflows", kind };
+    case "agent-map":
+      return { id: "agent-map", kind };
   }
 };
 

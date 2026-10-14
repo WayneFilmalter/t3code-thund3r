@@ -288,6 +288,7 @@ import {
   threadPullRequestPanelTarget,
 } from "./pullRequest/pullRequestDetail.logic";
 import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
+import { AgentMapPanel } from "./agent-map/AgentMapPanel";
 import { WorkflowsPanel } from "./workflows/WorkflowsPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
@@ -5483,6 +5484,10 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThreadRef || !activeProject) return;
     useRightPanelStore.getState().open(activeThreadRef, "workflows");
   }, [activeProject, activeThreadRef]);
+  const addAgentMapSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "agent-map");
+  }, [activeThreadRef]);
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
   const visiblePullRequests = visibleThreadPullRequests(
@@ -11236,6 +11241,8 @@ export default function ChatView(props: ChatViewProps) {
         maximized={rightPanelMaximized}
         onSetMaximized={canMaximizeRightPanel ? setRightPanelMaximized : undefined}
       />
+    ) : renderedRightPanelSurface?.kind === "agent-map" ? (
+      <AgentMapPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
       <ThreadPullRequestsPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "device" ? (
@@ -12144,6 +12151,7 @@ export default function ChatView(props: ChatViewProps) {
           onAddPullRequests={addPullRequestsSurface}
           onAddDevice={addDeviceSurface}
           onAddWorkflows={addWorkflowsSurface}
+          onAddAgentMap={addAgentMapSurface}
           browserAvailable={canOperatePreview && browserAvailable}
           terminalAvailable={activeProject !== null && canOperateTerminal}
           diffAvailable={isServerThread && isGitRepo}
@@ -12152,6 +12160,7 @@ export default function ChatView(props: ChatViewProps) {
           pullRequestsAvailable={pullRequestsSurfaceAvailable}
           deviceAvailable={activeThreadRef !== null}
           workflowsAvailable={activeProject !== null}
+          agentMapAvailable={activeThreadRef !== null}
         >
           {rightPanelContent}
         </RightPanelTabs>
@@ -12205,6 +12214,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddPullRequests={addPullRequestsSurface}
             onAddDevice={addDeviceSurface}
             onAddWorkflows={addWorkflowsSurface}
+            onAddAgentMap={addAgentMapSurface}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
             diffAvailable={isServerThread && isGitRepo}
@@ -12213,6 +12223,7 @@ export default function ChatView(props: ChatViewProps) {
             pullRequestsAvailable={pullRequestsSurfaceAvailable}
             deviceAvailable={activeThreadRef !== null}
             workflowsAvailable={activeProject !== null}
+            agentMapAvailable={activeThreadRef !== null}
           >
             {rightPanelContent}
           </RightPanelTabs>

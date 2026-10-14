@@ -2295,6 +2295,7 @@ function PullRequestsRouteView() {
             onAddPullRequests={() => undefined}
             onAddDevice={() => undefined}
             onAddWorkflows={() => undefined}
+            onAddAgentMap={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
             diffAvailable={false}
@@ -2303,6 +2304,7 @@ function PullRequestsRouteView() {
             pullRequestsAvailable={false}
             deviceAvailable={false}
             workflowsAvailable={false}
+            agentMapAvailable={false}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel

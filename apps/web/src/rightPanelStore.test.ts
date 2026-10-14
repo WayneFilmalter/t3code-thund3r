@@ -654,6 +654,35 @@ describe("rightPanelStore", () => {
     });
   });
 
+  it("opens the agent map singleton once and keeps it through migration", () => {
+    useRightPanelStore.getState().open(refA, "agent-map");
+    useRightPanelStore.getState().open(refA, "agent-map");
+    const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    expect(state.surfaces).toEqual([{ id: "agent-map", kind: "agent-map" }]);
+    expect(state.activeSurfaceId).toBe("agent-map");
+
+    expect(
+      migratePersistedRightPanelState({
+        byThreadKey: {
+          "env-1:thread-A": {
+            isOpen: true,
+            activeSurfaceId: "agent-map",
+            surfaces: [{ id: "agent-map", kind: "agent-map" }],
+          },
+        },
+      }),
+    ).toEqual({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: "agent-map",
+          surfaces: [{ id: "agent-map", kind: "agent-map" }],
+        },
+      },
+      threadPanelVisibilityByThreadKey: {},
+    });
+  });
+
   it("reopening an inactive singleton activates its existing surface", () => {
     useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().open(refA, "device");

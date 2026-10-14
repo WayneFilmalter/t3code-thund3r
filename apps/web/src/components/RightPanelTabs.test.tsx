@@ -134,6 +134,7 @@ function renderTabs(
       onAddFiles={() => undefined}
       onAddDevice={() => undefined}
       onAddWorkflows={() => undefined}
+      onAddAgentMap={() => undefined}
       browserAvailable
       terminalAvailable={false}
       diffAvailable={false}
@@ -142,6 +143,7 @@ function renderTabs(
       pullRequestsAvailable={false}
       deviceAvailable={false}
       workflowsAvailable={false}
+      agentMapAvailable={false}
     >
       <div>content</div>
     </RightPanelTabs>,
