@@ -168,7 +168,8 @@ function AgentMapForThread({ threadRef }: { readonly threadRef: ScopedThreadRef 
           onSettled={onSettled}
         />
       ))}
-      <div className="flex min-h-0 flex-1 flex-col">
+      {/* The map takes two thirds; the activity feed below takes one. */}
+      <div className="flex min-h-0 flex-2 flex-col">
         <div ref={measure} className="min-h-0 flex-1">
           {visibleModel === null ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
