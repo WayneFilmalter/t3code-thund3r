@@ -75,7 +75,7 @@ describe("KeybindingsSettings.logic", () => {
       expect.arrayContaining(["composer.host", "modelPicker.toggle"]),
     );
     expect(groupKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "split"))).toEqual(
-      [expect.objectContaining({ id: "terminal" })],
+      [expect.objectContaining({ id: "navigation" }), expect.objectContaining({ id: "terminal" })],
     );
   });
   it("orders Usage bindings and command choices like the page", () => {
@@ -346,37 +346,36 @@ describe("KeybindingsSettings.logic", () => {
   });
 
   it("marks each default shortcut for multi-binding commands as default", () => {
+    const sendBackgroundWhen = {
+      type: "and",
+      left: { type: "identifier", name: "composerFocus" },
+      right: { type: "identifier", name: "draftThreadRoute" },
+    } as const;
     const rows = buildKeybindingRows(
       [
         {
-          command: "chat.new",
+          command: "composer.sendBackground",
           shortcut: {
-            key: "n",
+            key: "enter",
             modKey: true,
             metaKey: false,
             ctrlKey: false,
             altKey: false,
             shiftKey: false,
           },
-          whenAst: {
-            type: "not",
-            node: { type: "identifier", name: "terminalFocus" },
-          },
+          whenAst: sendBackgroundWhen,
         },
         {
-          command: "chat.new",
+          command: "composer.sendBackground",
           shortcut: {
-            key: "o",
+            key: "enter",
             modKey: true,
             metaKey: false,
             ctrlKey: false,
-            altKey: false,
-            shiftKey: true,
+            altKey: true,
+            shiftKey: false,
           },
-          whenAst: {
-            type: "not",
-            node: { type: "identifier", name: "terminalFocus" },
-          },
+          whenAst: sendBackgroundWhen,
         },
       ] satisfies ResolvedKeybindingsConfig,
       "",

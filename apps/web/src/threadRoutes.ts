@@ -88,6 +88,22 @@ export function resolveThreadRouteTarget(
   };
 }
 
+export function threadRouteTargetsEqual(
+  left: ThreadRouteTarget | null,
+  right: ThreadRouteTarget | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.kind === "draft") {
+    return right.kind === "draft" && left.draftId === right.draftId;
+  }
+  return (
+    right.kind === "server" &&
+    left.threadRef.environmentId === right.threadRef.environmentId &&
+    left.threadRef.threadId === right.threadRef.threadId
+  );
+}
+
 /**
  * Resolves the thread represented by either a canonical thread route or a
  * draft route whose promotion to a server thread has been recorded.

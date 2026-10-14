@@ -1445,7 +1445,9 @@ describe("composer and pull request shortcuts", () => {
 
   const shortcuts = [
     ["h", "composer.host"],
-    ["e", "composer.effort"],
+    ["r", "composer.effort"],
+    ["o", "pane.splitRight"],
+    ["e", "pane.splitDown"],
     ["a", "composer.mode"],
     ["x", "composer.workspace"],
     ["g", "composer.branch"],

@@ -1,7 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
@@ -24,6 +24,12 @@ import {
   type ThreadRouteTarget,
 } from "../threadRoutes";
 
+/** Moves this view to another target; null means "no thread" (the index). */
+export type ThreadRouteNavigate = (
+  target: ThreadRouteTarget | null,
+  options?: { replace?: boolean },
+) => void;
+
 /**
  * The single chat surface behind both `/draft/$draftId` and
  * `/$environmentId/$threadId`. Each draft gets its own ChatView instance (so
@@ -37,8 +43,45 @@ import {
  * Rendered by the `_chat` layout rather than by the two leaf routes, since
  * an element only survives a route swap when the same parent renders it.
  */
-export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
-  const navigate = useNavigate();
+export function ThreadRouteView({
+  target,
+  inset = true,
+  navigateToTarget,
+}: {
+  target: ThreadRouteTarget;
+  /** False when a split pane hosts the view and owns the inset wrapper. */
+  inset?: boolean;
+  /** Overrides route navigation, e.g. to retarget an unfocused pane instead of the URL. */
+  navigateToTarget?: ThreadRouteNavigate;
+}) {
+  const routerNavigate = useNavigate();
+  const navigateTo = useCallback<ThreadRouteNavigate>(
+    (nextTarget, options) => {
+      if (navigateToTarget) {
+        navigateToTarget(nextTarget, options);
+        return;
+      }
+      const replace = options?.replace ?? false;
+      if (nextTarget === null) {
+        void routerNavigate({ to: "/", replace });
+        return;
+      }
+      if (nextTarget.kind === "server") {
+        void routerNavigate({
+          to: "/$environmentId/$threadId",
+          params: buildThreadRouteParams(nextTarget.threadRef),
+          replace,
+        });
+        return;
+      }
+      void routerNavigate({
+        to: "/draft/$draftId",
+        params: { draftId: nextTarget.draftId },
+        replace,
+      });
+    },
+    [navigateToTarget, routerNavigate],
+  );
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
@@ -124,23 +167,19 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       if (cancelled) {
         return;
       }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: buildThreadRouteParams(canonicalThreadRef),
-        replace: true,
-      });
+      navigateTo({ kind: "server", threadRef: canonicalThreadRef }, { replace: true });
     });
     return () => {
       cancelled = true;
     };
-  }, [canonicalThreadRef, navigate]);
+  }, [canonicalThreadRef, navigateTo]);
 
   useEffect(() => {
     if (target.kind !== "draft" || draftSession || canonicalThreadRef) {
       return;
     }
-    void navigate({ to: "/", replace: true });
-  }, [canonicalThreadRef, draftSession, navigate, target.kind]);
+    navigateTo(null, { replace: true });
+  }, [canonicalThreadRef, draftSession, navigateTo, target.kind]);
 
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
@@ -153,10 +192,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
       if (environmentHasAnyThreads) {
-        void navigate({ to: "/", replace: true });
+        navigateTo(null, { replace: true });
       }
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
+  }, [bootstrapComplete, environmentHasAnyThreads, navigateTo, renderState, target]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
@@ -188,6 +227,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
         routeKind="server"
       />
     );
+  }
+
+  if (!inset) {
+    return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{view}</div>;
   }
 
   return (

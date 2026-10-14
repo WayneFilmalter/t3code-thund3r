@@ -61,6 +61,7 @@ import {
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
+  Columns2Icon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderGit2Icon,
@@ -73,8 +74,10 @@ import {
   MoonIcon,
   PaletteIcon,
   RotateCcwIcon,
+  Rows2Icon,
   SettingsIcon,
   SquarePenIcon,
+  SquareXIcon,
   SunIcon,
   TextSearchIcon,
 } from "lucide-react";
@@ -235,6 +238,8 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./u
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
+import { closeFocusedPane, splitFocusedPane } from "../paneLayoutActions";
+import { usePaneLayoutStore } from "../paneLayoutStore";
 import type { ChatComposerHandle } from "./chat/ChatComposer";
 import { getProjectOrderKey, selectProjectGroupingSettings } from "../logicalProject";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
@@ -650,6 +655,7 @@ function OpenCommandPaletteDialog(props: {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  const paneLayoutSplit = usePaneLayoutStore((state) => state.root.type === "split");
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -1867,6 +1873,38 @@ function OpenCommandPaletteDialog(props: {
       run: async () => {
         requestThreadFindOpen();
       },
+    });
+  }
+
+  actionItems.push(
+    {
+      kind: "action",
+      value: "action:pane-split-right",
+      searchTerms: ["split", "pane", "right", "side by side", "vertical"],
+      title: "Split pane right",
+      icon: <Columns2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pane.splitRight",
+      run: async () => splitFocusedPane("row", paletteRouteTarget),
+    },
+    {
+      kind: "action",
+      value: "action:pane-split-down",
+      searchTerms: ["split", "pane", "down", "stack", "horizontal"],
+      title: "Split pane down",
+      icon: <Rows2Icon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pane.splitDown",
+      run: async () => splitFocusedPane("column", paletteRouteTarget),
+    },
+  );
+  if (paneLayoutSplit) {
+    actionItems.push({
+      kind: "action",
+      value: "action:pane-close",
+      searchTerms: ["close", "pane", "split", "unsplit"],
+      title: "Close pane",
+      icon: <SquareXIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "pane.close",
+      run: async () => closeFocusedPane(navigate),
     });
   }
 

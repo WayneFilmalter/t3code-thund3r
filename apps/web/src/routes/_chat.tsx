@@ -1,11 +1,14 @@
 import { AuthPreviewOperateScope } from "@t3tools/contracts";
-import { Outlet, createFileRoute, redirect, useParams } from "@tanstack/react-router";
+import { Outlet, createFileRoute, redirect, useNavigate, useParams } from "@tanstack/react-router";
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useMemo } from "react";
 
 import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { PaneLayout } from "../components/PaneLayout";
 import { ThreadRouteView } from "../components/ThreadRouteView";
 import { ThreadLinkPrompt } from "../components/promptLinks/ThreadLinkPrompt";
+import { closeFocusedPane, splitFocusedPane } from "../paneLayoutActions";
+import { usePaneLayoutStore } from "../paneLayoutStore";
 import { resolveThreadRouteTarget } from "../threadRoutes";
 import { useClientSettings, useLegacySidebarEnabled } from "../hooks/useSettings";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -32,6 +35,11 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
 function ChatRouteGlobalShortcuts() {
+  const navigate = useNavigate();
+  const routeTarget = useParams({
+    strict: false,
+    select: (params) => resolveThreadRouteTarget(params),
+  });
   const clearSelection = useThreadSelectionStore((state) => state.clearSelection);
   const selectedThreadKeysSize = useThreadSelectionStore((state) => state.selectedThreadKeys.size);
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef } =
@@ -99,6 +107,21 @@ function ChatRouteGlobalShortcuts() {
       if (event.key === "Escape" && selectedThreadKeysSize > 0) {
         event.preventDefault();
         clearSelection();
+        return;
+      }
+
+      if (command === "pane.splitRight" || command === "pane.splitDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        splitFocusedPane(command === "pane.splitRight" ? "row" : "column", routeTarget);
+        return;
+      }
+
+      if (command === "pane.close") {
+        if (usePaneLayoutStore.getState().root.type === "leaf") return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeFocusedPane(navigate);
         return;
       }
 
@@ -194,6 +217,8 @@ function ChatRouteGlobalShortcuts() {
       window.removeEventListener("keydown", onWindowKeyDown);
     };
   }, [
+    navigate,
+    routeTarget,
     activeDraftThread,
     activeThread,
     clearSelection,
@@ -222,13 +247,22 @@ function ChatRouteLayout() {
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
   });
+  // Split panes replace the single route-driven view; while the layout is a
+  // lone pane this renders exactly the pre-pane tree.
+  const isSplit = usePaneLayoutStore((state) => state.root.type === "split");
   return (
     <>
       <ChatRouteGlobalShortcuts />
       {threadTarget?.kind === "server" ? (
         <ThreadLinkPrompt threadRef={threadTarget.threadRef} />
       ) : null}
-      {threadTarget ? <ThreadRouteView target={threadTarget} /> : <Outlet />}
+      {isSplit ? (
+        <PaneLayout threadTarget={threadTarget} />
+      ) : threadTarget ? (
+        <ThreadRouteView target={threadTarget} />
+      ) : (
+        <Outlet />
+      )}
     </>
   );
 }

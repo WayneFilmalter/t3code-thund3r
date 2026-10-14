@@ -24,7 +24,7 @@ steer. Change it under **Queue: Send First Queued Message as Steer** in Keybindi
 Use `mod+shift+m` to choose a model and `mod+shift+h` to choose a host.
 To step a new thread to the next machine instead of opening the menu, bind
 **Composer: Cycle Host** in Keybindings. It has no default shortcut.
-Use `mod+shift+e` for effort, `mod+shift+a` for access mode, `mod+shift+x` for the
+Use `mod+shift+r` for effort, `mod+shift+a` for access mode, `mod+shift+x` for the
 workspace, and `mod+shift+g` for the Git branch. The workspace menu includes the
 current checkout, a new worktree, and the previous worktree when available.
 Use `mod+shift+l` to reuse the previous worktree directly.
@@ -38,6 +38,18 @@ These shortcuts run inside the focused web or desktop client. `mod` uses Command
 on macOS and Ctrl on Windows and Linux, including GNOME, KDE Plasma, Niri, and
 Hyprland. If a custom desktop shortcut takes the same keys, choose another binding
 in Settings.
+
+## Split panes
+
+On web and desktop, `mod+shift+o` splits the chat area to the right and
+`mod+shift+e` splits it down, so several threads run side by side. A new pane
+starts on the thread you split from and becomes the focused pane; clicking
+into a pane focuses it. Opening a thread — from the sidebar, `mod+1`–`mod+9`,
+the command palette, or a new thread with `mod+n` — replaces the focused
+pane's thread, and opening a thread already shown in another pane focuses
+that pane instead. `mod+alt+w` closes the focused pane. All three commands
+are also in the command palette and configurable under **Pane** in
+**Settings → Keybindings**.
 
 ## Copy pull request references
 

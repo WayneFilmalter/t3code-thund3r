@@ -566,7 +566,8 @@ import {
   shouldRefocusComposerOnWindowFocus,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
-import { useComposerHandleContext } from "../composerHandleContext";
+import { createPaneScopedComposerRef, useComposerHandleContext } from "../composerHandleContext";
+import { usePaneFocusHandle } from "../paneFocus";
 import {
   awaitAttachmentUploads,
   getUploadedAttachments,
@@ -1852,7 +1853,26 @@ export default function ChatView(props: ChatViewProps) {
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
-  const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const sharedComposerHandleRef = useComposerHandleContext();
+  const paneFocus = usePaneFocusHandle();
+  // Every view keeps its own composer handle; only the focused pane publishes
+  // it to the shared context ref that the palette and file browser read, so
+  // two mounted views (split panes) cannot fight over one handle.
+  const composerRef = useMemo(
+    () =>
+      createPaneScopedComposerRef(localComposerRef, sharedComposerHandleRef, paneFocus.isFocused),
+    [paneFocus, sharedComposerHandleRef],
+  );
+  useEffect(() => {
+    if (!sharedComposerHandleRef) return;
+    const publish = () => {
+      if (paneFocus.isFocused()) {
+        sharedComposerHandleRef.current = localComposerRef.current;
+      }
+    };
+    publish();
+    return paneFocus.subscribe(publish);
+  }, [paneFocus, sharedComposerHandleRef]);
   const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
@@ -4621,7 +4641,13 @@ export default function ChatView(props: ChatViewProps) {
       );
     }
   }, [activeThread, environmentId, interruptThreadTurn, setThreadError]);
-  useEffect(() => subscribeSnapShotComposerFocus(focusComposer), [focusComposer]);
+  useEffect(
+    () =>
+      subscribeSnapShotComposerFocus(() => {
+        if (paneFocus.isFocused()) focusComposer();
+      }),
+    [focusComposer, paneFocus],
+  );
   const scheduleComposerFocus = useCallback(() => {
     window.requestAnimationFrame(() => {
       focusComposer();
@@ -6323,9 +6349,10 @@ export default function ChatView(props: ChatViewProps) {
   useEffect(
     () =>
       subscribePreviewAction((action) => {
+        if (!paneFocus.isFocused()) return;
         if (action === "toggle-panel") togglePreviewPanel();
       }),
-    [togglePreviewPanel],
+    [paneFocus, togglePreviewPanel],
   );
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
@@ -6655,8 +6682,10 @@ export default function ChatView(props: ChatViewProps) {
           if (
             !(event.target instanceof Node) ||
             (!scrollNode.contains(event.target) &&
-              event.target !== document.body &&
-              event.target !== document.documentElement) ||
+              // Keys landing on the body are ambiguous between split panes;
+              // only the focused pane's timeline answers them.
+              (!paneFocus.isFocused() ||
+                (event.target !== document.body && event.target !== document.documentElement))) ||
             event.defaultPrevented ||
             event.isComposing ||
             event.altKey ||
@@ -6728,7 +6757,7 @@ export default function ChatView(props: ChatViewProps) {
       }
       removeListeners?.();
     };
-  }, [activeThread?.id, isTimelineAtLogicalEnd, timelineRealContentOverflowsViewport]);
+  }, [activeThread?.id, isTimelineAtLogicalEnd, paneFocus, timelineRealContentOverflowsViewport]);
 
   const onTimelineAnchorReady = useCallback((messageId: MessageId, anchorIndex: number) => {
     if (pendingTimelineAnchorRef.current === messageId) {
@@ -6916,6 +6945,7 @@ export default function ChatView(props: ChatViewProps) {
     if (!activeThread?.id || terminalUiState.terminalOpen || isMobileViewport) return;
     let frame: number | null = null;
     const onWindowFocus = () => {
+      if (!paneFocus.isFocused()) return;
       if (frame !== null) window.cancelAnimationFrame(frame);
       // The element that held focus receives it again after the window's own event, and the
       // composer ignores that same frame so a restored focus does not lift a scroll-collapsed
@@ -6934,7 +6964,7 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("focus", onWindowFocus);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposer, isMobileViewport, terminalUiState.terminalOpen]);
+  }, [activeThread?.id, focusComposer, isMobileViewport, paneFocus, terminalUiState.terminalOpen]);
 
   useEffect(() => {
     if (!activeThread?.id) return;
@@ -8072,6 +8102,8 @@ export default function ChatView(props: ChatViewProps) {
 
   useEffect(() => {
     const handler = (event: globalThis.KeyboardEvent) => {
+      // In split panes only the focused pane's view answers window shortcuts.
+      if (!paneFocus.isFocused()) return;
       if (preventRepeatedTerminalCloseShortcut(event, keybindings)) {
         event.stopPropagation();
         return;
@@ -8369,6 +8401,7 @@ export default function ChatView(props: ChatViewProps) {
       void runProjectScript(script);
     };
     const dismissFind = (event: KeyboardEvent) => {
+      if (!paneFocus.isFocused()) return;
       if (
         event.key !== "Escape" ||
         !isThreadFindActive ||
@@ -8440,21 +8473,24 @@ export default function ChatView(props: ChatViewProps) {
     hasMultipleEnvironments,
     logicalProjectEnvironments,
     onEnvironmentChange,
+    paneFocus,
   ]);
 
   // A focused desktop browser page forwards these chords as menu actions.
   useEffect(() => {
     return window.desktopBridge?.onMenuAction((action) => {
+      if (!paneFocus.isFocused()) return;
       if (action === "rightPanel.toggle") toggleRightPanel();
       else if (action === "rightPanel.toggleMaximized") toggleRightPanelMaximized();
     });
-  }, [toggleRightPanel, toggleRightPanelMaximized]);
+  }, [paneFocus, toggleRightPanel, toggleRightPanelMaximized]);
 
   // Paste-to-focus: the resting composer blurs on a click into the timeline,
   // so a paste that follows has no editable target and would be dropped.
   // Route it to the composer like a typed key, which also expands it.
   useEffect(() => {
     const keyHandler = (event: KeyboardEvent) => {
+      if (!paneFocus.isFocused()) return;
       if (
         shouldRedirectInputToComposer(event) &&
         isPasteAsTextShortcut(event, isMacPlatform(navigator.platform))
@@ -8463,6 +8499,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     };
     const handler = (event: ClipboardEvent) => {
+      if (!paneFocus.isFocused()) return;
       if (!activeThreadId || isCommandPaletteOpen()) return;
       if (getTerminalFocusOwner() !== null) return;
       if (composerRef.current?.isModelPickerOpen()) return;
@@ -8486,7 +8523,7 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("keydown", keyHandler, true);
       window.removeEventListener("paste", handler, true);
     };
-  }, [activeThreadId, composerRef]);
+  }, [activeThreadId, composerRef, paneFocus]);
 
   const [pendingRevert, setPendingRevert] = useState<{
     turnCount: number;
