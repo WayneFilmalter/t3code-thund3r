@@ -554,7 +554,7 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("persists inline preference without restoring an open popover", () => {
+  it("drops persisted thread details visibility so every thread starts closed", () => {
     expect(
       migratePersistedRightPanelState({
         threadPanelVisibilityByThreadKey: {
@@ -564,9 +564,7 @@ describe("rightPanelStore", () => {
       }),
     ).toEqual({
       byThreadKey: {},
-      threadPanelVisibilityByThreadKey: {
-        "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
-      },
+      threadPanelVisibilityByThreadKey: {},
     });
   });
 
@@ -574,13 +572,13 @@ describe("rightPanelStore", () => {
     const store = useRightPanelStore.getState();
 
     expect(selectThreadPanelOpen(store.threadPanelVisibilityByThreadKey, refA, "inline")).toBe(
-      true,
+      false,
     );
     expect(selectThreadPanelOpen(store.threadPanelVisibilityByThreadKey, refA, "popover")).toBe(
       false,
     );
 
-    store.setThreadPanelOpen(refA, "inline", false);
+    store.setThreadPanelOpen(refA, "inline", true);
     store.toggleThreadPanel(refA, "popover");
 
     expect(
@@ -588,13 +586,13 @@ describe("rightPanelStore", () => {
         useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
         refA,
       ),
-    ).toEqual({ inlineOpen: false, popoverOpen: true });
+    ).toEqual({ inlineOpen: true, popoverOpen: true });
     expect(
       selectThreadPanelVisibility(
         useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
         refB,
       ),
-    ).toEqual({ inlineOpen: true, popoverOpen: false });
+    ).toEqual({ inlineOpen: false, popoverOpen: false });
   });
 
   it("closes the popover atomically when the real right panel opens", () => {
@@ -606,13 +604,12 @@ describe("rightPanelStore", () => {
         useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
         refA,
       ),
-    ).toEqual({ inlineOpen: true, popoverOpen: false });
+    ).toEqual({ inlineOpen: false, popoverOpen: false });
   });
 
   it("keeps an open popover visible by promoting it to inline when the real panel closes", () => {
     const store = useRightPanelStore.getState();
     store.open(refA, "diff");
-    store.setThreadPanelOpen(refA, "inline", false);
     store.setThreadPanelOpen(refA, "popover", true);
     store.close(refA);
 
@@ -654,13 +651,14 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("opens the agent map singleton once and keeps it through migration", () => {
+  it("opens the agent map singleton once and leaves it closed after a reload", () => {
     useRightPanelStore.getState().open(refA, "agent-map");
     useRightPanelStore.getState().open(refA, "agent-map");
     const state = selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
     expect(state.surfaces).toEqual([{ id: "agent-map", kind: "agent-map" }]);
     expect(state.activeSurfaceId).toBe("agent-map");
 
+    // Session-only: a saved agent map does not come back on reload.
     expect(
       migratePersistedRightPanelState({
         byThreadKey: {
@@ -670,17 +668,8 @@ describe("rightPanelStore", () => {
             surfaces: [{ id: "agent-map", kind: "agent-map" }],
           },
         },
-      }),
-    ).toEqual({
-      byThreadKey: {
-        "env-1:thread-A": {
-          isOpen: true,
-          activeSurfaceId: "agent-map",
-          surfaces: [{ id: "agent-map", kind: "agent-map" }],
-        },
-      },
-      threadPanelVisibilityByThreadKey: {},
-    });
+      }).byThreadKey["env-1:thread-A"],
+    ).toEqual({ isOpen: false, activeSurfaceId: null, surfaces: [] });
   });
 
   it("reopening an inactive singleton activates its existing surface", () => {

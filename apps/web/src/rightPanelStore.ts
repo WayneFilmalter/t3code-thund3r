@@ -98,7 +98,9 @@ const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
 // v12 adds the device surface.
 // v14 removes the agents surface; lineage lives in the thread title bar.
-const RIGHT_PANEL_STORAGE_VERSION = 14;
+// v15 makes thread details visibility session-only: the card stays closed until asked for.
+// v16 makes the agent-map surface session-only: it stays closed on reload until the button is pressed.
+const RIGHT_PANEL_STORAGE_VERSION = 16;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -214,7 +216,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const DEFAULT_THREAD_PANEL_VISIBILITY: ThreadPanelVisibility = {
-  inlineOpen: true,
+  inlineOpen: false,
   popoverOpen: false,
 };
 
@@ -349,7 +351,7 @@ const updateThreadPanelVisibilityMap = (
 ): Record<string, ThreadPanelVisibility> => {
   const current = byThreadKey[threadKey] ?? DEFAULT_THREAD_PANEL_VISIBILITY;
   const next = updater(current);
-  if (next.inlineOpen && !next.popoverOpen) {
+  if (!next.inlineOpen && !next.popoverOpen) {
     if (!(threadKey in byThreadKey)) return byThreadKey;
     const { [threadKey]: _removed, ...rest } = byThreadKey;
     return rest;
@@ -478,8 +480,9 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
               const surfaces = Array.isArray(validThreadState?.surfaces)
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
                     // Removed surfaces: plans render inline, agents in thread lineage.
+                    // Session-only surfaces: agent-map stays closed until the button is pressed.
                     const kind = (surface as { kind?: string }).kind;
-                    if (kind === "plan" || kind === "agents") return [];
+                    if (kind === "plan" || kind === "agents" || kind === "agent-map") return [];
                     if (surface.kind === "file") {
                       const revealLine =
                         typeof surface.revealLine === "number" &&
@@ -589,22 +592,8 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
             }),
         )
       : {};
-  const threadPanelVisibilityByThreadKey =
-    "threadPanelVisibilityByThreadKey" in persistedState &&
-    persistedState.threadPanelVisibilityByThreadKey &&
-    typeof persistedState.threadPanelVisibilityByThreadKey === "object"
-      ? Object.fromEntries(
-          Object.entries(
-            persistedState.threadPanelVisibilityByThreadKey as Record<string, unknown>,
-          ).flatMap(([threadKey, value]) => {
-            if (!value || typeof value !== "object" || !("inlineOpen" in value)) return [];
-            return value.inlineOpen === false
-              ? [[threadKey, { inlineOpen: false, popoverOpen: false }]]
-              : [];
-          }),
-        )
-      : {};
-  return { byThreadKey, threadPanelVisibilityByThreadKey };
+  // Thread details visibility is session-only: every thread starts with the card closed.
+  return { byThreadKey, threadPanelVisibilityByThreadKey: {} };
 }
 
 export const useRightPanelStore = create<RightPanelStoreState>()(
@@ -1070,15 +1059,20 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       ),
       partialize: (state) => ({
         byThreadKey: Object.fromEntries(
-          Object.entries(state.byThreadKey).filter(
-            ([threadKey]) => !isPullRequestsPanelKey(threadKey),
-          ),
-        ),
-        threadPanelVisibilityByThreadKey: Object.fromEntries(
-          Object.entries(state.threadPanelVisibilityByThreadKey).flatMap(
-            ([threadKey, visibility]) =>
-              visibility.inlineOpen ? [] : [[threadKey, { inlineOpen: false, popoverOpen: false }]],
-          ),
+          Object.entries(state.byThreadKey)
+            .filter(([threadKey]) => !isPullRequestsPanelKey(threadKey))
+            .flatMap(([threadKey, threadState]) => {
+              const surfaces = threadState.surfaces.filter(
+                (surface) => surface.kind !== "agent-map",
+              );
+              if (surfaces.length === 0) return [];
+              const activeSurfaceId = surfaces.some(
+                (surface) => surface.id === threadState.activeSurfaceId,
+              )
+                ? threadState.activeSurfaceId
+                : (surfaces[0]?.id ?? null);
+              return [[threadKey, { ...threadState, surfaces, activeSurfaceId }]];
+            }),
         ),
       }),
       migrate: migratePersistedRightPanelState,
