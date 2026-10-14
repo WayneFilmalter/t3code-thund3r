@@ -2,6 +2,7 @@ import * as Schema from "effect/Schema";
 import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -17,6 +18,19 @@ const WidthSchema = Schema.Finite;
  * directly inside the host, and a drag writes this property on it each frame.
  */
 export const RESIZABLE_WIDTH_PROPERTY = "--resizable-width";
+
+/**
+ * Mounted hooks by storage key. Split panes mount one panel owner per pane, all on the
+ * same key, so a finished resize in one pane must reach the others: otherwise focusing
+ * another pane would show the width that pane read when it mounted.
+ */
+const widthListeners = new Map<string, Set<(width: number) => void>>();
+
+function publishWidth(storageKey: string, width: number, except: (width: number) => void): void {
+  for (const listener of widthListeners.get(storageKey) ?? []) {
+    if (listener !== except) listener(width);
+  }
+}
 
 export interface UseResizableWidthOptions {
   /** localStorage key the persisted width is stored under. */
@@ -81,6 +95,21 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     setWidthState({ storageKey, width: readWidth() });
   }
 
+  // Keep in step with other mounted hooks on the same key.
+  const onPublishedWidth = useCallback(
+    (width: number) => setWidthState({ storageKey, width }),
+    [storageKey],
+  );
+  useEffect(() => {
+    let listeners = widthListeners.get(storageKey);
+    if (!listeners) widthListeners.set(storageKey, (listeners = new Set()));
+    listeners.add(onPublishedWidth);
+    return () => {
+      listeners.delete(onPublishedWidth);
+      if (listeners.size === 0) widthListeners.delete(storageKey);
+    };
+  }, [onPublishedWidth, storageKey]);
+
   const clampedWidth = clamp(widthState.width);
   const latestOptions = useRef({ clamp, storageKey, width: clampedWidth });
   useLayoutEffect(() => {
@@ -102,6 +131,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
       },
       finish(finalWidth) {
         setWidthState({ storageKey, width: finalWidth });
+        publishWidth(storageKey, finalWidth, onPublishedWidth);
         // Commit once at drag-end to avoid 60Hz localStorage writes.
         try {
           setLocalStorageItem(latestOptions.current.storageKey, finalWidth, WidthSchema);

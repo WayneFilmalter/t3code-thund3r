@@ -253,3 +253,38 @@ describe("panel width storage changes", () => {
     expect(result.width).toBe(400);
   });
 });
+
+describe("shared panel width", () => {
+  it("brings every mounted panel on the same key to a finished resize", async () => {
+    let other: ReturnType<typeof useResizableWidth> | undefined;
+    function OtherPanel() {
+      const resize = useResizableWidth({
+        storageKey: "test-panel-width",
+        defaultWidth: 400,
+        minWidth: 200,
+        maxWidth: 800,
+        edge: "left",
+      });
+      useLayoutEffect(() => {
+        other = resize;
+      });
+      return null;
+    }
+    let otherRenderer: ReactTestRenderer | undefined;
+    await act(() => {
+      otherRenderer = create(<OtherPanel />);
+    });
+    expect(other?.width).toBe(400);
+
+    await act(() => {
+      result.handlers.onPointerDown(pointer());
+      result.handlers.onPointerMove(pointer(40));
+    });
+    await act(() => frame?.(0));
+    await act(() => result.handlers.onPointerUp(pointer(40)));
+
+    expect(result.width).toBe(460);
+    expect(other?.width).toBe(460);
+    await act(() => otherRenderer?.unmount());
+  });
+});
