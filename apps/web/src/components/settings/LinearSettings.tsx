@@ -8,6 +8,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { Button, InlineButton } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
+import { toastManager } from "../ui/toast";
 import { SecretInput } from "./SecretInput";
 
 const NEW_KEY_URL = "https://linear.app/settings/account/security";
@@ -38,7 +39,17 @@ export function LinearSettings({ environmentId }: { readonly environmentId: Envi
         environmentId,
         input: { patch: { linear: patch } },
       });
-      if (result._tag === "Success") setDraft("");
+      if (result._tag === "Success") {
+        setDraft("");
+        toastManager.add({
+          type: "success",
+          title: patch.apiKey === "" ? "Linear key removed" : "Linear settings saved",
+          description:
+            patch.apiKey === ""
+              ? "The Linear tab will ask for a key again."
+              : "The Linear tab can fetch issues now.",
+        });
+      }
     } finally {
       setSaving(false);
     }
