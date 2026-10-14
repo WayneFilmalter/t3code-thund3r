@@ -263,8 +263,8 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
       <SidebarThreadUndoNotice />
       <SidebarProviderUpdatePill />
       <SidebarUpdateArchitectureWarning />
-      <SidebarUtilityMenu />
       <SidebarClaudeUsage />
+      <SidebarUtilityMenu />
     </SidebarFooter>
   );
 });
