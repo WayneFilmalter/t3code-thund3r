@@ -183,7 +183,7 @@ function unwrapCodeBlockAtStart(editor: Editor): boolean {
  * The markdown a code block node serializes to, delimiters included. `followed`
  * says another block comes after it in the draft.
  */
-function codeBlockSource(
+export function codeBlockSource(
   node: ProseMirrorNode,
   followed: boolean,
 ): {
@@ -404,7 +404,9 @@ type ListLinePrefix =
  * on what a list line is: a task first (it also looks like a bullet), then an
  * ordered marker, then a bullet. A marker followed by nothing is an empty item.
  */
-function parseListPrefix(line: string): { prefix: ListLinePrefix; markerLength: number } | null {
+export function parseListPrefix(
+  line: string,
+): { prefix: ListLinePrefix; markerLength: number } | null {
   const task = parseTaskPrefix(line);
   if (task) return { prefix: { kind: "task", ...task.prefix }, markerLength: task.markerLength };
   const ordered = /^([ \t]*)(\d+[.)])((?:[ \t]+)|$)/.exec(line);

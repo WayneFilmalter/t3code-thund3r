@@ -1,5 +1,4 @@
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import {
   BoldIcon,
   CodeIcon,
@@ -14,77 +13,12 @@ import {
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
-import {
-  bulletListInputRules,
-  bulletToTaskInputRule,
-  orderedListInputRules,
-  taskInputRule,
-} from "~/composer-list-input-rules";
-import {
-  buildDocJson,
-  ComposerBlockExtensions,
-  ComposerCodeBlockExtension,
-  ComposerCodeExtension,
-  ComposerListExtensions,
-  ComposerTaskItemExtension,
-  ComposerTaskListExtension,
-  serializeEditorDoc,
-} from "~/composer-rich-text-doc";
+import { serializeEditorDoc } from "~/composer-rich-text-doc";
 import { Toggle } from "~/components/ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
 
-/**
- * The note body: markdown edited as a Tiptap document, through the chat
- * composer's own document model, so what is saved is the markdown an agent
- * would write and `ChatMarkdown` renders. That model is prompt-box markdown:
- * headings, lists, tasks, quotes, rules, fences and inline marks are
- * structure; links, images and tables stay literal markdown text here and
- * round-trip unchanged into the rendered view.
- */
-const NOTE_EXTENSIONS = [
-  StarterKit.configure({
-    blockquote: false,
-    bulletList: false,
-    codeBlock: false,
-    heading: false,
-    horizontalRule: false,
-    listItem: false,
-    link: false,
-    orderedList: false,
-    underline: false,
-    dropcursor: false,
-    gapcursor: false,
-    trailingNode: false,
-    code: false,
-    // The list extensions handle Backspace and Delete themselves.
-    listKeymap: false,
-  }),
-  ComposerCodeExtension,
-  ComposerCodeBlockExtension,
-  ...ComposerBlockExtensions,
-  ...ComposerListExtensions.map((extension) =>
-    extension.name === "listItem"
-      ? extension
-      : extension.extend({
-          addInputRules() {
-            return this.name === "bulletList" ? bulletListInputRules() : orderedListInputRules();
-          },
-        }),
-  ),
-  ComposerTaskListExtension,
-  ComposerTaskItemExtension.extend({
-    addInputRules() {
-      return [taskInputRule(this.type), bulletToTaskInputRule];
-    },
-  }),
-];
-
-const noSkills = () => ({ label: "", description: null });
-
-function noteDoc(markdown: string) {
-  return buildDocJson(markdown, noSkills, { styling: true, atoms: false });
-}
+import { NOTE_EXTENSIONS, noteDoc, toggleNoteList } from "./noteDocument";
 
 type ToolbarAction =
   | "bulletList"
@@ -169,16 +103,17 @@ export function NoteTiptapEditor(props: {
 
   const run = (action: ToolbarAction) => {
     if (!editor) return;
-    const chain = editor.chain().focus();
+    editor.commands.focus();
+    const chain = editor.chain();
     switch (action) {
       case "bulletList":
-        chain.toggleBulletList().run();
+        toggleNoteList(editor, "bullet");
         return;
       case "orderedList":
-        chain.toggleOrderedList().run();
+        toggleNoteList(editor, "ordered");
         return;
       case "taskList":
-        chain.toggleTaskList().run();
+        toggleNoteList(editor, "task");
         return;
       case "heading1":
         chain.toggleHeading({ level: 1 }).run();
