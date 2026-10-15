@@ -19,18 +19,43 @@ import { cn } from "~/lib/utils";
 import { PRIORITY_BADGE_VARIANTS, PRIORITY_TONES } from "./linearTones";
 import { PRIORITY_LABELS, estimateLabel, type LinearGitPresence } from "./linearPanel.logic";
 
-/** Top-right of the card: what git knows about the issue's branch. Nothing when nothing. */
+/**
+ * Top-right of the card: what git knows about the issue's branch, in Linear's own
+ * convention. One branch glyph whose colour carries the state: grey when the branch
+ * exists, green with an open pull request, purple once merged, red when closed.
+ * Nothing when nothing.
+ */
+const GIT_PRESENCE_TONES: Record<
+  Exclude<LinearGitPresence, "none">,
+  { label: string; className: string }
+> = {
+  branch: { label: "Branch exists", className: "text-muted-foreground" },
+  open: {
+    label: "Pull request open",
+    className: PULL_REQUEST_STATE_PRESENTATION.open.toneClassName,
+  },
+  merged: {
+    label: "Pull request merged",
+    className: PULL_REQUEST_STATE_PRESENTATION.merged.toneClassName,
+  },
+  closed: {
+    label: "Pull request closed",
+    className: PULL_REQUEST_STATE_PRESENTATION.closed.toneClassName,
+  },
+};
+
 function GitPresenceIcon({ presence }: { presence: LinearGitPresence }) {
   if (presence === "none") return null;
-  if (presence === "branch") {
-    return <GitBranchIcon aria-label="Branch exists" className="size-3 text-muted-foreground" />;
-  }
-  const state = PULL_REQUEST_STATE_PRESENTATION[presence];
+  const tone = GIT_PRESENCE_TONES[presence];
   return (
-    <state.Icon
-      aria-label={`Pull request ${state.label.toLowerCase()}`}
-      className={cn("size-3", state.toneClassName)}
-    />
+    <Tooltip>
+      <TooltipTrigger
+        render={<GitBranchIcon aria-label={tone.label} className={cn("size-3", tone.className)} />}
+      />
+      <TooltipPopup>
+        <p>{tone.label}</p>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
