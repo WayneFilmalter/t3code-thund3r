@@ -21,6 +21,8 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { isTrailingDoubleClick } from "../Sidebar.logic";
+import { ConnectionStatusDot } from "../ConnectionStatusDot";
+import { THREAD_ACTIVITY_DOT_CLASS, type ThreadActivityKind } from "./threadActivityDot";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
@@ -46,6 +48,9 @@ interface ChatHeaderProps {
   activeThreadTitle: string;
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
+  /** Dot beside the title; null for drafts, which have no runtime yet. */
+  activityKind: ThreadActivityKind | null;
+  activityLabel: string | null;
   activeProject: EnvironmentProject | null;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
@@ -80,6 +85,8 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   isServerThread,
+  activityKind,
+  activityLabel,
   activeProject,
   parentThreadLink,
   onOpenThread,
@@ -374,7 +381,13 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1">
+        <WorkspaceBreadcrumbItem current className="min-w-10 flex-1 gap-1.5">
+          {renamingTitle === null && isServerThread && activityKind !== null ? (
+            <ConnectionStatusDot
+              tooltipText={activityLabel}
+              dotClassName={THREAD_ACTIVITY_DOT_CLASS[activityKind]}
+            />
+          ) : null}
           {renamingTitle !== null ? (
             <input
               autoFocus

@@ -461,6 +461,7 @@ import {
   resolveScrollToEndClearance,
 } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
+import { resolveThreadActivityKind, threadActivityLabel } from "./chat/threadActivityDot";
 import { useRemoteOpenState } from "~/remoteOpen";
 import { shouldShowOpenInPicker } from "./chat/OpenInPicker.logic";
 import { useOpenFavoriteEditorShortcut } from "./chat/OpenInPickerShortcut";
@@ -11643,6 +11644,8 @@ export default function ChatView(props: ChatViewProps) {
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}
             isServerThread={isServerThread}
+            activityKind={serverThread ? resolveThreadActivityKind(serverThread) : null}
+            activityLabel={serverThread ? threadActivityLabel(serverThread) : null}
             activeThreadTitle={activeThread.title}
             activeProject={activeProject ?? null}
             parentThreadLink={parentThreadLink}
