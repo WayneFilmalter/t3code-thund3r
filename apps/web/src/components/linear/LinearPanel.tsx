@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { ListTodo, RefreshCwIcon, SettingsIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useOpenLink } from "~/browser/useOpenLink";
 import { Button } from "~/components/ui/button";
@@ -28,6 +28,7 @@ import { usePaginatedBranches } from "~/state/queries";
 
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { LinearSection } from "./LinearSection";
+import { selectLinearFetchRevision, useLinearPanelStore } from "./linearPanelStore";
 import { EMPTY_LINEAR_GIT_INDEX, buildLinearGitIndex } from "./linearPanel.logic";
 
 /** Enough pages to cover a team's branches without walking a huge repo's whole ref list. */
@@ -142,7 +143,10 @@ function LinearPanelBody(props: {
     teamKey: linear.teamKey,
   });
   const openLink = useOpenLink(props.threadRef);
-  const [fetchRevision, setFetchRevision] = useState(0);
+  const fetchRevision = useLinearPanelStore((state) =>
+    selectLinearFetchRevision(state.byEnvironment, environmentId),
+  );
+  const fetchAll = useLinearPanelStore((state) => state.fetchAll);
   const onOpen = useCallback(
     (url: string) => {
       openLink(url).catch((error: unknown) => {
@@ -175,7 +179,7 @@ function LinearPanelBody(props: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <LinearSubheader onFetchAll={() => setFetchRevision((revision) => revision + 1)} />
+      <LinearSubheader onFetchAll={() => fetchAll(environmentId)} />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {LINEAR_ISSUE_STATUSES.map((status) => (
           <section key={status.id} aria-label={status.label}>

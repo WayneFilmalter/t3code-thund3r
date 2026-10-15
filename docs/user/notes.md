@@ -4,7 +4,7 @@ Notes are a place for meeting notes, priorities and to-do lists that live alongs
 
 ## Opening the tab
 
-Open any thread, press **+** in the right panel and choose **Notes** (or press `N` when the panel is empty). **Show notes** in the command palette does the same. The Notes tab stays open, and stays selected if you were reading it, as you move between threads; closing it in one thread closes it everywhere.
+Open any thread, press **+** in the right panel and choose **Notes** (or press `N` when the panel is empty). **Show notes** in the command palette does the same. The right panel's tabs, their order and the selected tab are the same in every thread, so Notes stays where you left it as you move between threads.
 
 ## Writing a note
 

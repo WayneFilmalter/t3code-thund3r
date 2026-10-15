@@ -2351,14 +2351,13 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
-  // Open or closed and the Notes/Linear tabs are shared by every thread, so switching
-  // threads or pane focus keeps the panel as it was. Entering a thread mirrors the shared
-  // tabs into it before paint, and a thread first seen in the open panel gets the agents
-  // map instead of an empty panel.
+  // The tab strip and open state are shared by every thread, so switching threads or
+  // pane focus keeps the panel as it was. An open panel with no tabs gets the agents
+  // map, before paint, instead of an empty panel.
   const sharedRightPanelOpen = useRightPanelStore((state) => state.panelOpen);
   useLayoutEffect(() => {
-    if (!ownsPanelChrome || !activeThreadRef) return;
-    useRightPanelStore.getState().enterThread(activeThreadRef);
+    if (!ownsPanelChrome || !activeThreadRef || !sharedRightPanelOpen) return;
+    useRightPanelStore.getState().ensureOpenThreadSurface(activeThreadRef);
   }, [activeThreadRef, ownsPanelChrome, sharedRightPanelOpen]);
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
@@ -6017,6 +6016,60 @@ export default function ChatView(props: ChatViewProps) {
     gitCwd,
     openTerminal,
     hasTerminalWriteAccess,
+  ]);
+  // The tab strip is shared by every thread, but a terminal session belongs to one.
+  // A terminal tab shown on a thread without sessions for its ids spawns them there,
+  // once per thread, so the tab shows this thread's shell rather than a dead one.
+  const spawnedPanelTerminalsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (
+      !rightPanelOpen ||
+      activeRightPanelSurface?.kind !== "terminal" ||
+      !activeThreadRef ||
+      !activeThreadId ||
+      !activeProject ||
+      activeThreadKnownSessionsRaw === null ||
+      !hasTerminalWriteAccess()
+    ) {
+      return;
+    }
+    const cwd = gitCwd ?? activeProject.workspaceRoot;
+    for (const terminalId of activeRightPanelSurface.terminalIds) {
+      const spawnKey = `${activeThreadKey}:${terminalId}`;
+      if (
+        activeServerOrderedTerminalIds.includes(terminalId) ||
+        spawnedPanelTerminalsRef.current.has(spawnKey)
+      ) {
+        continue;
+      }
+      spawnedPanelTerminalsRef.current.add(spawnKey);
+      void openTerminal({
+        environmentId: activeThreadRef.environmentId,
+        input: {
+          threadId: activeThreadId,
+          terminalId,
+          cwd,
+          ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
+          env: projectScriptRuntimeEnv({
+            project: { cwd: activeProject.workspaceRoot },
+            worktreePath: activeThreadWorktreePath,
+          }),
+        },
+      });
+    }
+  }, [
+    activeProject,
+    activeRightPanelSurface,
+    activeServerOrderedTerminalIds,
+    activeThreadId,
+    activeThreadKey,
+    activeThreadKnownSessionsRaw,
+    activeThreadRef,
+    activeThreadWorktreePath,
+    gitCwd,
+    hasTerminalWriteAccess,
+    openTerminal,
+    rightPanelOpen,
   ]);
   const splitPanelTerminal = useCallback(
     (direction: "horizontal" | "vertical" = "horizontal") => {

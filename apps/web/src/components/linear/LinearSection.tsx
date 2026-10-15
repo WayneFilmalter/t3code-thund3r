@@ -1,6 +1,6 @@
 import type { EnvironmentId, LinearIssueStatus } from "@t3tools/contracts";
 import { ChevronRightIcon, RefreshCwIcon } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "~/components/ui/collapsible";
 import { Button } from "~/components/ui/button";
@@ -11,6 +11,7 @@ import { linearEnvironment } from "~/state/linear";
 import { useEnvironmentQuery } from "~/state/query";
 
 import { LinearIssueBubble } from "./LinearIssueBubble";
+import { selectLinearSection, useLinearPanelStore } from "./linearPanelStore";
 import { STATUS_TONES } from "./linearTones";
 import { resolveLinearGitPresence, sectionState, type LinearGitIndex } from "./linearPanel.logic";
 
@@ -18,7 +19,9 @@ import { resolveLinearGitPresence, sectionState, type LinearGitIndex } from "./l
  * One status of the Linear tab: a workflow-style header that folds the list,
  * plus its own fetch button. Nothing is requested until the section is armed,
  * by the first expand, its fetch button, or the panel's fetch-all. The
- * component stays mounted while folded so the fetched issues stay subscribed.
+ * component stays mounted while folded so the fetched issues stay subscribed,
+ * and its fold and armed state live in the Linear panel store so a thread
+ * switch, which remounts the view, does not reset them.
  */
 export function LinearSection(props: {
   status: LinearIssueStatus;
@@ -31,8 +34,11 @@ export function LinearSection(props: {
 }) {
   const { status, environmentId, fetchRevision } = props;
   const tone = STATUS_TONES[status];
-  const [open, setOpen] = useState(false);
-  const [armedHere, setArmedHere] = useState(false);
+  const { open, armed: armedHere } = useLinearPanelStore((state) =>
+    selectLinearSection(state.byEnvironment, environmentId, status),
+  );
+  const setSectionOpen = useLinearPanelStore((state) => state.setSectionOpen);
+  const armSection = useLinearPanelStore((state) => state.armSection);
   // A fetch-all bump arms every section; creating the atom is itself the first fetch.
   const armed = armedHere || fetchRevision > 0;
   const atom = useMemo(
@@ -56,13 +62,7 @@ export function LinearSection(props: {
   const count = issues === null ? null : issues.length;
 
   return (
-    <Collapsible
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next && !armed) setArmedHere(true);
-      }}
-    >
+    <Collapsible open={open} onOpenChange={(next) => setSectionOpen(environmentId, status, next)}>
       <div className="mb-2 mt-4 flex items-center gap-1 px-1 first:mt-1">
         <CollapsibleTrigger
           className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left"
@@ -95,7 +95,7 @@ export function LinearSection(props: {
                 disabled={query.isPending}
                 onClick={() => {
                   if (armed) refresh();
-                  else setArmedHere(true);
+                  else armSection(environmentId, status);
                 }}
               />
             }
