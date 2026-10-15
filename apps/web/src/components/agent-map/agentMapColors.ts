@@ -34,16 +34,19 @@ export type AgentMapCategory =
 export type AgentMapIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 /**
- * Vivid hues for agent bodies. Task cells own orange, gold, lime, cyan and blue, and a
- * failed body is red, so agents take the rest of the wheel: mint, violet, purple,
- * magenta and pink.
+ * Vivid colours for agent bodies, in a bright and a deep tier so more agents stay apart.
+ * Task cells own orange, gold, lime, pale cyan and blue, and a failed body is red, so
+ * agents take the rest of the wheel: mint and teal, petrol, violet through pink.
  */
 export const AGENT_BASE_PALETTE: ReadonlyArray<string> = [
-  "oklch(0.82 0.19 165)",
-  "oklch(0.68 0.22 280)",
-  "oklch(0.76 0.2 300)",
-  "oklch(0.7 0.25 325)",
-  "oklch(0.78 0.2 350)",
+  "oklch(0.84 0.19 162)",
+  "oklch(0.78 0.16 290)",
+  "oklch(0.68 0.27 325)",
+  "oklch(0.64 0.16 178)",
+  "oklch(0.8 0.2 345)",
+  "oklch(0.64 0.24 280)",
+  "oklch(0.64 0.14 215)",
+  "oklch(0.7 0.25 305)",
 ];
 
 /** The main agent's colour, hashed from its thread so it survives reloads. */
