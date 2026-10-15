@@ -102,9 +102,14 @@ export class ProviderRegistry extends Context.Service<
      * list. When the instance id is unknown the call resolves with the
      * currently cached list (no error) — matching the legacy `refresh` shim
      * behaviour so transport layers don't have to special-case unknowns.
+     *
+     * `fresh` drops the driver's probe caches first, so the read reflects
+     * the account right now rather than the last few minutes. Background
+     * refreshes leave it unset; it is for an explicit user request.
      */
     readonly refreshInstance: (
       instanceId: ProviderInstanceId,
+      options?: { readonly fresh?: boolean },
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
     /**
@@ -778,11 +783,16 @@ export const layer = Layer.effect(
 
     const refreshInstance = Effect.fn("refreshInstance")(function* (
       instanceId: ProviderInstanceId,
+      options?: { readonly fresh?: boolean },
     ) {
       const sources = yield* getLiveSources;
       const providerSource = sources.find((candidate) => candidate.instanceId === instanceId);
       if (!providerSource) {
         return yield* Ref.get(providersRef);
+      }
+      if (options?.fresh) {
+        const instance = yield* instanceRegistry.getInstance(instanceId);
+        yield* instance?.invalidateCaches ?? Effect.void;
       }
       return yield* refreshOneSource(providerSource);
     });
@@ -1086,9 +1096,7 @@ export const layer = Layer.effect(
       if (!claimed && !input.fresh) return yield* Ref.get(providersRef);
       // Fresh scans also re-read the machine snapshot after invalidating caches.
       const refreshMachineSnapshot = input.fresh
-        ? (instance.invalidateCaches ?? Effect.void).pipe(
-            Effect.andThen(refreshInstance(input.instanceId)),
-          )
+        ? refreshInstance(input.instanceId, { fresh: true })
         : Effect.void;
       return yield* refreshMachineSnapshot.pipe(
         Effect.andThen(instance.snapshotForCwd(input.cwd)),
@@ -1133,8 +1141,8 @@ export const layer = Layer.effect(
       getProviders: Ref.get(providersRef),
       refresh: (provider?: ProviderDriverKind) =>
         refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
-      refreshInstance: (instanceId: ProviderInstanceId) =>
-        refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+      refreshInstance: (instanceId, options) =>
+        refreshInstance(instanceId, options).pipe(Effect.catchCause(recoverRefreshFailure)),
       refreshWorkspaceSnapshot: (input) =>
         refreshWorkspaceSnapshot(input).pipe(Effect.catchCause(recoverRefreshFailure)),
       getProviderMaintenanceCapabilitiesForInstance,

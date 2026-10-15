@@ -62,9 +62,11 @@ export const SidebarClaudeUsage = memo(function SidebarClaudeUsage() {
     setRefreshing(true);
     // Shares the per-environment in-flight check with the Usage page, so a
     // click here while that page is already probing waits instead of
-    // spawning a second Claude process.
+    // spawning a second Claude process. `fresh` skips the driver's probe
+    // cache: without it a click inside the cache's lifetime re-publishes
+    // the previous read under a new timestamp.
     void refreshUsageLimits(environmentId, () =>
-      refreshProviders({ environmentId, input: { instanceId } }),
+      refreshProviders({ environmentId, input: { instanceId, fresh: true } }),
     ).finally(() => setRefreshing(false));
   };
 

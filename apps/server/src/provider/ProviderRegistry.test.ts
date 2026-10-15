@@ -1281,6 +1281,78 @@ it.layer(
           ),
         ),
       );
+
+      it.effect("a fresh instance refresh drops the driver's caches before probing", () =>
+        Effect.gen(function* () {
+          const cacheInvalidations = yield* Ref.make(0);
+          const probes = yield* Ref.make(0);
+          const instance = {
+            instanceId: cachedProvider.instanceId,
+            driverKind: cachedProvider.driver,
+            continuationIdentity: {
+              driverKind: cachedProvider.driver,
+              continuationKey: "codex:instance:codex-personal",
+            },
+            displayName: undefined,
+            enabled: true,
+            snapshot: {
+              resolveMaintenance: () =>
+                Effect.succeed(
+                  makeManualOnlyProviderMaintenanceCapabilities({
+                    provider: cachedProvider.driver,
+                    packageName: null,
+                  }),
+                ),
+              getSnapshot: Effect.succeed(pendingProvider),
+              // A real driver answers from its probe cache unless it was invalidated first.
+              refresh: Ref.update(probes, (count) => count + 1).pipe(Effect.as(refreshedProvider)),
+              streamChanges: Stream.empty,
+              applyUsageLimits: () => Effect.void,
+            },
+            invalidateCaches: Ref.update(cacheInvalidations, (count) => count + 1),
+            orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+            textGeneration: {} as ProviderInstance["textGeneration"],
+          } satisfies ProviderInstance;
+          const layerInstanceRegistry = Layer.succeed(
+            ProviderInstanceRegistry.ProviderInstanceRegistry,
+            {
+              getInstance: (id) =>
+                Effect.succeed(id === instance.instanceId ? instance : undefined),
+              listInstances: Effect.succeed([instance]),
+              listUnavailable: Effect.succeed([]),
+              streamChanges: Stream.empty,
+              subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), PubSub.subscribe),
+            },
+          );
+
+          yield* Effect.gen(function* () {
+            const registry = yield* ProviderRegistry.ProviderRegistry;
+            const probesBefore = yield* Ref.get(probes);
+
+            yield* registry.refreshInstance(instance.instanceId);
+            assert.strictEqual(yield* Ref.get(cacheInvalidations), 0);
+            assert.strictEqual(yield* Ref.get(probes), probesBefore + 1);
+
+            yield* registry.refreshInstance(instance.instanceId, { fresh: true });
+            assert.strictEqual(yield* Ref.get(cacheInvalidations), 1);
+            assert.strictEqual(yield* Ref.get(probes), probesBefore + 2);
+
+            // Unknown instances resolve with the cached list and touch nothing.
+            yield* registry.refreshInstance(ProviderInstanceId.make("missing"), { fresh: true });
+            assert.strictEqual(yield* Ref.get(cacheInvalidations), 1);
+            assert.strictEqual(yield* Ref.get(probes), probesBefore + 2);
+          }).pipe(
+            Effect.provide(ProviderRegistry.layer.pipe(Layer.provide(layerInstanceRegistry))),
+            Effect.scoped,
+          );
+        }).pipe(
+          Effect.provide(
+            ServerConfig.layerTest(process.cwd(), {
+              prefix: "t3-fresh-instance-refresh-",
+            }).pipe(Layer.provideMerge(NodeServices.layer)),
+          ),
+        ),
+      );
     });
 
     describe("Antigravity model inventories", () => {
