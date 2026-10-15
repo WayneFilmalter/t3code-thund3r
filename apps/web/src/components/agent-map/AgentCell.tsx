@@ -15,11 +15,18 @@ import { formatContextWindowTokens } from "~/lib/contextWindow";
 import { fnv1a32 } from "~/lib/hash";
 import { cn } from "~/lib/utils";
 
-import type { AgentBubble, AgentBubbleStatus, AgentMapTask } from "./agentMap.logic";
+import {
+  AGENT_STATUS_LABELS,
+  type AgentBubble,
+  type AgentBubbleStatus,
+  type AgentMapTask,
+} from "./agentMap.logic";
 import {
   AGENT_MAP_ACCENTS,
   AGENT_MAP_CATEGORY_ACCENTS,
   AGENT_MAP_CATEGORY_ICONS,
+  AGENT_STATUS_ACCENTS,
+  bubbleAccent,
 } from "./agentMapColors";
 import { hashedAngle, type PackedCell, type PackedTask } from "./agentMapLayout";
 
@@ -41,29 +48,50 @@ const ENERGY: Record<AgentBubbleStatus, number> = {
   stalled: 0.45,
 };
 
-function cellAccent(bubble: AgentBubble): string {
-  if (bubble.status === "failed") return AGENT_MAP_ACCENTS.failed;
-  if (bubble.status === "stalled") return AGENT_MAP_ACCENTS.stalled;
-  return bubble.kind === "main" ? AGENT_MAP_ACCENTS.main : AGENT_MAP_ACCENTS.subagent;
-}
-
 /** The accent with its lightness and chroma scaled, via CSS relative colour syntax. */
 function shade(accent: string, lightness: number, chroma: number): string {
   return `oklch(from ${accent} calc(l * ${lightness}) calc(c * ${chroma}) h)`;
 }
 
+function tint(accent: string, percent: number): string {
+  return `color-mix(in oklch, ${accent} ${percent}%, transparent)`;
+}
+
 /**
- * A saturated, opaque body lit from the top left with a soft glow, so cells read as
- * vivid and whatever sits behind one never shows through. `energy` runs 0 to 1.
+ * A saturated, opaque body lit from the top left inside a neon ring: a hot, near-white
+ * edge with a layered glow spilling out and in. Whatever sits behind a cell never shows
+ * through. `energy` runs 0 to 1. The outer glow stays small so a crowded map's raster
+ * layers do.
  */
 export function membraneStyle(accent: string, energy: number): CSSProperties {
   const midLightness = (0.6 + 0.24 * energy).toFixed(3);
-  const saturation = (0.75 + 0.55 * energy).toFixed(3);
+  const saturation = (0.85 + 0.55 * energy).toFixed(3);
   return {
     background: `radial-gradient(circle at 32% 26%, ${shade(accent, 1.12, Number(saturation))} 0%, ${shade(accent, Number(midLightness), Number(saturation))} 44%, ${shade(accent, 0.5, 1.05)} 100%)`,
-    borderColor: shade(accent, 1.1, 1.3),
-    borderWidth: 1.5,
-    boxShadow: `0 0 18px -5px ${accent}, inset 0 -10px 16px -10px ${shade(accent, 0.3, 1)}`,
+    borderColor: shade(accent, 1.25, 1.4),
+    borderWidth: 2,
+    boxShadow: [
+      `0 0 3px ${shade(accent, 1.3, 1.2)}`,
+      `0 0 10px ${accent}`,
+      `0 0 22px ${tint(accent, 55)}`,
+      `inset 0 0 8px ${tint(accent, 45)}`,
+      `inset 0 -10px 16px -10px ${shade(accent, 0.3, 1)}`,
+    ].join(", "),
+  };
+}
+
+/**
+ * The dot above a bubble's name: its colour is the agent's status, nothing else. A dark
+ * rim keeps it visible on a body of any hue, including one close to the dot's own.
+ */
+function statusDotStyle(status: AgentBubbleStatus, size: number): CSSProperties {
+  const accent = AGENT_STATUS_ACCENTS[status];
+  return {
+    width: size,
+    height: size,
+    background: accent,
+    border: `${Math.max(1, Math.round(size * 0.18))}px solid rgb(0 0 0 / 0.8)`,
+    boxShadow: `0 0 6px ${accent}, inset 0 0 2px rgb(255 255 255 / 0.4)`,
   };
 }
 
@@ -139,14 +167,17 @@ export function AgentCell(props: {
 }) {
   const { cell, bubble, attach, pulseKey, pulse, budDelayMs } = props;
   const r = cell.r;
-  const accent = cellAccent(bubble);
+  const accent = bubbleAccent(bubble);
   const float = floatStyle(cell.id);
   const isRoot = cell.kind === "root";
   const meta = metaLine(bubble);
   const live = !isRoot && !cell.docked;
   const nameSize = clamp(11, r * (isRoot ? 0.3 : 0.34), 20);
   const lineSize = clamp(9.5, r * 0.25, 13);
-  const tooltip = [bubble.name, bubble.subtitle, meta].filter(Boolean).join(" · ");
+  const dotSize = clamp(5, r * 0.14, 10);
+  const tooltip = [bubble.name, AGENT_STATUS_LABELS[bubble.status], bubble.subtitle, meta]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div
@@ -195,6 +226,11 @@ export function AgentCell(props: {
             {isRoot && bubble.contextFraction !== null ? (
               <ContextRing r={r} fraction={bubble.contextFraction} compacted={bubble.compacted} />
             ) : null}
+            <span
+              aria-hidden
+              className="mb-0.5 shrink-0 rounded-full"
+              style={statusDotStyle(bubble.status, dotSize)}
+            />
             <span
               className="truncate font-bold leading-tight"
               style={{ fontSize: nameSize, maxWidth: "85%" }}
@@ -249,27 +285,41 @@ function isFolded(task: AgentMapTask): boolean {
   return task.label.startsWith("+");
 }
 
-/** A small cell clinging to its owner, showing its category's icon; it buds in once when the work lands. */
+/**
+ * A small cell clinging to its owner, showing its category's icon; it buds in once when
+ * the work lands. A cell with somewhere to go (a pull request) is a link.
+ */
 function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) {
   const { task, r } = props.task;
   const accent = AGENT_MAP_CATEGORY_ACCENTS[task.category];
   const duration = task.durationMs > 0 ? ` · ${formatDuration(task.durationMs)}` : "";
   const Icon = AGENT_MAP_CATEGORY_ICONS[task.category];
+  const className =
+    "agent-cell-bud absolute flex items-center justify-center gap-px whitespace-nowrap rounded-full border text-center leading-none";
+  const style: CSSProperties = {
+    ...membraneStyle(accent, 0.9),
+    ...labelInk(accent),
+    left: props.owner + props.task.dx - r,
+    top: props.owner + props.task.dy - r,
+    width: r * 2,
+    height: r * 2,
+  };
   return (
     <CellTooltip
       label={`${task.label}${duration}`}
       trigger={
-        <div
-          className="agent-cell-bud absolute flex items-center justify-center gap-px whitespace-nowrap rounded-full border text-center leading-none"
-          style={{
-            ...membraneStyle(accent, 0.9),
-            ...labelInk(accent),
-            left: props.owner + props.task.dx - r,
-            top: props.owner + props.task.dy - r,
-            width: r * 2,
-            height: r * 2,
-          }}
-        />
+        task.href === undefined ? (
+          <div className={className} style={style} />
+        ) : (
+          <a
+            className={cn(className, "cursor-pointer")}
+            style={style}
+            href={task.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={task.label}
+          />
+        )
       }
     >
       {r < 12 ? null : isFolded(task) ? (
@@ -298,19 +348,24 @@ function TaskCell(props: { readonly owner: number; readonly task: PackedTask }) 
   );
 }
 
-/** The root's context window as a gold arc just outside its membrane. */
+/**
+ * The root's context window as a gold arc just inside its membrane, where docked
+ * children cannot cover it. A dark track and halo keep it legible on a body of any hue.
+ */
 function ContextRing(props: {
   readonly r: number;
   readonly fraction: number;
   readonly compacted: boolean;
 }) {
-  const size = props.r * 2 + 12;
-  const centre = size / 2;
-  const radius = props.r + 3;
+  const size = props.r * 2;
+  const centre = props.r;
+  const radius = props.r - 6;
   const length = 2 * Math.PI * radius;
+  const dash = `${length * props.fraction} ${length}`;
+  const rotate = `rotate(-90 ${centre} ${centre})`;
   return (
     <svg
-      className="pointer-events-none absolute -left-1.5 -top-1.5 overflow-visible"
+      className="pointer-events-none absolute left-0 top-0 overflow-visible"
       width={size}
       height={size}
       aria-hidden
@@ -320,9 +375,22 @@ function ContextRing(props: {
         cy={centre}
         r={radius}
         fill="none"
-        stroke="var(--foreground)"
-        strokeOpacity={0.12}
-        strokeWidth={3}
+        stroke="var(--color-black)"
+        strokeOpacity={0.35}
+        strokeWidth={5}
+      />
+      <circle
+        className="agent-map-ring"
+        cx={centre}
+        cy={centre}
+        r={radius}
+        fill="none"
+        stroke="var(--color-black)"
+        strokeOpacity={0.6}
+        strokeWidth={5}
+        strokeLinecap="round"
+        strokeDasharray={dash}
+        transform={rotate}
       />
       <circle
         className="agent-map-ring"
@@ -333,8 +401,8 @@ function ContextRing(props: {
         stroke={AGENT_MAP_ACCENTS.context}
         strokeWidth={3}
         strokeLinecap="round"
-        strokeDasharray={`${length * props.fraction} ${length}`}
-        transform={`rotate(-90 ${centre} ${centre})`}
+        strokeDasharray={dash}
+        transform={rotate}
       />
       {props.compacted ? (
         <text
@@ -342,6 +410,10 @@ function ContextRing(props: {
           y={centre - radius * 0.72}
           fontSize={12}
           fill={AGENT_MAP_ACCENTS.context}
+          stroke="var(--color-black)"
+          strokeOpacity={0.7}
+          strokeWidth={0.8}
+          paintOrder="stroke"
           textAnchor="middle"
           dominantBaseline="middle"
         >

@@ -4,6 +4,7 @@ import type {
   OrchestrationV2Subagent,
   OrchestrationV2ThreadProjection,
   OrchestrationV2TurnItem,
+  ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
@@ -108,12 +109,30 @@ function subagent(
   } as never;
 }
 
+function pullRequest(
+  number: number,
+  extra: Partial<ThreadPullRequestLink> = {},
+): ThreadPullRequestLink {
+  return {
+    host: "github.com",
+    repository: "t3/code",
+    number,
+    url: `https://github.com/t3/code/pull/${number}`,
+    source: "created",
+    linkedAt: new Date(T0).toISOString(),
+    snapshot: null,
+    stack: null,
+    ...extra,
+  } as never;
+}
+
 function projection(overrides: {
   runs?: ReadonlyArray<OrchestrationV2Run>;
   subagents?: ReadonlyArray<OrchestrationV2Subagent>;
   providerTurns?: ReadonlyArray<unknown>;
   providerThreads?: ReadonlyArray<unknown>;
   threadId?: string;
+  pullRequests?: ReadonlyArray<ThreadPullRequestLink>;
 }): OrchestrationV2ThreadProjection {
   return {
     thread: {
@@ -121,6 +140,7 @@ function projection(overrides: {
       title: "Thread",
       activeProviderThreadId: "pt-1",
       modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+      pullRequests: overrides.pullRequests,
     },
     runs: overrides.runs ?? [run("run-1", "running")],
     subagents: overrides.subagents ?? [],
@@ -391,6 +411,58 @@ describe("names, tokens and context", () => {
       run("run-2", "running", { ordinal: 2, startedAt: at(40_000), completedAt: null }),
     ];
     expect(derive({ projection: projection({ runs }) }, T0 + 50_000)?.root.elapsedMs).toBe(40_000);
+  });
+});
+
+describe("pull requests", () => {
+  it("adds one linked cell per visible pull request after the root's tool tasks", () => {
+    const model = derive({
+      projection: projection({
+        runs: [run("run-1", "completed")],
+        pullRequests: [
+          pullRequest(12, { snapshot: { title: "Neon rings" } as never }),
+          pullRequest(13, { source: "stack-dismissed" }),
+        ],
+      }),
+      items: [shell("a")],
+    });
+    expect(model?.root.tasks.map((task) => task.label)).toEqual(["Shell", "PR #12 · Neon rings"]);
+    const pr = model?.root.tasks[1];
+    expect(pr?.category).toBe("pr");
+    expect(pr?.href).toBe("https://github.com/t3/code/pull/12");
+    expect(pr?.id).toBe("thread-1:pr:github.com/t3/code#12");
+  });
+
+  it("shows a live child's pull request at once and keeps it with its tasks once settled", () => {
+    const live = subagent({ id: "sub-1" });
+    const liveFeed = {
+      projection: projection({ threadId: "child-sub-1", pullRequests: [pullRequest(7)] }),
+      items: [tool("a", "Read", { runId: "run-1", status: "running" })],
+    };
+    const liveBubble = derive({
+      projection: projection({ subagents: [live] }),
+      children: new Map([["child-sub-1", liveFeed]]),
+    })?.root.children[0];
+    expect(liveBubble?.tasks.map((task) => task.label)).toEqual(["PR #7"]);
+
+    const done = subagent({ id: "sub-1", status: "completed", completedAt: at(9_000) });
+    const doneFeed = {
+      projection: projection({
+        runs: [run("child-run", "completed")],
+        threadId: "child-sub-1",
+        pullRequests: [pullRequest(7)],
+      }),
+      items: [edit("b", { threadId: "child-sub-1", runId: "child-run" })],
+    };
+    const doneBubble = derive({
+      projection: projection({ subagents: [done] }),
+      children: new Map([["child-sub-1", doneFeed]]),
+    })?.root.children[0];
+    expect(doneBubble?.tasks.map((task) => task.label)).toEqual(["Edit", "PR #7"]);
+    expect(snapshotSettledChild(doneBubble!).tasks.map((task) => task.href)).toEqual([
+      undefined,
+      "https://github.com/t3/code/pull/7",
+    ]);
   });
 });
 

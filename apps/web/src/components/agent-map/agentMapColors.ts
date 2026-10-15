@@ -1,20 +1,24 @@
 /**
- * The map borrows the workflow builder's neon accents so both panels read as one family.
- * Keyed by what a bubble or satellite represents, not by node kind.
+ * Neon accents for the Agents map. Each agent bubble takes its own base colour from a
+ * hashed palette; status lives in a separate dot colour so a bubble stays recognisable
+ * while its state changes. Task cells are keyed by what they represent.
  */
 import {
   CircleHelpIcon,
   CogIcon,
   GlobeIcon,
-  type LucideIcon,
   PenLineIcon,
   SearchIcon,
   SquareTerminalIcon,
   WrenchIcon,
 } from "lucide-react";
+import type { ComponentType, SVGProps } from "react";
 
-import { FAILED_ACCENT } from "~/components/workflows/builder/NodeBubble";
+import { GitHubIcon } from "~/components/Icons";
+import { fnv1a32 } from "~/lib/hash";
 import { WORKFLOW_NODE_META } from "~/workflows/workflowNodeMeta";
+
+import type { AgentBubble, AgentBubbleStatus } from "./agentMap.logic";
 
 export type AgentMapCategory =
   | "read"
@@ -24,15 +28,53 @@ export type AgentMapCategory =
   | "web"
   | "plan"
   | "question"
+  | "pr"
   | "other";
 
+export type AgentMapIcon = ComponentType<SVGProps<SVGSVGElement>>;
+
+/** Vivid hues spread around the wheel; an agent keeps the one its id hashes to. */
+export const AGENT_BASE_PALETTE: ReadonlyArray<string> = [
+  "oklch(0.76 0.22 20)",
+  "oklch(0.8 0.2 50)",
+  "oklch(0.88 0.2 95)",
+  "oklch(0.85 0.24 130)",
+  "oklch(0.82 0.2 160)",
+  "oklch(0.84 0.16 200)",
+  "oklch(0.74 0.2 250)",
+  "oklch(0.72 0.22 285)",
+  "oklch(0.74 0.24 310)",
+  "oklch(0.76 0.22 340)",
+];
+
+export function agentBaseAccent(id: string): string {
+  return AGENT_BASE_PALETTE[fnv1a32(`${id}:hue`) % AGENT_BASE_PALETTE.length]!;
+}
+
 export const AGENT_MAP_ACCENTS = {
-  main: WORKFLOW_NODE_META["linear-agent"].accent,
-  subagent: WORKFLOW_NODE_META.review.accent,
-  failed: FAILED_ACCENT,
+  /** A failed body goes deep crimson; the status dot's red is brighter so both read apart. */
+  failed: "oklch(0.58 0.22 15)",
   stalled: "oklch(0.6 0.01 260)",
   context: WORKFLOW_NODE_META.gate.accent,
 } as const;
+
+/** The colour of the status dot inside a bubble and beside its feed row. */
+export const AGENT_STATUS_ACCENTS: Record<AgentBubbleStatus, string> = {
+  done: "oklch(0.85 0.23 145)",
+  tool: "oklch(0.75 0.19 250)",
+  thinking: "oklch(0.75 0.19 250)",
+  waiting: "oklch(0.9 0.19 95)",
+  failed: "oklch(0.72 0.26 25)",
+  idle: "oklch(0.7 0.02 260)",
+  stalled: "oklch(0.7 0.02 260)",
+};
+
+/** The body colour of an agent bubble: its own hue unless it has failed or stalled. */
+export function bubbleAccent(bubble: Pick<AgentBubble, "id" | "status">): string {
+  if (bubble.status === "failed") return AGENT_MAP_ACCENTS.failed;
+  if (bubble.status === "stalled") return AGENT_MAP_ACCENTS.stalled;
+  return agentBaseAccent(bubble.id);
+}
 
 export const AGENT_MAP_CATEGORY_ACCENTS: Record<AgentMapCategory, string> = {
   read: WORKFLOW_NODE_META.agent.accent,
@@ -43,11 +85,13 @@ export const AGENT_MAP_CATEGORY_ACCENTS: Record<AgentMapCategory, string> = {
   plan: WORKFLOW_NODE_META.gate.accent,
   // No workflow node is blue, and every other accent is already a cell or task colour.
   question: "oklch(0.74 0.17 255)",
+  // Near-white lilac: nothing else on the map is pale, so a pull request stands out.
+  pr: "oklch(0.9 0.04 300)",
   other: WORKFLOW_NODE_META["prompt-block"].accent,
 };
 
 /** What a task bubble or chip shows instead of a word. */
-export const AGENT_MAP_CATEGORY_ICONS: Record<AgentMapCategory, LucideIcon> = {
+export const AGENT_MAP_CATEGORY_ICONS: Record<AgentMapCategory, AgentMapIcon> = {
   read: SearchIcon,
   search: SearchIcon,
   edit: CogIcon,
@@ -55,6 +99,7 @@ export const AGENT_MAP_CATEGORY_ICONS: Record<AgentMapCategory, LucideIcon> = {
   web: GlobeIcon,
   plan: PenLineIcon,
   question: CircleHelpIcon,
+  pr: GitHubIcon,
   other: WrenchIcon,
 };
 
@@ -67,21 +112,27 @@ export const AGENT_MAP_CATEGORY_LABELS: Record<AgentMapCategory, string> = {
   web: "Web",
   plan: "Plan",
   question: "Question",
+  pr: "Pull request",
   other: "Tool",
 };
 
 export const AGENT_MAP_LEGEND: ReadonlyArray<{
   label: string;
   accent: string;
-  icon?: LucideIcon;
+  icon?: AgentMapIcon;
   line?: boolean;
 }> = [
-  { label: "Agent", accent: AGENT_MAP_ACCENTS.main },
-  { label: "Subagent", accent: AGENT_MAP_ACCENTS.subagent },
-  ...(["read", "edit", "shell", "web", "plan", "question", "other"] as const).map((category) => ({
-    label: AGENT_MAP_CATEGORY_LABELS[category],
-    accent: AGENT_MAP_CATEGORY_ACCENTS[category],
-    icon: AGENT_MAP_CATEGORY_ICONS[category],
-  })),
+  { label: "Done", accent: AGENT_STATUS_ACCENTS.done },
+  { label: "Busy", accent: AGENT_STATUS_ACCENTS.tool },
+  { label: "Needs you", accent: AGENT_STATUS_ACCENTS.waiting },
+  { label: "Failed", accent: AGENT_STATUS_ACCENTS.failed },
+  { label: "Idle", accent: AGENT_STATUS_ACCENTS.idle },
+  ...(["read", "edit", "shell", "web", "plan", "question", "pr", "other"] as const).map(
+    (category) => ({
+      label: AGENT_MAP_CATEGORY_LABELS[category],
+      accent: AGENT_MAP_CATEGORY_ACCENTS[category],
+      icon: AGENT_MAP_CATEGORY_ICONS[category],
+    }),
+  ),
   { label: "Context used", accent: AGENT_MAP_ACCENTS.context, line: true },
 ];

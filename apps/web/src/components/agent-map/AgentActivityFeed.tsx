@@ -20,18 +20,13 @@ import {
   type AgentMapModel,
 } from "./agentMap.logic";
 import {
-  AGENT_MAP_ACCENTS,
   AGENT_MAP_CATEGORY_ACCENTS,
   AGENT_MAP_CATEGORY_ICONS,
+  AGENT_STATUS_ACCENTS,
+  bubbleAccent,
 } from "./agentMapColors";
 
 const WORKING = new Set<AgentBubbleStatus>(["tool", "thinking", "waiting", "stalled"]);
-
-function rowAccent(bubble: AgentBubble): string {
-  if (bubble.status === "failed") return AGENT_MAP_ACCENTS.failed;
-  if (bubble.status === "stalled") return AGENT_MAP_ACCENTS.stalled;
-  return bubble.kind === "main" ? AGENT_MAP_ACCENTS.main : AGENT_MAP_ACCENTS.subagent;
-}
 
 function metadataLine(bubble: AgentBubble): string {
   return [
@@ -84,7 +79,7 @@ export function AgentActivityFeed(props: { readonly model: AgentMapModel }) {
         <span className="flex items-center gap-2">
           {working > 0 ? (
             <span className="text-foreground">
-              <span style={{ color: AGENT_MAP_ACCENTS.subagent }}>●</span> {working} working
+              <span style={{ color: AGENT_STATUS_ACCENTS.tool }}>●</span> {working} working
             </span>
           ) : null}
           {settled > 0 ? <span>{settled} settled</span> : null}
@@ -105,7 +100,8 @@ function SectionHeading(props: { readonly children: string }) {
 
 function FeedRow(props: { readonly bubble: AgentBubble }) {
   const { bubble } = props;
-  const accent = rowAccent(bubble);
+  const accent = bubbleAccent(bubble);
+  const statusAccent = AGENT_STATUS_ACCENTS[bubble.status];
   const working = WORKING.has(bubble.status);
   const title = bubble.detail ?? bubble.name;
   const metadata = metadataLine(bubble);
@@ -114,7 +110,10 @@ function FeedRow(props: { readonly bubble: AgentBubble }) {
       <span
         aria-hidden
         className="size-2 rounded-full"
-        style={{ background: accent, boxShadow: working ? `0 0 6px ${accent}` : undefined }}
+        style={{
+          background: statusAccent,
+          boxShadow: working ? `0 0 6px ${statusAccent}` : undefined,
+        }}
       />
       <span className="flex min-w-0 items-baseline gap-2">
         <span className="min-w-0 truncate text-sm font-medium text-foreground">{title}</span>
@@ -155,17 +154,27 @@ function FeedRow(props: { readonly bubble: AgentBubble }) {
           {bubble.tasks.map((task) => {
             const accent = AGENT_MAP_CATEGORY_ACCENTS[task.category];
             const Icon = AGENT_MAP_CATEGORY_ICONS[task.category];
+            const chipClassName =
+              "inline-flex items-center gap-0.5 rounded-full border px-1.5 text-3xs leading-4 tabular-nums text-foreground";
+            const chipStyle = {
+              borderColor: `color-mix(in oklch, ${accent} 60%, transparent)`,
+              background: `color-mix(in oklch, ${accent} 16%, transparent)`,
+            };
             return (
               <Tooltip key={task.id}>
                 <TooltipTrigger
                   render={
-                    <span
-                      className="inline-flex items-center gap-0.5 rounded-full border px-1.5 text-3xs leading-4 tabular-nums text-foreground"
-                      style={{
-                        borderColor: `color-mix(in oklch, ${accent} 60%, transparent)`,
-                        background: `color-mix(in oklch, ${accent} 16%, transparent)`,
-                      }}
-                    />
+                    task.href === undefined ? (
+                      <span className={chipClassName} style={chipStyle} />
+                    ) : (
+                      <a
+                        className={chipClassName}
+                        style={chipStyle}
+                        href={task.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      />
+                    )
                   }
                 >
                   <Icon aria-hidden className="size-2.5" style={{ color: accent }} />

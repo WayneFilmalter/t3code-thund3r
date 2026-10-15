@@ -13,6 +13,7 @@ import type {
   OrchestrationV2ThreadProjection,
   OrchestrationV2TurnItem,
   ThreadId,
+  ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { isOrchestrationV2WorkActive, orchestrationV2RunWorkStartedAt } from "@t3tools/contracts";
 import {
@@ -20,6 +21,7 @@ import {
   subagentDetailPreview,
 } from "@t3tools/client-runtime/state/subagent-display";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import { classifyToolActivity } from "@t3tools/shared/toolActivity";
 import * as DateTime from "effect/DateTime";
 
@@ -54,6 +56,8 @@ export interface AgentMapTask {
   /** How many tool calls the bubble stands for; drives its size. */
   readonly count: number;
   readonly durationMs: number;
+  /** Where the cell opens when clicked; only pull request cells have one. */
+  readonly href?: string;
 }
 
 export interface AgentBubble {
@@ -271,6 +275,21 @@ export function groupTasks(items: ReadonlyArray<Item>, ownerId: string): AgentMa
   }));
 }
 
+/** One cell per pull request the thread has linked, each opening the PR when clicked. */
+export function pullRequestTasks(
+  links: ReadonlyArray<ThreadPullRequestLink> | undefined,
+  ownerId: string,
+): AgentMapTask[] {
+  return visibleThreadPullRequests(links ?? []).map((link) => ({
+    id: `${ownerId}:pr:${link.host}/${link.repository}#${link.number}`,
+    category: "pr",
+    count: 1,
+    label: link.snapshot ? `PR #${link.number} · ${link.snapshot.title}` : `PR #${link.number}`,
+    durationMs: 0,
+    href: link.url,
+  }));
+}
+
 function isWaitingItem(item: Item): boolean {
   return (
     (item.type === "user_input_request" || item.type === "approval_request") &&
@@ -469,6 +488,7 @@ function deriveChildFromFeed(
   const live = isOrchestrationV2WorkActive(subagent.status);
   const items = feed.items.map((row) => row.item);
   const status = deriveStatus(items, live, subagent.status === "failed");
+  const pullRequests = pullRequestTasks(feed.projection?.thread.pullRequests, subagent.id);
   return {
     id: subagent.id,
     name: agentName(subagent.id),
@@ -486,7 +506,8 @@ function deriveChildFromFeed(
     liveSinceMs: live ? ms(subagent.startedAt) : null,
     lastActivityAtMs: lastActivityAt(items, ms(subagent.updatedAt)),
     satellites: live ? deriveSatellites(items) : [],
-    tasks: live ? [] : groupTasks(items, subagent.id),
+    // A pull request is a milestone, so it shows even while the child is still out working.
+    tasks: live ? pullRequests : [...groupTasks(items, subagent.id), ...pullRequests],
     children: [],
   };
 }
@@ -561,10 +582,13 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
 
   const settledRuns = projection.runs.filter(isRunSettled);
   const settledRunIds = new Set(settledRuns.map((run) => run.id));
-  const tasks = groupTasks(
-    allItems.filter((item) => item.runId !== null && settledRunIds.has(item.runId)),
-    projection.thread.id,
-  );
+  const tasks = [
+    ...groupTasks(
+      allItems.filter((item) => item.runId !== null && settledRunIds.has(item.runId)),
+      projection.thread.id,
+    ),
+    ...pullRequestTasks(projection.thread.pullRequests, projection.thread.id),
+  ];
 
   let settledElapsedMs = 0;
   let sawSettled = false;

@@ -127,7 +127,8 @@ export function AgentMapCanvas(props: {
     null,
   );
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || (event.target as Element).closest("button")) return;
+    // Buttons and links (the zoom controls, a pull request cell) are clicked, not dragged.
+    if (event.button !== 0 || (event.target as Element).closest("button, a")) return;
     drag.current = {
       id: event.pointerId,
       x: event.clientX,
