@@ -1,12 +1,5 @@
 import { formatProviderSkillDisplayName } from "@t3tools/shared/inlineSkills";
-import {
-  Extension,
-  findChildren,
-  InputRule,
-  Node,
-  wrappingInputRule,
-  type JSONContent,
-} from "@tiptap/core";
+import { Extension, findChildren, InputRule, Node, type JSONContent } from "@tiptap/core";
 import { ReactNodeViewRenderer, NodeViewWrapper, type NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { type Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -19,7 +12,7 @@ import {
   TextSelection,
 } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import type { NodeType, ResolvedPos } from "@tiptap/pm/model";
+import type { ResolvedPos } from "@tiptap/pm/model";
 import type {
   AssistantCitation,
   ComposerContextClipboardFragment,
@@ -67,7 +60,6 @@ import {
   buildTiptapContent,
   collapsedToFlat,
   caretTakesMarksBefore,
-  convertBulletItemToTask,
   ComposerCodeExtension,
   ComposerTaskItemExtension,
   ComposerTaskListExtension,
@@ -117,6 +109,12 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerCodeBlockNodeView } from "./chat/ComposerCodeBlockNodeView";
 import { resolveAssistantCitationCommentDismissal } from "./chat/assistantCitationCommentDismissal";
 import { composerCodeBlockHighlight } from "./composerCodeBlockHighlight";
+import {
+  bulletListInputRules,
+  bulletToTaskInputRule,
+  orderedListInputRules,
+  taskInputRule,
+} from "~/composer-list-input-rules";
 import { importPastedComposerText } from "./composerInlineTokenPaste";
 import { didComposerSelectionChangeVisibly } from "./composerSelection";
 import type { ComposerDraftContextRecords } from "./composerContextPresentation";
@@ -585,79 +583,6 @@ function collectStyledRanges(doc: ProseMirrorNode): StyledRange[] {
     }
   }
   return ranges;
-}
-
-/**
- * A typed marker becomes a list item that remembers the marker it was typed
- * with, so the stored Markdown keeps `*` or `3)` rather than a canonical `-`.
- *
- * `- ` alone is not enough for a dash: it waits for the first character after
- * the space, which it carries into the new item. That is what lets the GFM
- * task gesture `- [ ] ` or `- [x] ` be typed whole and reach the task rule,
- * instead of being cut off by an instant bullet. A `- ` left on its own is
- * still a bullet the next time the draft is rebuilt.
- */
-function listMarkerInputRule(find: RegExp, listType: "bulletList" | "orderedList"): InputRule {
-  return new InputRule({
-    find,
-    handler: ({ state, range, match, chain }) => {
-      const marker = match.groups?.marker ?? "-";
-      const space = match.groups?.space ?? " ";
-      const carried = match.groups?.carried ?? "";
-      // Top-level paragraphs only: inside an item or a quote the new list
-      // would nest under a line the stored draft writes flat.
-      const $from = state.doc.resolve(range.from);
-      if ($from.parent.type.name !== "paragraph" || $from.depth !== 1) return null;
-      const command = chain()
-        .deleteRange(range)
-        .wrapInList(
-          listType,
-          listType === "orderedList" ? { start: Number.parseInt(marker, 10) || 1 } : {},
-        )
-        .updateAttributes("listItem", { marker, space });
-      (carried ? command.insertContent(carried) : command).run();
-      return undefined;
-    },
-  });
-}
-
-/**
- * `[ ] ` at the start of an existing bullet item turns it into a task, for
- * items that were already a list when the checkbox was wanted. New tasks are
- * typed whole, `- [ ] `, and reach the task rule directly.
- */
-const bulletToTaskInputRule = new InputRule({
-  find: /^\[([ xX])\] $/,
-  handler: ({ state, range, match, chain }) => {
-    const $from = state.doc.resolve(range.from);
-    const item = $from.node(-1);
-    if ($from.parent.type.name !== "paragraph" || item?.type.name !== "listItem") return null;
-    // Any bullet converts; the task grammar only knows `-`, so a `*` or `+`
-    // item comes back out as `- [ ]`.
-    if (!["-", "*", "+"].includes((item.attrs as { marker?: string }).marker ?? "")) return null;
-    const checked = (match[1] ?? " ").toLowerCase() === "x";
-    chain()
-      .command(({ tr }) => {
-        convertBulletItemToTask(tr, range.from, range.to, checked);
-        return true;
-      })
-      .run();
-    return undefined;
-  },
-});
-
-/** `- [ ] ` or `- [x] ` at a top-level paragraph, for the same reason as the list markers. */
-function taskInputRule(type: NodeType): InputRule {
-  const rule = wrappingInputRule({
-    find: /^- \[([ xX])\] $/,
-    type,
-    getAttributes: (match) => ({ checked: match[1]?.toLowerCase() === "x" }),
-  });
-  return new InputRule({
-    find: rule.find,
-    handler: (props) =>
-      props.state.doc.resolve(props.range.from).depth === 1 ? rule.handler(props) : null,
-  });
 }
 
 function hasAncestor($pos: ResolvedPos, name: string): boolean {
@@ -1152,19 +1077,8 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
                   : extension.extend({
                       addInputRules() {
                         return this.name === "bulletList"
-                          ? [
-                              listMarkerInputRule(/^(?<marker>[*+])(?<space>\s)$/, "bulletList"),
-                              listMarkerInputRule(
-                                /^(?<marker>-)(?<space>[ \t]+)(?<carried>[^\s[])$/,
-                                "bulletList",
-                              ),
-                            ]
-                          : [
-                              listMarkerInputRule(
-                                /^(?<marker>\d+[.)])(?<space>\s)$/,
-                                "orderedList",
-                              ),
-                            ];
+                          ? bulletListInputRules()
+                          : orderedListInputRules();
                       },
                     }),
               ),

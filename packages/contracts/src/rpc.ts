@@ -6,6 +6,16 @@ import {
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import { LinearError, LinearIssuesListInput, LinearIssuesListResult } from "./linear.ts";
 import {
+  NoteCreateInput,
+  NoteDeleteInput,
+  NoteDeleteResult,
+  Note,
+  NotesError,
+  NotesListInput,
+  NotesListResult,
+  NoteUpdateInput,
+} from "./notes.ts";
+import {
   McpAppCallToolInput,
   McpAppCallToolResult,
   McpAppReadResourceInput,
@@ -506,6 +516,11 @@ export const WS_METHODS = {
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverCheckOtlpEndpoint: "server.checkOtlpEndpoint",
   linearIssuesList: "linear.issues.list",
+  notesList: "notes.list",
+  notesSubscribe: "notes.subscribe",
+  notesCreate: "notes.create",
+  notesUpdate: "notes.update",
+  notesDelete: "notes.delete",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
@@ -905,6 +920,38 @@ const WsLinearIssuesListRpc = Rpc.make(WS_METHODS.linearIssuesList, {
   payload: LinearIssuesListInput,
   success: LinearIssuesListResult,
   error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesListRpc = Rpc.make(WS_METHODS.notesList, {
+  payload: NotesListInput,
+  success: NotesListResult,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+/** Streams the full note list: one snapshot on subscribe, then a fresh list after every change. */
+const WsNotesSubscribeRpc = Rpc.make(WS_METHODS.notesSubscribe, {
+  payload: NotesListInput,
+  success: NotesListResult,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+const WsNotesCreateRpc = Rpc.make(WS_METHODS.notesCreate, {
+  payload: NoteCreateInput,
+  success: Note,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesUpdateRpc = Rpc.make(WS_METHODS.notesUpdate, {
+  payload: NoteUpdateInput,
+  success: Note,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesDeleteRpc = Rpc.make(WS_METHODS.notesDelete, {
+  payload: NoteDeleteInput,
+  success: NoteDeleteResult,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
 });
 
 const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
@@ -1932,6 +1979,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
   WsLinearIssuesListRpc,
+  WsNotesListRpc,
+  WsNotesSubscribeRpc,
+  WsNotesCreateRpc,
+  WsNotesUpdateRpc,
+  WsNotesDeleteRpc,
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,

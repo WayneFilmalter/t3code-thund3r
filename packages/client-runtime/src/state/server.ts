@@ -1099,6 +1099,11 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-tasks:live",
       tag: WS_METHODS.scheduledTasksSubscribe,
     }),
+    /** Live note list: snapshot on subscribe, fresh list after every change, including an agent's. */
+    notesLive: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:notes:live",
+      tag: WS_METHODS.notesSubscribe,
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
     // Slow sources answer from cache first: that summary stays on screen, with
@@ -1299,6 +1304,24 @@ export function createServerEnvironmentAtoms<R, E>(
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
+    }),
+    createNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:create",
+      tag: WS_METHODS.notesCreate,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    updateNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:update",
+      tag: WS_METHODS.notesUpdate,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    deleteNote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:delete",
+      tag: WS_METHODS.notesDelete,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
     }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",

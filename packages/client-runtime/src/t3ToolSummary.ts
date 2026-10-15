@@ -323,6 +323,18 @@ export function summarizeT3ToolCalls(
     case "project-delete":
       label = phrase("Deleted", "delete", quantity(countEntities(projectIds), "project"));
       break;
+    case "note-list":
+      label = phrase("Listed", "list", `notes ${times}`);
+      break;
+    case "note-read":
+      label = phrase("Read", "read", quantity(countEntities(entityIds("noteId")), "note"));
+      break;
+    case "note-create":
+      label = phrase("Created", "create", quantity(selected.length, "note"));
+      break;
+    case "note-update":
+      label = phrase("Updated", "update", quantity(countEntities(entityIds("noteId")), "note"));
+      break;
     case "project-clone":
       label = phrase(
         "Cloned",

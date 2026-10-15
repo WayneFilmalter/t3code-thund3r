@@ -72,6 +72,7 @@ import {
   MessageSquareIcon,
   MonitorIcon,
   MoonIcon,
+  NotebookPenIcon,
   PaletteIcon,
   RotateCcwIcon,
   Rows2Icon,
@@ -2026,6 +2027,18 @@ function OpenCommandPaletteDialog(props: {
 
   if (activeThread !== null) {
     const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:open-notes",
+      searchTerms: ["notes", "note", "meeting", "todo", "checklist"],
+      title: "Show notes",
+      icon: <NotebookPenIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore
+          .getState()
+          .open(scopeThreadRef(thread.environmentId, thread.id), "notes");
+      },
+    });
     actionItems.push({
       kind: "action",
       value: "action:restart-agent-session",

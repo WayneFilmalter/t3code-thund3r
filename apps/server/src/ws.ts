@@ -235,6 +235,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as LinearIssues from "./linear/LinearIssues.ts";
+import * as NotesService from "./notes/NotesService.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
@@ -1325,6 +1326,7 @@ const layerWsRpc = (
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const otlpEndpointCheck = yield* OtlpEndpointCheck.OtlpEndpointCheck;
       const linearIssues = yield* LinearIssues.LinearIssues;
+      const notes = yield* NotesService.NotesService;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
         Effect.map(
           (settings) => resolveServerBackgroundActivitySettings(settings).automaticGitFetchInterval,
@@ -2448,6 +2450,11 @@ const layerWsRpc = (
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),
         [WS_METHODS.linearIssuesList]: (input) => linearIssues.listIssues(input),
+        [WS_METHODS.notesList]: (_input) => notes.list(),
+        [WS_METHODS.notesSubscribe]: (_input) => notes.subscribeList(),
+        [WS_METHODS.notesCreate]: (input) => notes.create(input),
+        [WS_METHODS.notesUpdate]: (input) => notes.update(input),
+        [WS_METHODS.notesDelete]: (input) => notes.delete(input),
         [WS_METHODS.serverSignalProcess]: (input) => processDiagnostics.signal(input),
         [WS_METHODS.serverReportClientActivity]: (input, metadata) =>
           Ref.update(rpcClientIds, (clientIds) => {
@@ -3171,6 +3178,7 @@ export const layer = Layer.unwrap(
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
+    const notesService = yield* NotesService.NotesService;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3239,6 +3247,8 @@ export const layer = Layer.unwrap(
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(OtlpEndpointCheck.layer),
               Layer.provide(LinearIssues.layer),
+              // One instance per server: its change signal feeds every client and the MCP tools.
+              Layer.provide(Layer.succeed(NotesService.NotesService, notesService)),
               // Shared like the pull request service, so concurrent generations single-flight.
               Layer.provide(
                 Layer.succeed(

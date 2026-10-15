@@ -2297,6 +2297,7 @@ function PullRequestsRouteView() {
             onAddWorkflows={() => undefined}
             onAddAgentMap={() => undefined}
             onAddLinear={() => undefined}
+            onAddNotes={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
             diffAvailable={false}
@@ -2307,6 +2308,7 @@ function PullRequestsRouteView() {
             workflowsAvailable={false}
             agentMapAvailable={false}
             linearAvailable={false}
+            notesAvailable={false}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel

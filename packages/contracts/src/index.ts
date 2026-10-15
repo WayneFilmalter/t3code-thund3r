@@ -20,6 +20,7 @@ export * from "./providerSetup.ts";
 export * from "./providerRuntime.ts";
 export * from "./providerUsageLimits.ts";
 export * from "./linear.ts";
+export * from "./notes.ts";
 export * from "./usageLimitSourceId.ts";
 export * from "./providerPolicy.ts";
 export * from "./modelSelection.ts";

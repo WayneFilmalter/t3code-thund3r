@@ -33,6 +33,7 @@ const RIGHT_PANEL_KINDS = [
   "workflows",
   "agent-map",
   "linear",
+  "notes",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -92,6 +93,8 @@ export type RightPanelSurface =
   | { id: "workflows"; kind: "workflows" }
   /** A Linear team's issues by status, read through the server's Linear MCP client. */
   | { id: "linear"; kind: "linear" }
+  /** The server's notes: markdown documents outside any project or thread. */
+  | { id: "notes"; kind: "notes" }
   /** The thread drawn as a bubble map of its agent and subagents. */
   | { id: "agent-map"; kind: "agent-map" };
 
@@ -247,6 +250,8 @@ const singletonSurface = (
       return { id: "workflows", kind };
     case "linear":
       return { id: "linear", kind };
+    case "notes":
+      return { id: "notes", kind };
     case "agent-map":
       return { id: "agent-map", kind };
   }

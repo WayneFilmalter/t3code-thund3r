@@ -1120,3 +1120,16 @@ describe("caret stops at styled edges", () => {
     expect(caretTakesMarksBefore(stateAt("plain text", 1))).toBe(false);
   });
 });
+
+describe("text that is not a prompt", () => {
+  it("keeps @paths and $skills as plain text when atoms are off", () => {
+    const value = "ping @src/app.ts about $deploy-skill";
+    const json = buildDocJson(value, (name) => ({ label: name, description: null }), {
+      atoms: false,
+    });
+    const paragraph = (json.content as Array<{ content?: Array<{ type: string }> }>)[0]!;
+    expect(paragraph.content?.map((node) => node.type)).toEqual(["text"]);
+    const doc = ProseMirrorNode.fromJSON(schema, json);
+    expect(serializeEditorDoc(doc).value).toBe(value);
+  });
+});
