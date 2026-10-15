@@ -33,22 +33,32 @@ export type AgentMapCategory =
 
 export type AgentMapIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
-/** Vivid hues spread around the wheel; an agent keeps the one its id hashes to. */
+/**
+ * Vivid hues for agent bodies. Task cells own orange, gold, lime, cyan and blue, and a
+ * failed body is red, so agents take the rest of the wheel: mint, violet, purple,
+ * magenta and pink.
+ */
 export const AGENT_BASE_PALETTE: ReadonlyArray<string> = [
-  "oklch(0.76 0.22 20)",
-  "oklch(0.8 0.2 50)",
-  "oklch(0.88 0.2 95)",
-  "oklch(0.85 0.24 130)",
-  "oklch(0.82 0.2 160)",
-  "oklch(0.84 0.16 200)",
-  "oklch(0.74 0.2 250)",
-  "oklch(0.72 0.22 285)",
-  "oklch(0.74 0.24 310)",
-  "oklch(0.76 0.22 340)",
+  "oklch(0.82 0.19 165)",
+  "oklch(0.68 0.22 280)",
+  "oklch(0.76 0.2 300)",
+  "oklch(0.7 0.25 325)",
+  "oklch(0.78 0.2 350)",
 ];
 
-export function agentBaseAccent(id: string): string {
-  return AGENT_BASE_PALETTE[fnv1a32(`${id}:hue`) % AGENT_BASE_PALETTE.length]!;
+/** The main agent's colour, hashed from its thread so it survives reloads. */
+export function rootAccent(threadId: string): string {
+  return AGENT_BASE_PALETTE[fnv1a32(`${threadId}:hue`) % AGENT_BASE_PALETTE.length]!;
+}
+
+/**
+ * A subagent's colour by its place in spawn order: never the root's, and siblings differ
+ * until the palette wraps. The start point is hashed so threads do not all open alike.
+ */
+export function childAccent(threadId: string, index: number): string {
+  const root = rootAccent(threadId);
+  const others = AGENT_BASE_PALETTE.filter((accent) => accent !== root);
+  return others[(fnv1a32(`${threadId}:children`) + index) % others.length]!;
 }
 
 export const AGENT_MAP_ACCENTS = {
@@ -70,10 +80,10 @@ export const AGENT_STATUS_ACCENTS: Record<AgentBubbleStatus, string> = {
 };
 
 /** The body colour of an agent bubble: its own hue unless it has failed or stalled. */
-export function bubbleAccent(bubble: Pick<AgentBubble, "id" | "status">): string {
+export function bubbleAccent(bubble: Pick<AgentBubble, "accent" | "status">): string {
   if (bubble.status === "failed") return AGENT_MAP_ACCENTS.failed;
   if (bubble.status === "stalled") return AGENT_MAP_ACCENTS.stalled;
-  return agentBaseAccent(bubble.id);
+  return bubble.accent;
 }
 
 export const AGENT_MAP_CATEGORY_ACCENTS: Record<AgentMapCategory, string> = {

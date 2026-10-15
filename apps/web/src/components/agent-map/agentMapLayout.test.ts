@@ -17,6 +17,7 @@ function bubble(overrides: Partial<AgentBubble> & { id: string }): AgentBubble {
   return {
     name: "Pip",
     kind: "subagent",
+    accent: "oklch(0.5 0 0)",
     status: "done",
     subtitle: "",
     tokens: null,

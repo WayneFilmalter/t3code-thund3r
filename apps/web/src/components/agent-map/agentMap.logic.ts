@@ -30,7 +30,13 @@ import {
   latestProviderTurnTokenUsage,
 } from "~/lib/contextWindow";
 
-import { AGENT_MAP_CATEGORY_LABELS, type AgentMapCategory } from "./agentMapColors";
+import {
+  AGENT_MAP_ACCENTS,
+  AGENT_MAP_CATEGORY_LABELS,
+  childAccent,
+  rootAccent,
+  type AgentMapCategory,
+} from "./agentMapColors";
 import { agentName } from "./agentMapNames";
 
 export type AgentBubbleStatus =
@@ -64,6 +70,8 @@ export interface AgentBubble {
   readonly id: string;
   readonly name: string;
   readonly kind: "main" | "subagent";
+  /** The bubble's own body colour; status may override it, see `bubbleAccent`. */
+  readonly accent: string;
   readonly status: AgentBubbleStatus;
   readonly subtitle: string;
   readonly tokens: number | null;
@@ -144,6 +152,7 @@ interface BubbleSkeleton {
   readonly id: string;
   readonly name: string;
   readonly kind: AgentBubble["kind"];
+  readonly accent: string;
   readonly status: Status;
   readonly subtitle: string;
   readonly tokens: number | null;
@@ -167,6 +176,9 @@ interface BubbleSkeleton {
   readonly tasks: ReadonlyArray<AgentMapTask>;
   readonly children: ReadonlyArray<BubbleSkeleton>;
 }
+
+/** A child before its colour is assigned from its place in spawn order. */
+type ChildSkeleton = Omit<BubbleSkeleton, "accent">;
 
 export interface AgentMapSkeleton {
   readonly root: BubbleSkeleton | null;
@@ -481,10 +493,7 @@ function settledChildSubtitle(subagent: OrchestrationV2Subagent, failed: boolean
   return truncate(subagent.title ?? subagent.progress ?? "Done", SUBTITLE_MAX_LENGTH);
 }
 
-function deriveChildFromFeed(
-  subagent: OrchestrationV2Subagent,
-  feed: AgentMapFeed,
-): BubbleSkeleton {
+function deriveChildFromFeed(subagent: OrchestrationV2Subagent, feed: AgentMapFeed): ChildSkeleton {
   const live = isOrchestrationV2WorkActive(subagent.status);
   const items = feed.items.map((row) => row.item);
   const status = deriveStatus(items, live, subagent.status === "failed");
@@ -521,7 +530,7 @@ function childElapsed(subagent: OrchestrationV2Subagent): number | null {
 function deriveChildFromSnapshot(
   subagent: OrchestrationV2Subagent,
   snapshot: SettledChildSnapshot,
-): BubbleSkeleton {
+): ChildSkeleton {
   return {
     id: subagent.id,
     name: agentName(subagent.id),
@@ -542,7 +551,7 @@ function deriveChildFromSnapshot(
   };
 }
 
-function deriveChildFromRecord(subagent: OrchestrationV2Subagent): BubbleSkeleton {
+function deriveChildFromRecord(subagent: OrchestrationV2Subagent): ChildSkeleton {
   const live = isOrchestrationV2WorkActive(subagent.status);
   const status: Status = subagent.status === "failed" ? "failed" : live ? "idle" : "done";
   return {
@@ -607,13 +616,16 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
       (ms(left.startedAt) ?? ms(left.updatedAt) ?? 0) -
         (ms(right.startedAt) ?? ms(right.updatedAt) ?? 0) || left.id.localeCompare(right.id),
   );
-  const children = spawnOrder.map((subagent) => {
+  const children = spawnOrder.map((subagent, index): BubbleSkeleton => {
     const feed =
       subagent.childThreadId === null ? undefined : input.children.get(subagent.childThreadId);
-    if (feed) return deriveChildFromFeed(subagent, feed);
     const snapshot = input.settled.get(subagent.id);
-    if (snapshot) return deriveChildFromSnapshot(subagent, snapshot);
-    return deriveChildFromRecord(subagent);
+    const child = feed
+      ? deriveChildFromFeed(subagent, feed)
+      : snapshot
+        ? deriveChildFromSnapshot(subagent, snapshot)
+        : deriveChildFromRecord(subagent);
+    return { ...child, accent: childAccent(projection.thread.id, index) };
   });
 
   const { contextFraction, compacted } = deriveContext(projection, input.items);
@@ -623,6 +635,7 @@ export function deriveAgentMapSkeleton(input: AgentMapInput): AgentMapSkeleton {
       id: projection.thread.id,
       name: agentName(projection.thread.id),
       kind: "main",
+      accent: rootAccent(projection.thread.id),
       model:
         (activeRun ?? latestRun)?.modelSelection.model ?? projection.thread.modelSelection.model,
       detail: projection.thread.title,
@@ -686,6 +699,7 @@ function resolveBubble(skeleton: BubbleSkeleton, nowMs: number): AgentBubble {
     id: skeleton.id,
     name: skeleton.name,
     kind: skeleton.kind,
+    accent: skeleton.accent,
     status: stalled ? "stalled" : skeleton.status,
     subtitle: stalled ? "No activity" : skeleton.subtitle,
     tokens: skeleton.tokens,
@@ -722,7 +736,13 @@ export function snapshotChildFromFeed(
   feed: AgentMapFeed,
   nowMs: number,
 ): SettledChildSnapshot {
-  return snapshotSettledChild(resolveBubble(deriveChildFromFeed(subagent, feed), nowMs));
+  // The snapshot keeps no colour; the panel reassigns one from spawn order on every derive.
+  return snapshotSettledChild(
+    resolveBubble(
+      { ...deriveChildFromFeed(subagent, feed), accent: AGENT_MAP_ACCENTS.stalled },
+      nowMs,
+    ),
+  );
 }
 
 /** What the panel keeps for a child once its feed is released. */

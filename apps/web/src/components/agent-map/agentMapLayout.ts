@@ -15,6 +15,7 @@
 import { fnv1a32 } from "~/lib/hash";
 
 import type { AgentBubble, AgentMapModel, AgentMapTask } from "./agentMap.logic";
+import { AGENT_MAP_ACCENTS } from "./agentMapColors";
 
 const TWO_PI = Math.PI * 2;
 /** Hairline between touching cells. */
@@ -131,6 +132,7 @@ export function limitVisibleChildren(model: AgentMapModel): AgentMapModel {
     id: `${model.root.id}:earlier`,
     name: `+${folded.length}`,
     kind: "subagent",
+    accent: AGENT_MAP_ACCENTS.stalled,
     status: "done",
     subtitle: "Earlier agents",
     tokens: sum(folded.map((child) => child.tokens)),
