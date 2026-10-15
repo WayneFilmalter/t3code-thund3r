@@ -63,13 +63,16 @@ function tint(accent: string, percent: number): string {
  * through. `energy` runs 0 to 1. The outer glow stays small so a crowded map's raster
  * layers do.
  */
+/** Width of a body's neon edge. Absolute children sit inside it, so overlays offset by it. */
+const MEMBRANE_BORDER = 2;
+
 export function membraneStyle(accent: string, energy: number): CSSProperties {
   const midLightness = (0.6 + 0.24 * energy).toFixed(3);
   const saturation = (0.85 + 0.55 * energy).toFixed(3);
   return {
     background: `radial-gradient(circle at 32% 26%, ${shade(accent, 1.12, Number(saturation))} 0%, ${shade(accent, Number(midLightness), Number(saturation))} 44%, ${shade(accent, 0.5, 1.05)} 100%)`,
     borderColor: shade(accent, 1.25, 1.4),
-    borderWidth: 2,
+    borderWidth: MEMBRANE_BORDER,
     boxShadow: [
       `0 0 3px ${shade(accent, 1.3, 1.2)}`,
       `0 0 10px ${accent}`,
@@ -365,7 +368,8 @@ function ContextRing(props: {
   const rotate = `rotate(-90 ${centre} ${centre})`;
   return (
     <svg
-      className="pointer-events-none absolute left-0 top-0 overflow-visible"
+      className="pointer-events-none absolute overflow-visible"
+      style={{ left: -MEMBRANE_BORDER, top: -MEMBRANE_BORDER }}
       width={size}
       height={size}
       aria-hidden
