@@ -1,11 +1,15 @@
 /**
- * Thread-scoped right-panel surface state.
+ * Right-panel surface state, keyed by thread.
  *
  * This is intentionally a shallow workspace model: it owns an ordered set of
  * surface descriptors and the active surface, while each feature continues to
  * own its durable resource state. Browser surfaces point at preview tab ids,
  * terminal surfaces point at terminal session ids, file surfaces point at
  * workspace paths, and diff/files remain singleton surfaces.
+ *
+ * Surfaces whose content belongs to the environment rather than a thread (Notes,
+ * Linear) are shared: one list follows the user from thread to thread and every
+ * thread entry mirrors it, the same way the open/closed flag is shared.
  */
 import {
   parseScopedThreadKey,
@@ -106,7 +110,8 @@ const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v14 removes the agents surface; lineage lives in the thread title bar.
 // v15 makes thread details visibility session-only: the card stays closed until asked for.
 // v16 makes the agent-map surface session-only: it stays closed on reload until the button is pressed.
-const RIGHT_PANEL_STORAGE_VERSION = 16;
+// v17 shares Notes and Linear tabs across threads instead of keeping a copy per thread.
+const RIGHT_PANEL_STORAGE_VERSION = 17;
 
 /** A fixed workspace-level ref: each PR surface carries its own real environment. */
 export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
@@ -119,6 +124,14 @@ export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
  * state: reopening the app should show the list, not last session's tabs and detail fetches.
  */
 const isPullRequestsPanelKey = (threadKey: string) => threadKey.endsWith(":pull-requests-panel");
+
+/**
+ * Surfaces whose content is environment-wide, not thread-scoped, so they follow the
+ * user across threads. Everything else points at a thread's own resources (its diff,
+ * workspace files, terminals, browser tabs, devices, pull requests, agent map).
+ */
+const SHARED_SURFACE_KINDS: ReadonlySet<RightPanelKind> = new Set(["linear", "notes"]);
+const isSharedSurface = (surface: RightPanelSurface) => SHARED_SURFACE_KINDS.has(surface.kind);
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -138,10 +151,21 @@ interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
   /**
    * Whether thread panels are open. Shared by every thread so switching threads or
-   * pane focus never opens or closes the panel; each thread keeps its own tabs.
-   * Every thread entry's `isOpen` mirrors it. The pull-request page's panel is separate.
+   * pane focus never opens or closes the panel; each thread keeps its own thread-scoped
+   * tabs. Every thread entry's `isOpen` mirrors it. The pull-request page's panel is separate.
    */
   panelOpen: boolean;
+  /**
+   * The open Notes/Linear tabs, shared by every thread. Each thread entry mirrors them,
+   * so closing one anywhere closes it everywhere.
+   */
+  sharedSurfaces: RightPanelSurface[];
+  /**
+   * Set while a shared tab is the one the user chose last, cleared when they pick a
+   * thread-scoped tab. Applied to a thread as it is entered rather than pushed to every
+   * entry, so a thread shown in another pane keeps its own selection.
+   */
+  sharedActiveSurfaceId: string | null;
   /**
    * A thread whose right panel should open maximized the next time it shows,
    * such as one started for a link the OS opened. Its view consumes it once.
@@ -219,8 +243,12 @@ interface RightPanelStoreState {
   ) => void;
   toggleThreadPanel: (ref: ScopedThreadRef, presentation: ThreadPanelPresentation) => void;
   removeThread: (ref: ScopedThreadRef) => void;
-  /** Gives a thread seen in the open panel for the first time the agents map, not an empty panel. */
-  ensureOpenThreadSurface: (ref: ScopedThreadRef) => void;
+  /**
+   * Run as a thread becomes the one shown: mirrors the shared tabs into it, selects
+   * the shared tab the user was looking at, and gives a thread seen in the open panel
+   * for the first time the agents map rather than an empty panel.
+   */
+  enterThread: (ref: ScopedThreadRef) => void;
 }
 
 const EMPTY_THREAD_STATE: ThreadRightPanelState = {
@@ -392,7 +420,11 @@ const updateThreadPanelVisibilityMap = (
 
 type RightPanelStoreData = Pick<
   RightPanelStoreState,
-  "byThreadKey" | "threadPanelVisibilityByThreadKey" | "panelOpen"
+  | "byThreadKey"
+  | "threadPanelVisibilityByThreadKey"
+  | "panelOpen"
+  | "sharedSurfaces"
+  | "sharedActiveSurfaceId"
 >;
 
 /**
@@ -414,6 +446,28 @@ const updateThread = (
   const next = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
   const panelOpen = shared ? next.isOpen : state.panelOpen;
   if (panelOpen !== state.panelOpen) byThreadKey = withSharedOpen(byThreadKey, panelOpen);
+  // Thread panels also decide the shared tabs: whatever this thread now holds is the list.
+  let sharedSurfaces = state.sharedSurfaces;
+  let sharedActiveSurfaceId = state.sharedActiveSurfaceId;
+  if (shared) {
+    const nextShared = next.surfaces.filter(isSharedSurface);
+    if (!sameSurfaceIds(nextShared, sharedSurfaces)) {
+      sharedSurfaces = nextShared;
+      byThreadKey = withSharedSurfaces(byThreadKey, sharedSurfaces);
+    }
+    if (next.activeSurfaceId !== current.activeSurfaceId) {
+      sharedActiveSurfaceId =
+        next.surfaces.find(
+          (surface) => surface.id === next.activeSurfaceId && isSharedSurface(surface),
+        )?.id ?? null;
+    }
+    if (
+      sharedActiveSurfaceId !== null &&
+      !sharedSurfaces.some((surface) => surface.id === sharedActiveSurfaceId)
+    ) {
+      sharedActiveSurfaceId = null;
+    }
+  }
   let threadPanelVisibilityByThreadKey = state.threadPanelVisibilityByThreadKey;
 
   if (!current.isOpen && next.isOpen) {
@@ -433,7 +487,57 @@ const updateThread = (
     );
   }
 
-  return { byThreadKey, threadPanelVisibilityByThreadKey, panelOpen };
+  return {
+    byThreadKey,
+    threadPanelVisibilityByThreadKey,
+    panelOpen,
+    sharedSurfaces,
+    sharedActiveSurfaceId,
+  };
+};
+
+const sameSurfaceIds = (a: readonly RightPanelSurface[], b: readonly RightPanelSurface[]) =>
+  a.length === b.length && a.every((surface, index) => surface.id === b[index]?.id);
+
+/**
+ * Aligns one thread's tabs with the shared list: shared-kind tabs it no longer holds
+ * go, missing ones are appended, its own order and open state stay. Returns the same
+ * object when nothing changes.
+ */
+const withSharedSurfacesIn = (
+  threadState: ThreadRightPanelState,
+  sharedSurfaces: readonly RightPanelSurface[],
+): ThreadRightPanelState => {
+  const kept = threadState.surfaces.filter(
+    (surface) =>
+      !isSharedSurface(surface) || sharedSurfaces.some((entry) => entry.id === surface.id),
+  );
+  const missing = sharedSurfaces.filter(
+    (surface) => !kept.some((entry) => entry.id === surface.id),
+  );
+  if (kept.length === threadState.surfaces.length && missing.length === 0) return threadState;
+  const surfaces = [...kept, ...missing];
+  const activeSurfaceId = surfaces.some((surface) => surface.id === threadState.activeSurfaceId)
+    ? threadState.activeSurfaceId
+    : (surfaces[0]?.id ?? null);
+  return { ...threadState, surfaces, activeSurfaceId };
+};
+
+/** Mirrors the shared tabs onto every thread entry, leaving the pull-request panel alone. */
+const withSharedSurfaces = (
+  byThreadKey: Record<string, ThreadRightPanelState>,
+  sharedSurfaces: readonly RightPanelSurface[],
+): Record<string, ThreadRightPanelState> => {
+  let changed = false;
+  const next: Record<string, ThreadRightPanelState> = {};
+  for (const [threadKey, threadState] of Object.entries(byThreadKey)) {
+    const aligned = isPullRequestsPanelKey(threadKey)
+      ? threadState
+      : withSharedSurfacesIn(threadState, sharedSurfaces);
+    if (aligned !== threadState) changed = true;
+    next[threadKey] = aligned;
+  }
+  return changed ? next : byThreadKey;
 };
 
 /** Copies the shared open state onto every thread entry, leaving the pull-request panel alone. */
@@ -524,29 +628,65 @@ function normalizeRevealLine(line: number | undefined): number | null {
 
 /**
  * Merges saved panel state into the store. Saves from before the shared open flag
- * derive it from any open thread; every entry is then aligned to it.
+ * derive it from any open thread; saves from before shared tabs derive them from the
+ * threads that held one. Every entry is then aligned to both.
  */
 export function mergePersistedRightPanelState<State extends RightPanelStoreState>(
   persisted: unknown,
   current: State,
 ): State {
   const saved = (persisted ?? {}) as Partial<RightPanelStoreState>;
-  const byThreadKey = saved.byThreadKey ?? current.byThreadKey;
+  const savedByThreadKey = saved.byThreadKey ?? current.byThreadKey;
   const panelOpen =
     typeof saved.panelOpen === "boolean"
       ? saved.panelOpen
-      : Object.entries(byThreadKey).some(
+      : Object.entries(savedByThreadKey).some(
           ([threadKey, threadState]) => !isPullRequestsPanelKey(threadKey) && threadState.isOpen,
         );
-  return { ...current, ...saved, panelOpen, byThreadKey: withSharedOpen(byThreadKey, panelOpen) };
+  const sharedSurfaces = Array.isArray(saved.sharedSurfaces)
+    ? saved.sharedSurfaces.filter(isSharedSurface)
+    : collectSharedSurfaces(savedByThreadKey);
+  const sharedActiveSurfaceId =
+    typeof saved.sharedActiveSurfaceId === "string" &&
+    sharedSurfaces.some((surface) => surface.id === saved.sharedActiveSurfaceId)
+      ? saved.sharedActiveSurfaceId
+      : null;
+  const byThreadKey = withSharedSurfaces(
+    withSharedOpen(savedByThreadKey, panelOpen),
+    sharedSurfaces,
+  );
+  return { ...current, ...saved, panelOpen, sharedSurfaces, sharedActiveSurfaceId, byThreadKey };
+}
+
+/** The union of shared-kind tabs across thread entries, for saves made before they were shared. */
+function collectSharedSurfaces(
+  byThreadKey: Record<string, ThreadRightPanelState>,
+): RightPanelSurface[] {
+  const shared: RightPanelSurface[] = [];
+  for (const [threadKey, threadState] of Object.entries(byThreadKey)) {
+    if (isPullRequestsPanelKey(threadKey)) continue;
+    for (const surface of threadState.surfaces) {
+      if (isSharedSurface(surface) && !shared.some((entry) => entry.id === surface.id)) {
+        shared.push(surface);
+      }
+    }
+  }
+  return shared;
 }
 
 export function migratePersistedRightPanelState(persistedState: unknown): {
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
+  sharedSurfaces: RightPanelSurface[];
+  sharedActiveSurfaceId: string | null;
 } {
   if (!persistedState || typeof persistedState !== "object") {
-    return { byThreadKey: {}, threadPanelVisibilityByThreadKey: {} };
+    return {
+      byThreadKey: {},
+      threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
+    };
   }
   const byThreadKey =
     "byThreadKey" in persistedState &&
@@ -673,8 +813,24 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
             }),
         )
       : {};
+  const sharedSurfaces =
+    "sharedSurfaces" in persistedState && Array.isArray(persistedState.sharedSurfaces)
+      ? (persistedState.sharedSurfaces as RightPanelSurface[]).filter(isSharedSurface)
+      : collectSharedSurfaces(byThreadKey);
+  const rawSharedActive =
+    "sharedActiveSurfaceId" in persistedState ? persistedState.sharedActiveSurfaceId : null;
+  const sharedActiveSurfaceId =
+    typeof rawSharedActive === "string" &&
+    sharedSurfaces.some((surface) => surface.id === rawSharedActive)
+      ? rawSharedActive
+      : null;
   // Thread details visibility is session-only: every thread starts with the card closed.
-  return { byThreadKey, threadPanelVisibilityByThreadKey: {} };
+  return {
+    byThreadKey: withSharedSurfaces(byThreadKey, sharedSurfaces),
+    threadPanelVisibilityByThreadKey: {},
+    sharedSurfaces,
+    sharedActiveSurfaceId,
+  };
 }
 
 export const useRightPanelStore = create<RightPanelStoreState>()(
@@ -682,6 +838,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
     (set, get) => ({
       byThreadKey: {},
       panelOpen: false,
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -1108,14 +1266,24 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : { ...visibility, popoverOpen: !visibility.popoverOpen },
           ),
         })),
-      ensureOpenThreadSurface: (ref) =>
+      enterThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (!state.panelOpen || isPullRequestsPanelKey(threadKey)) return state;
-          if ((state.byThreadKey[threadKey]?.surfaces.length ?? 0) > 0) return state;
-          return automaticUpdate(state, threadKey, (current) =>
-            upsertSurface(current, singletonSurface("agent-map")),
-          );
+          if (isPullRequestsPanelKey(threadKey)) return state;
+          const current = state.byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
+          let next = withSharedSurfacesIn(current, state.sharedSurfaces);
+          if (
+            state.sharedActiveSurfaceId !== null &&
+            next.activeSurfaceId !== state.sharedActiveSurfaceId &&
+            next.surfaces.some((surface) => surface.id === state.sharedActiveSurfaceId)
+          ) {
+            next = { ...next, activeSurfaceId: state.sharedActiveSurfaceId };
+          }
+          if (state.panelOpen && next.surfaces.length === 0) {
+            next = upsertSurface(next, singletonSurface("agent-map"));
+          }
+          if (next === current) return state;
+          return automaticUpdate(state, threadKey, () => next);
         }),
       removeThread: (ref) =>
         set((state) => {
@@ -1151,6 +1319,8 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
       ),
       partialize: (state) => ({
         panelOpen: state.panelOpen,
+        sharedSurfaces: state.sharedSurfaces,
+        sharedActiveSurfaceId: state.sharedActiveSurfaceId,
         byThreadKey: Object.fromEntries(
           Object.entries(state.byThreadKey)
             .filter(([threadKey]) => !isPullRequestsPanelKey(threadKey))

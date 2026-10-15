@@ -26,6 +26,8 @@ beforeEach(() => {
   useRightPanelStore.setState({
     byThreadKey: {},
     panelOpen: false,
+    sharedSurfaces: [],
+    sharedActiveSurfaceId: null,
     threadPanelVisibilityByThreadKey: {},
     userActionRevisionByThreadKey: {},
     closeRevisionByThreadKey: {},
@@ -376,6 +378,8 @@ describe("rightPanelStore", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -407,6 +411,8 @@ describe("rightPanelStore", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -438,6 +444,8 @@ describe("rightPanelStore", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -482,6 +490,8 @@ describe("rightPanelStore", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -514,6 +524,8 @@ describe("rightPanelStore", () => {
     ).toEqual({
       byThreadKey: { "env-1:thread-A": panelState },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -554,6 +566,8 @@ describe("rightPanelStore", () => {
         },
       },
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -568,6 +582,8 @@ describe("rightPanelStore", () => {
     ).toEqual({
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {},
+      sharedSurfaces: [],
+      sharedActiveSurfaceId: null,
     });
   });
 
@@ -937,11 +953,11 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("shares open and closed across threads while each keeps its own tabs", () => {
+  it("shares open and closed across threads while each keeps its own thread-scoped tabs", () => {
     const store = useRightPanelStore.getState();
     store.open(refA, "diff");
     // Switching to another thread finds the panel still open, on that thread's own tabs.
-    store.ensureOpenThreadSurface(refB);
+    store.enterThread(refB);
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
       isOpen: true,
       activeSurfaceId: "agent-map",
@@ -953,13 +969,102 @@ describe("rightPanelStore", () => {
     useRightPanelStore.getState().toggleVisibility(refB);
     expect(useRightPanelStore.getState().panelOpen).toBe(false);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
-    useRightPanelStore.getState().ensureOpenThreadSurface(refA);
+    useRightPanelStore.getState().enterThread(refA);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBeNull();
     useRightPanelStore.getState().toggleVisibility(refA);
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refB)).toBe(
       "agent-map",
     );
+  });
+
+  it("carries Notes to the next thread and keeps it selected while it is being read", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.open(refA, "notes");
+    store.enterThread(refB);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "notes",
+      surfaces: [{ id: "notes", kind: "notes" }],
+    });
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "notes",
+      surfaces: [
+        { id: "diff", kind: "diff" },
+        { id: "notes", kind: "notes" },
+      ],
+    });
+    expect(useRightPanelStore.getState().sharedSurfaces).toEqual([{ id: "notes", kind: "notes" }]);
+    expect(useRightPanelStore.getState().sharedActiveSurfaceId).toBe("notes");
+  });
+
+  it("leaves a thread on its own tab once a thread-scoped tab was chosen elsewhere", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "notes");
+    store.enterThread(refB);
+    store.open(refB, "diff");
+    expect(useRightPanelStore.getState().sharedActiveSurfaceId).toBeNull();
+
+    // Back on A, it keeps its own selection; B keeps diff with notes still listed.
+    useRightPanelStore.getState().enterThread(refA);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("notes");
+    useRightPanelStore.getState().enterThread(refB);
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refB)).toBe("diff");
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB).surfaces,
+    ).toEqual([
+      { id: "notes", kind: "notes" },
+      { id: "diff", kind: "diff" },
+    ]);
+  });
+
+  it("closes a shared tab everywhere", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.open(refA, "linear");
+    store.enterThread(refB);
+    useRightPanelStore.getState().open(refB, "diff");
+    useRightPanelStore.getState().closeSurface(refB, "linear");
+    expect(useRightPanelStore.getState().sharedSurfaces).toEqual([]);
+    expect(useRightPanelStore.getState().sharedActiveSurfaceId).toBeNull();
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "diff",
+      surfaces: [{ id: "diff", kind: "diff" }],
+    });
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB).surfaces,
+    ).toEqual([{ id: "diff", kind: "diff" }]);
+  });
+
+  it("mirrors shared tabs into a thread entered while the panel is closed without opening it", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "notes");
+    useRightPanelStore.getState().close(refA);
+    useRightPanelStore.getState().enterThread(refB);
+    expect(useRightPanelStore.getState().panelOpen).toBe(false);
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refB)).toEqual({
+      isOpen: false,
+      activeSurfaceId: "notes",
+      surfaces: [{ id: "notes", kind: "notes" }],
+    });
+  });
+
+  it("turns a per-thread Notes tab from an older save into a shared one", () => {
+    const diff = { id: "diff" as const, kind: "diff" as const };
+    const notes = { id: "notes" as const, kind: "notes" as const };
+    const migrated = migratePersistedRightPanelState({
+      byThreadKey: {
+        "env-1:thread-A": { isOpen: true, activeSurfaceId: "notes", surfaces: [diff, notes] },
+        "env-1:thread-B": { isOpen: true, activeSurfaceId: "diff", surfaces: [diff] },
+      },
+    });
+    expect(migrated.sharedSurfaces).toEqual([notes]);
+    expect(migrated.sharedActiveSurfaceId).toBeNull();
+    expect(migrated.byThreadKey["env-1:thread-B"]?.surfaces).toEqual([diff, notes]);
+    expect(migrated.byThreadKey["env-1:thread-B"]?.activeSurfaceId).toBe("diff");
   });
 
   it("derives the shared open state from older saves and aligns every thread to it", () => {

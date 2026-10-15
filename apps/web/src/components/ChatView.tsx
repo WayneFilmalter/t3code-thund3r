@@ -2351,13 +2351,14 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelState = useRightPanelStore((state) =>
     selectThreadRightPanelState(state.byThreadKey, activeThreadRef),
   );
-  // Open or closed is shared by every thread, so switching threads or pane focus keeps
-  // the panel as it was. A thread first seen in the open panel gets the agents map,
-  // before paint, instead of an empty panel.
+  // Open or closed and the Notes/Linear tabs are shared by every thread, so switching
+  // threads or pane focus keeps the panel as it was. Entering a thread mirrors the shared
+  // tabs into it before paint, and a thread first seen in the open panel gets the agents
+  // map instead of an empty panel.
   const sharedRightPanelOpen = useRightPanelStore((state) => state.panelOpen);
   useLayoutEffect(() => {
-    if (!ownsPanelChrome || !activeThreadRef || !sharedRightPanelOpen) return;
-    useRightPanelStore.getState().ensureOpenThreadSurface(activeThreadRef);
+    if (!ownsPanelChrome || !activeThreadRef) return;
+    useRightPanelStore.getState().enterThread(activeThreadRef);
   }, [activeThreadRef, ownsPanelChrome, sharedRightPanelOpen]);
   const activeRightPanelSurface = useRightPanelStore((state) =>
     selectActiveRightPanelSurface(state.byThreadKey, activeThreadRef),
