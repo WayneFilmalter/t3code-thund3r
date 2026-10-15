@@ -50,7 +50,9 @@ pane's thread, and opening a thread already shown in another pane focuses
 that pane instead. `ctrl+shift` plus an arrow key (Control on every platform)
 moves to the pane on that side, and `mod+w` closes the focused pane. Splitting and closing are also
 in the command palette, and all pane shortcuts are configurable under
-**Navigation** in **Settings → Keybindings**.
+**Navigation** in **Settings → Keybindings**. A split layout and the threads in
+it are saved, so reopening the app brings the same panes back; close the panes
+to return to a single view.
 
 ## Copy pull request references
 

@@ -49,12 +49,13 @@ export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget |
   );
 
   // Keeps the URL and the focused pane pointing at the same thread; see
-  // resolvePaneUrlSync for the rules.
+  // resolvePaneUrlSync for the rules. The first sync after a restored layout
+  // has no previous state: the saved panes, not the launch URL, are the truth.
   const prevRef = useRef({ threadTarget, focusedPaneId });
   useEffect(() => {
-    const previous = prevRef.current;
-    prevRef.current = { threadTarget, focusedPaneId };
     const store = usePaneLayoutStore.getState();
+    const previous = store.consumeRestoreSync() ? null : prevRef.current;
+    prevRef.current = { threadTarget, focusedPaneId };
     const sync = resolvePaneUrlSync({
       previous,
       threadTarget,
@@ -62,8 +63,9 @@ export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget |
       root: store.root,
       paneTargets: store.paneTargets,
     });
-    if (sync.kind === "navigate") navigateToPaneTarget(navigate, sync.target);
-    else if (sync.kind === "focus") store.focusPane(sync.paneId);
+    if (sync.kind === "navigate") {
+      navigateToPaneTarget(navigate, sync.target, { replace: sync.replace ?? false });
+    } else if (sync.kind === "focus") store.focusPane(sync.paneId);
     else if (sync.kind === "retarget") store.setPaneTarget(focusedPaneId, sync.target);
   }, [threadTarget, focusedPaneId, navigate]);
 

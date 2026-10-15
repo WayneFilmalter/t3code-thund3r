@@ -2,6 +2,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { assert, beforeEach, describe, it } from "vite-plus/test";
 
+import { DraftId } from "./composerDraftStore";
 import {
   MAX_PANES,
   clampPaneRatio,
@@ -9,7 +10,9 @@ import {
   collectLeafIds,
   findPaneWithTarget,
   resetPaneLayoutForTesting,
+  restorePersistedPaneLayout,
   usePaneLayoutStore,
+  type PaneNode,
 } from "./paneLayoutStore";
 import type { ThreadRouteTarget } from "./threadRoutes";
 
@@ -159,5 +162,121 @@ describe("findPaneInDirection", () => {
       ["farBottomRight", { left: 900, top: 500, right: 1200, bottom: 800 }],
     ]);
     assert.strictEqual(findPaneInDirection(stacked, "topRight", "left"), "left");
+  });
+});
+
+function leaf(id: string): PaneNode {
+  return { type: "leaf", id };
+}
+
+function split(id: string, first: PaneNode, second: PaneNode, ratio = 0.5): PaneNode {
+  return { type: "split", id, direction: "row", ratio, first, second };
+}
+
+describe("restorePersistedPaneLayout", () => {
+  const savedLayout = {
+    root: split("split-3", leaf("pane-7"), leaf("pane-9"), 0.3),
+    focusedPaneId: "pane-9",
+    paneTargets: {
+      "pane-7": serverTarget("thread-1"),
+      "pane-9": { kind: "draft", draftId: DraftId.make("draft-1") },
+    } satisfies Record<string, ThreadRouteTarget>,
+  };
+
+  it("restores a saved split with its targets and focus", () => {
+    const restored = restorePersistedPaneLayout({ layout: savedLayout });
+    assert.deepEqual(restored, savedLayout);
+  });
+
+  it.each([
+    null,
+    "layout",
+    { layout: null },
+    { layout: { root: leaf("pane-1"), focusedPaneId: "pane-1", paneTargets: {} } },
+    { layout: { root: split("s", leaf("a"), leaf("a")), focusedPaneId: "a", paneTargets: {} } },
+    {
+      layout: {
+        root: split("s", leaf("a"), leaf("b")),
+        focusedPaneId: "a",
+        paneTargets: { a: { kind: "server", threadRef: { environmentId: "env" } } },
+      },
+    },
+  ])("rejects %j", (persisted) => {
+    assert.isNull(restorePersistedPaneLayout(persisted));
+  });
+
+  it("rejects a layout with more leaves than the pane limit", () => {
+    let root: PaneNode = leaf("pane-0");
+    for (let i = 1; i <= MAX_PANES; i += 1) root = split(`split-${i}`, root, leaf(`pane-${i}`));
+    assert.isNull(
+      restorePersistedPaneLayout({ layout: { root, focusedPaneId: "pane-0", paneTargets: {} } }),
+    );
+  });
+
+  it("falls back to the first leaf when the focused pane is gone and drops stray targets", () => {
+    const restored = restorePersistedPaneLayout({
+      layout: {
+        root: split("split-1", leaf("pane-1"), leaf("pane-2"), 0.99),
+        focusedPaneId: "pane-404",
+        paneTargets: { "pane-1": serverTarget("thread-1"), "pane-404": serverTarget("thread-2") },
+      },
+    });
+    assert.isNotNull(restored);
+    assert.strictEqual(restored?.focusedPaneId, "pane-1");
+    assert.deepEqual(restored?.paneTargets, { "pane-1": serverTarget("thread-1"), "pane-2": null });
+    assert.strictEqual(
+      restored?.root.type === "split" ? restored.root.ratio : null,
+      clampPaneRatio(0.99),
+    );
+  });
+
+  it("never mints an id that a restored pane already uses", async () => {
+    await rehydrateWith({ layout: savedLayout });
+    const before = new Set(collectLeafIds(state().root));
+    state().splitFocusedPane("row", null);
+    assert.isFalse(before.has(state().focusedPaneId));
+    assert.lengthOf(new Set(collectLeafIds(state().root)), 3);
+  });
+});
+
+async function rehydrateWith(persisted: unknown): Promise<void> {
+  const { storage, name, version } = usePaneLayoutStore.persist.getOptions();
+  await storage!.setItem(name!, { state: persisted as never, version: version ?? 0 });
+  await usePaneLayoutStore.persist.rehydrate();
+}
+
+describe("paneLayoutStore persistence", () => {
+  beforeEach(() => {
+    resetPaneLayoutForTesting();
+  });
+
+  it("rehydrates a saved split and asks for one restore sync", async () => {
+    await rehydrateWith({
+      layout: {
+        root: split("split-1", leaf("pane-1"), leaf("pane-2")),
+        focusedPaneId: "pane-2",
+        paneTargets: { "pane-1": serverTarget("thread-1"), "pane-2": serverTarget("thread-2") },
+      },
+    });
+    assert.strictEqual(state().root.type, "split");
+    assert.strictEqual(state().focusedPaneId, "pane-2");
+    assert.isTrue(state().consumeRestoreSync());
+    assert.isFalse(state().consumeRestoreSync());
+  });
+
+  it("rehydrates an empty save as a single pane without a restore sync", async () => {
+    await rehydrateWith({ layout: null });
+    assert.strictEqual(state().root.type, "leaf");
+    assert.isFalse(state().consumeRestoreSync());
+  });
+
+  it("saves the layout while split and clears it once a lone pane remains", async () => {
+    const { storage, name } = usePaneLayoutStore.persist.getOptions();
+    state().splitFocusedPane("row", serverTarget("thread-1"));
+    const saved = (await storage!.getItem(name!)) as { state: { layout: unknown } };
+    assert.isNotNull(saved.state.layout);
+    state().closeFocusedPane();
+    const cleared = (await storage!.getItem(name!)) as { state: { layout: unknown } };
+    assert.isNull(cleared.state.layout);
   });
 });

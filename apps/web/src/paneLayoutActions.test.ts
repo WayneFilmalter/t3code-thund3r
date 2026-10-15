@@ -32,6 +32,52 @@ describe("splitFocusedPane", () => {
   });
 });
 
+describe("resolvePaneUrlSync after a restore", () => {
+  function restoreSync(threadTarget: ThreadRouteTarget | null) {
+    return resolvePaneUrlSync({
+      previous: null,
+      threadTarget,
+      focusedPaneId: state().focusedPaneId,
+      root: state().root,
+      paneTargets: state().paneTargets,
+    });
+  }
+
+  beforeEach(() => {
+    const original = state().focusedPaneId;
+    state().splitFocusedPane("row", serverTarget("thread-1"));
+    state().setPaneTarget(state().focusedPaneId, serverTarget("thread-2"));
+    assert.notStrictEqual(state().focusedPaneId, original);
+  });
+
+  it("moves a bare launch URL onto the focused pane's thread, replacing history", () => {
+    assert.deepEqual(restoreSync(null), {
+      kind: "navigate",
+      target: serverTarget("thread-2"),
+      replace: true,
+    });
+  });
+
+  it("leaves a URL that already names the focused pane's thread alone", () => {
+    assert.deepEqual(restoreSync(serverTarget("thread-2")), { kind: "none" });
+  });
+
+  it("focuses the pane that shows the URL's thread", () => {
+    const sync = restoreSync(serverTarget("thread-1"));
+    assert.strictEqual(sync.kind, "focus");
+    if (sync.kind !== "focus") return;
+    assert.notStrictEqual(sync.paneId, state().focusedPaneId);
+    assert.deepEqual(state().paneTargets[sync.paneId], serverTarget("thread-1"));
+  });
+
+  it("retargets the focused pane to a URL thread no pane shows", () => {
+    assert.deepEqual(restoreSync(serverTarget("thread-3")), {
+      kind: "retarget",
+      target: serverTarget("thread-3"),
+    });
+  });
+});
+
 describe("resolvePaneUrlSync", () => {
   function sync(input: {
     previous: { threadTarget: ThreadRouteTarget | null; focusedPaneId: string };

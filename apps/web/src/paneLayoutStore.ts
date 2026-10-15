@@ -7,8 +7,16 @@
  * else that navigates keeps working unchanged and lands in the focused pane.
  * While the tree is a single leaf the chat route renders its pre-pane layout
  * and this store is dormant; pane targets are re-seeded from the URL on split.
+ * A split layout is saved to local storage and comes back on the next launch;
+ * a lone pane saves nothing, so closing the panes also forgets them.
  */
+import { ScopedThreadRef } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+
+import { DraftId } from "./composerDraftStore";
+import { resolveStorage } from "./lib/storage";
 import { threadRouteTargetsEqual, type ThreadRouteTarget } from "./threadRoutes";
 
 export type PaneId = string;
@@ -33,6 +41,16 @@ let paneIdCounter = 0;
 function nextId(prefix: string): string {
   paneIdCounter += 1;
   return `${prefix}-${paneIdCounter}`;
+}
+
+/** Moves the id counter past every restored id so new panes never reuse one. */
+function reserveIds(node: PaneNode): void {
+  const suffix = /-(\d+)$/.exec(node.id);
+  if (suffix) paneIdCounter = Math.max(paneIdCounter, Number(suffix[1]));
+  if (node.type === "split") {
+    reserveIds(node.first);
+    reserveIds(node.second);
+  }
 }
 
 export function clampPaneRatio(ratio: number): number {
@@ -100,6 +118,12 @@ export interface PaneLayoutStore {
   root: PaneNode;
   focusedPaneId: PaneId;
   paneTargets: PaneTargets;
+  /**
+   * True from hydrating a saved split layout until PaneLayout's first sync,
+   * which then puts the URL on the focused pane's thread. Never persisted.
+   */
+  pendingRestoreSync: boolean;
+  consumeRestoreSync: () => boolean;
   /**
    * Splits the focused pane and focuses the new, empty half. The original
    * pane keeps `currentTarget` (the URL's target, which is what it shows);
@@ -188,7 +212,9 @@ export function findPaneInDirection(
   return best?.id ?? null;
 }
 
-function createInitialState(): Pick<PaneLayoutStore, "root" | "focusedPaneId" | "paneTargets"> {
+type PaneLayoutState = Pick<PaneLayoutStore, "root" | "focusedPaneId" | "paneTargets">;
+
+function createInitialState(): PaneLayoutState {
   const id = nextId("pane");
   return {
     root: { type: "leaf", id },
@@ -197,61 +223,177 @@ function createInitialState(): Pick<PaneLayoutStore, "root" | "focusedPaneId" | 
   };
 }
 
-export const usePaneLayoutStore = create<PaneLayoutStore>((set) => ({
-  ...createInitialState(),
+const PANE_LAYOUT_STORAGE_KEY = "t3code:pane-layout:v1";
+const PANE_LAYOUT_STORAGE_VERSION = 1;
 
-  splitFocusedPane: (direction, currentTarget) => {
-    set((state) => {
-      if (collectLeafIds(state.root).length >= MAX_PANES) return state;
-      const newLeaf = { type: "leaf", id: nextId("pane") } as const;
-      const root = splitLeafNode(state.root, state.focusedPaneId, direction, newLeaf);
-      if (!root) return state;
-      return {
-        root,
-        focusedPaneId: newLeaf.id,
-        paneTargets: {
-          ...state.paneTargets,
-          [state.focusedPaneId]: currentTarget,
-          [newLeaf.id]: null,
-        },
-      };
-    });
-  },
+const PersistedPaneNode: Schema.Codec<PaneNode> = Schema.Union([
+  Schema.Struct({ type: Schema.Literal("leaf"), id: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("split"),
+    id: Schema.String,
+    direction: Schema.Literals(["row", "column"]),
+    ratio: Schema.Number,
+    first: Schema.suspend(() => PersistedPaneNode),
+    second: Schema.suspend(() => PersistedPaneNode),
+  }),
+]);
 
-  closeFocusedPane: () => {
-    set((state) => {
-      const root = removeLeafNode(state.root, state.focusedPaneId);
-      if (!root) return state;
-      const paneTargets = { ...state.paneTargets };
-      delete paneTargets[state.focusedPaneId];
-      return { root, focusedPaneId: firstLeafId(root), paneTargets };
-    });
-  },
+const PersistedPaneTarget = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("server"), threadRef: ScopedThreadRef }),
+  Schema.Struct({ kind: Schema.Literal("draft"), draftId: DraftId }),
+]);
 
-  focusPane: (paneId) => {
-    set((state) => {
-      if (state.focusedPaneId === paneId || !paneExists(state.root, paneId)) return state;
-      return { focusedPaneId: paneId };
-    });
-  },
+const PersistedPaneLayout = Schema.Struct({
+  root: PersistedPaneNode,
+  focusedPaneId: Schema.String,
+  paneTargets: Schema.Record(Schema.String, Schema.NullOr(PersistedPaneTarget)),
+});
 
-  setPaneTarget: (paneId, target) => {
-    set((state) => {
-      if (!paneExists(state.root, paneId)) return state;
-      if (threadRouteTargetsEqual(state.paneTargets[paneId] ?? null, target)) return state;
-      return { paneTargets: { ...state.paneTargets, [paneId]: target } };
-    });
-  },
+/** What the store writes: the layout while split, nothing once it is a lone pane. */
+interface PersistedPaneLayoutStore {
+  layout: typeof PersistedPaneLayout.Type | null;
+}
 
-  setSplitRatio: (splitId, ratio) => {
-    set((state) => {
-      const root = withSplitRatio(state.root, splitId, ratio);
-      return root ? { root } : state;
-    });
-  },
-}));
+const isPersistedPaneLayout = Schema.is(PersistedPaneLayout);
+
+function withClampedRatios(node: PaneNode): PaneNode {
+  if (node.type === "leaf") return node;
+  return {
+    ...node,
+    ratio: clampPaneRatio(Number.isFinite(node.ratio) ? node.ratio : 0.5),
+    first: withClampedRatios(node.first),
+    second: withClampedRatios(node.second),
+  };
+}
+
+function collectNodeIds(node: PaneNode): string[] {
+  if (node.type === "leaf") return [node.id];
+  return [node.id, ...collectNodeIds(node.first), ...collectNodeIds(node.second)];
+}
+
+/**
+ * Rebuilds a saved split layout, or returns null for anything that is not a
+ * usable split: the store then starts as a single empty pane. Only leaves still
+ * in the tree keep their targets; the focused pane falls back to the first leaf.
+ */
+export function restorePersistedPaneLayout(persisted: unknown): PaneLayoutState | null {
+  const layout =
+    persisted && typeof persisted === "object" && "layout" in persisted ? persisted.layout : null;
+  if (!isPersistedPaneLayout(layout) || layout.root.type !== "split") return null;
+  const root = withClampedRatios(layout.root);
+  const ids = collectNodeIds(root);
+  if (new Set(ids).size !== ids.length) return null;
+  const leafIds = collectLeafIds(root);
+  if (leafIds.length > MAX_PANES) return null;
+  const paneTargets: Record<PaneId, ThreadRouteTarget | null> = {};
+  for (const leafId of leafIds) {
+    paneTargets[leafId] = layout.paneTargets[leafId] ?? null;
+  }
+  reserveIds(root);
+  return {
+    root,
+    focusedPaneId: leafIds.includes(layout.focusedPaneId)
+      ? layout.focusedPaneId
+      : firstLeafId(root),
+    paneTargets,
+  };
+}
+
+export const usePaneLayoutStore = create<PaneLayoutStore>()(
+  persist(
+    (set, get) => ({
+      ...createInitialState(),
+      pendingRestoreSync: false,
+
+      consumeRestoreSync: () => {
+        if (!get().pendingRestoreSync) return false;
+        set({ pendingRestoreSync: false });
+        return true;
+      },
+
+      splitFocusedPane: (direction, currentTarget) => {
+        set((state) => {
+          if (collectLeafIds(state.root).length >= MAX_PANES) return state;
+          const newLeaf = { type: "leaf", id: nextId("pane") } as const;
+          const root = splitLeafNode(state.root, state.focusedPaneId, direction, newLeaf);
+          if (!root) return state;
+          return {
+            root,
+            focusedPaneId: newLeaf.id,
+            paneTargets: {
+              ...state.paneTargets,
+              [state.focusedPaneId]: currentTarget,
+              [newLeaf.id]: null,
+            },
+          };
+        });
+      },
+
+      closeFocusedPane: () => {
+        set((state) => {
+          const root = removeLeafNode(state.root, state.focusedPaneId);
+          if (!root) return state;
+          const paneTargets = { ...state.paneTargets };
+          delete paneTargets[state.focusedPaneId];
+          return { root, focusedPaneId: firstLeafId(root), paneTargets };
+        });
+      },
+
+      focusPane: (paneId) => {
+        set((state) => {
+          if (state.focusedPaneId === paneId || !paneExists(state.root, paneId)) return state;
+          return { focusedPaneId: paneId };
+        });
+      },
+
+      setPaneTarget: (paneId, target) => {
+        set((state) => {
+          if (!paneExists(state.root, paneId)) return state;
+          if (threadRouteTargetsEqual(state.paneTargets[paneId] ?? null, target)) return state;
+          return { paneTargets: { ...state.paneTargets, [paneId]: target } };
+        });
+      },
+
+      setSplitRatio: (splitId, ratio) => {
+        set((state) => {
+          const root = withSplitRatio(state.root, splitId, ratio);
+          return root ? { root } : state;
+        });
+      },
+    }),
+    {
+      name: PANE_LAYOUT_STORAGE_KEY,
+      version: PANE_LAYOUT_STORAGE_VERSION,
+      // Synchronous storage: the store hydrates inside create(), so the chat
+      // route sees the split on its first render and never starts the index
+      // route's fresh draft.
+      storage: createJSONStorage(() =>
+        resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
+      ),
+      partialize: (state): PersistedPaneLayoutStore => ({
+        layout:
+          state.root.type === "split"
+            ? {
+                root: state.root,
+                focusedPaneId: state.focusedPaneId,
+                paneTargets: state.paneTargets,
+              }
+            : null,
+      }),
+      migrate: (): PersistedPaneLayoutStore => ({ layout: null }),
+      merge: (persisted, current) => {
+        const restored = restorePersistedPaneLayout(persisted);
+        return {
+          ...current,
+          ...(restored ?? createInitialState()),
+          pendingRestoreSync: restored !== null,
+        };
+      },
+    },
+  ),
+);
 
 /** Test-only: returns the layout to a single empty pane. */
 export function resetPaneLayoutForTesting(): void {
-  usePaneLayoutStore.setState(createInitialState());
+  usePaneLayoutStore.setState({ ...createInitialState(), pendingRestoreSync: false });
 }

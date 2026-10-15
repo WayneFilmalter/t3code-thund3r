@@ -102,7 +102,11 @@ export function movePaneFocus(direction: PaneFocusDirection, root: ParentNode = 
 
 export type PaneUrlSync =
   | { readonly kind: "none" }
-  | { readonly kind: "navigate"; readonly target: ThreadRouteTarget | null }
+  | {
+      readonly kind: "navigate";
+      readonly target: ThreadRouteTarget | null;
+      readonly replace?: boolean;
+    }
   | { readonly kind: "focus"; readonly paneId: PaneId }
   | { readonly kind: "retarget"; readonly target: ThreadRouteTarget | null };
 
@@ -113,12 +117,16 @@ export type PaneUrlSync =
  * already shows that thread. An empty focused pane also adopts a URL thread
  * no pane shows, which covers a new thread whose navigation finished before
  * the split layout mounted.
+ *
+ * `previous: null` is the first sync after a saved layout was restored. The
+ * desktop app relaunches on "/", so the URL follows the focused pane then;
+ * a URL that still names a thread (a web reload, a deep link) wins instead.
  */
 export function resolvePaneUrlSync(input: {
   readonly previous: {
     readonly threadTarget: ThreadRouteTarget | null;
     readonly focusedPaneId: PaneId;
-  };
+  } | null;
   readonly threadTarget: ThreadRouteTarget | null;
   readonly focusedPaneId: PaneId;
   readonly root: PaneNode;
@@ -127,6 +135,14 @@ export function resolvePaneUrlSync(input: {
   const { previous, threadTarget, focusedPaneId, root, paneTargets } = input;
   const focusedTarget = paneTargets[focusedPaneId] ?? null;
   if (threadRouteTargetsEqual(threadTarget, focusedTarget)) return { kind: "none" };
+  if (previous === null) {
+    if (threadTarget === null) {
+      return { kind: "navigate", target: focusedTarget, replace: true };
+    }
+    const holder = findPaneWithTarget(root, paneTargets, threadTarget);
+    if (holder !== null && holder !== focusedPaneId) return { kind: "focus", paneId: holder };
+    return { kind: "retarget", target: threadTarget };
+  }
   // Focusing an empty pane leaves the URL alone: navigating away would race a
   // new thread that is about to land there.
   if (focusedPaneId !== previous.focusedPaneId && focusedTarget !== null) {
