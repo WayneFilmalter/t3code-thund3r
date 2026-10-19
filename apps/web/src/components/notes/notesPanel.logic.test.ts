@@ -1,13 +1,17 @@
-import type { Note } from "@t3tools/contracts";
+import type { Note, NoteCategory } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  canCreateCategoryNamed,
+  filterCategories,
   findNote,
+  groupNotesByCategory,
   noteDisplayTitle,
   notePreviewLine,
   noteTaskProgress,
   noteTitleFromText,
   noteWrittenByThread,
+  UNCATEGORISED_GROUP_KEY,
 } from "./notesPanel.logic";
 import { buildNoteAgentPrompt, noteAgentThreadTitle } from "./notesAgent";
 
@@ -18,7 +22,15 @@ const note = (overrides: Partial<Note>): Note => ({
   createdAt: "2026-10-15T10:00:00.000Z",
   updatedAt: "2026-10-15T10:00:00.000Z",
   createdByThreadId: null,
+  categoryId: null,
   ...overrides,
+});
+
+const category = (id: string, name: string): NoteCategory => ({
+  id: id as NoteCategory["id"],
+  name,
+  color: "blue",
+  createdAt: "2026-10-15T10:00:00.000Z",
 });
 
 describe("notePreviewLine", () => {
@@ -89,5 +101,39 @@ describe("note agent prompt", () => {
       "✎ Note: Compare SQLite WAL modes",
     );
     expect(noteAgentThreadTitle("x".repeat(60))).toBe(`✎ Note: ${"x".repeat(39)}…`);
+  });
+});
+
+describe("groupNotesByCategory", () => {
+  const work = category("c-work", "Work");
+  const home = category("c-home", "Home");
+
+  it("keeps category order, lists empty categories, and puts loose notes last", () => {
+    const filed = note({ id: "n1" as Note["id"], categoryId: home.id });
+    const loose = note({ id: "n2" as Note["id"] });
+    const orphan = note({ id: "n3" as Note["id"], categoryId: "gone" as Note["categoryId"] });
+    const groups = groupNotesByCategory([filed, loose, orphan], [work, home]);
+    expect(groups.map((group) => group.key)).toEqual([work.id, home.id, UNCATEGORISED_GROUP_KEY]);
+    expect(groups[0]?.notes).toEqual([]);
+    expect(groups[1]?.notes.map((entry) => entry.id)).toEqual([filed.id]);
+    // A note whose category vanished mid-stream reads as uncategorised, not lost.
+    expect(groups[2]?.notes.map((entry) => entry.id)).toEqual([loose.id, orphan.id]);
+  });
+
+  it("omits the uncategorised group when every note is filed", () => {
+    const groups = groupNotesByCategory([note({ categoryId: work.id })], [work]);
+    expect(groups.map((group) => group.key)).toEqual([work.id]);
+  });
+});
+
+describe("filterCategories / canCreateCategoryNamed", () => {
+  const all = [category("a", "Work"), category("b", "Homework")];
+  it("matches case-insensitively and offers creation only for unused names", () => {
+    expect(filterCategories(all, "  ").map((entry) => entry.id)).toEqual(["a", "b"]);
+    expect(filterCategories(all, "WORK").map((entry) => entry.id)).toEqual(["a", "b"]);
+    expect(filterCategories(all, "home").map((entry) => entry.id)).toEqual(["b"]);
+    expect(canCreateCategoryNamed(all, "work")).toBe(false);
+    expect(canCreateCategoryNamed(all, "Play ")).toBe(true);
+    expect(canCreateCategoryNamed(all, "")).toBe(false);
   });
 });

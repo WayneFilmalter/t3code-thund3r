@@ -1,6 +1,7 @@
 import {
   Note,
   NoteBody,
+  NoteCategoryId,
   NoteId,
   NoteTitle,
   NotesListResult,
@@ -28,9 +29,12 @@ const NOTES_ARE =
 const BODY_STYLE =
   "Write the body in GitHub-flavoured markdown: headings, bullet lists, and `- [ ]` task lines, which the panel renders as checkboxes.";
 
+const CATEGORY_ID_HINT =
+  "Id of an existing note category from t3_note_list; the panel groups notes under it.";
+
 const NoteListTool = Tool.make("t3_note_list", {
   ...shared,
-  description: `List every note, newest edit first, with full bodies. ${NOTES_ARE}`,
+  description: `List every note, newest edit first, with full bodies, and every note category. ${NOTES_ARE}`,
   // No `parameters`: Tool.make defaults to Tool.EmptyParams, which MCP accepts as an object root.
   success: NotesListResult,
 })
@@ -52,17 +56,21 @@ const NoteCreateTool = Tool.make("t3_note_create", {
   parameters: Schema.Struct({
     title: NoteTitle.annotate({ description: "Short title, at most 200 characters." }),
     body: NoteBody.annotate({ description: "Markdown body, at most 64 KB." }),
+    categoryId: Schema.optional(NoteCategoryId).annotate({ description: CATEGORY_ID_HINT }),
   }),
   success: Note,
 }).annotate(Tool.Destructive, false);
 
 const NoteUpdateTool = Tool.make("t3_note_update", {
   ...shared,
-  description: `Replace a note's title and/or body. Omitted fields keep their current value; a given body replaces the whole body, so read the note first and include what should stay. ${BODY_STYLE}`,
+  description: `Replace a note's title, body and/or category. Omitted fields keep their current value; a given body replaces the whole body, so read the note first and include what should stay. ${BODY_STYLE}`,
   parameters: Schema.Struct({
     noteId: NoteId,
     title: Schema.optional(NoteTitle),
     body: Schema.optional(NoteBody),
+    categoryId: Schema.optional(Schema.NullOr(NoteCategoryId)).annotate({
+      description: `${CATEGORY_ID_HINT} Pass null to take the note out of its category.`,
+    }),
   }),
   success: Note,
 }).annotate(Tool.Destructive, true);

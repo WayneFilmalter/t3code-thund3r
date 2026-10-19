@@ -6,6 +6,11 @@ import {
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import { LinearError, LinearIssuesListInput, LinearIssuesListResult } from "./linear.ts";
 import {
+  NoteCategory,
+  NoteCategoryCreateInput,
+  NoteCategoryDeleteInput,
+  NoteCategoryDeleteResult,
+  NoteCategoryUpdateInput,
   NoteCreateInput,
   NoteDeleteInput,
   NoteDeleteResult,
@@ -521,6 +526,9 @@ export const WS_METHODS = {
   notesCreate: "notes.create",
   notesUpdate: "notes.update",
   notesDelete: "notes.delete",
+  notesCategoryCreate: "notes.categoryCreate",
+  notesCategoryUpdate: "notes.categoryUpdate",
+  notesCategoryDelete: "notes.categoryDelete",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
@@ -953,6 +961,24 @@ const WsNotesUpdateRpc = Rpc.make(WS_METHODS.notesUpdate, {
 const WsNotesDeleteRpc = Rpc.make(WS_METHODS.notesDelete, {
   payload: NoteDeleteInput,
   success: NoteDeleteResult,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesCategoryCreateRpc = Rpc.make(WS_METHODS.notesCategoryCreate, {
+  payload: NoteCategoryCreateInput,
+  success: NoteCategory,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesCategoryUpdateRpc = Rpc.make(WS_METHODS.notesCategoryUpdate, {
+  payload: NoteCategoryUpdateInput,
+  success: NoteCategory,
+  error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
+});
+
+const WsNotesCategoryDeleteRpc = Rpc.make(WS_METHODS.notesCategoryDelete, {
+  payload: NoteCategoryDeleteInput,
+  success: NoteCategoryDeleteResult,
   error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
 });
 
@@ -1986,6 +2012,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsNotesCreateRpc,
   WsNotesUpdateRpc,
   WsNotesDeleteRpc,
+  WsNotesCategoryCreateRpc,
+  WsNotesCategoryUpdateRpc,
+  WsNotesCategoryDeleteRpc,
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,

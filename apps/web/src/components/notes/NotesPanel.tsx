@@ -5,6 +5,10 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   type Note,
+  type NoteCategory,
+  type NoteCategoryColor,
+  type NoteCategoryId,
+  type NoteId,
   type ScopedProjectRef,
   type ScopedThreadRef,
   type ThreadId,
@@ -36,12 +40,14 @@ import * as Option from "effect/Option";
 import { setMarkdownTaskChecked } from "../files/filePreviewMode";
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { NoteAgentPanel } from "./NoteAgentPanel";
+import { NoteCategoryDialog, type NoteCategoryDialogRequest } from "./NoteCategoryDialog";
 import { NoteEditor } from "./NoteEditor";
 import { NoteView, type NoteMenuAction } from "./NoteView";
 import { NotesListView } from "./NotesListView";
 import { draftNoteWithAgent } from "./notesAgent";
 import { findNote, noteWrittenByThread } from "./notesPanel.logic";
 import {
+  selectCollapsedGroups,
   selectNotesPanelState,
   useNotesPanelStore,
   type NoteDraft,
@@ -49,6 +55,10 @@ import {
 } from "./notesPanelStore";
 
 const EMPTY_INPUT = {};
+const NO_CATEGORIES: ReadonlyArray<NoteCategory> = [];
+
+/** The category dialog plus which note, if any, the new category should take. */
+type CategoryDialogState = NoteCategoryDialogRequest & { assignTo: NoteId | null };
 
 function NotesPanelBody(props: {
   environmentId: EnvironmentId;
@@ -61,6 +71,7 @@ function NotesPanelBody(props: {
   const liveAtom = serverEnvironment.notesLive({ environmentId, input: EMPTY_INPUT });
   const live = useEnvironmentQuery(liveAtom);
   const notes = live.data?.notes ?? null;
+  const categories = live.data?.categories ?? NO_CATEGORIES;
   const notesRef = useRef<ReadonlyArray<Note> | null>(null);
   useEffect(() => {
     notesRef.current = notes;
@@ -70,6 +81,16 @@ function NotesPanelBody(props: {
   const createNote = useAtomCommand(serverEnvironment.createNote, { label: "note" });
   const updateNote = useAtomCommand(serverEnvironment.updateNote, { label: "note" });
   const deleteNote = useAtomCommand(serverEnvironment.deleteNote, { label: "note" });
+  const createCategory = useAtomCommand(serverEnvironment.createNoteCategory, {
+    label: "category",
+  });
+  const updateCategory = useAtomCommand(serverEnvironment.updateNoteCategory, {
+    label: "category",
+  });
+  const deleteCategory = useAtomCommand(serverEnvironment.deleteNoteCategory, {
+    label: "category",
+  });
+  const [categoryDialog, setCategoryDialog] = useState<CategoryDialogState | null>(null);
   // The ref guards re-entry inside async handlers; the state drives the UI.
   const pendingRef = useRef(false);
   const [pending, setPendingState] = useState(false);
@@ -80,6 +101,9 @@ function NotesPanelBody(props: {
 
   const { mode, draft } = useNotesPanelStore((state) =>
     selectNotesPanelState(state.byEnvironment, environmentId),
+  );
+  const collapsedGroups = useNotesPanelStore((state) =>
+    selectCollapsedGroups(state.collapsedGroups, environmentId),
   );
   const setMode = useCallback(
     (next: NotesPanelMode) => useNotesPanelStore.getState().setMode(environmentId, next),
@@ -184,8 +208,50 @@ function NotesPanelBody(props: {
     if (result._tag === "Success") setMode({ kind: "list" });
   };
 
+  const setCategory = async (note: Note, categoryId: NoteCategoryId | null) => {
+    if (categoryId === note.categoryId || !mayWrite()) return;
+    await updateNote({ environmentId, input: { id: note.id, categoryId } });
+  };
+
+  const submitCategoryDialog = async (input: { name: string; color: NoteCategoryColor }) => {
+    if (categoryDialog === null || pendingRef.current || !mayWrite()) return;
+    setPending(true);
+    if (categoryDialog.kind === "create") {
+      const created = await createCategory({ environmentId, input });
+      if (created._tag === "Success" && categoryDialog.assignTo !== null) {
+        await updateNote({
+          environmentId,
+          input: { id: categoryDialog.assignTo, categoryId: created.value.id },
+        });
+      }
+      setPending(false);
+      if (created._tag === "Success") setCategoryDialog(null);
+      return;
+    }
+    const updated = await updateCategory({
+      environmentId,
+      input: { id: categoryDialog.category.id, ...input },
+    });
+    setPending(false);
+    if (updated._tag === "Success") setCategoryDialog(null);
+  };
+
+  const recolorCategory = async (category: NoteCategory, color: NoteCategoryColor) => {
+    if (color === category.color || !mayWrite()) return;
+    await updateCategory({ environmentId, input: { id: category.id, color } });
+  };
+
+  const removeCategory = async (category: NoteCategory) => {
+    const confirmed = await requestConfirmDialog(
+      `Delete the category "${category.name}"? Its notes stay, without a category.`,
+      { variant: "destructive" },
+    );
+    if (confirmed === false || !mayWrite()) return;
+    await deleteCategory({ environmentId, input: { id: category.id } });
+  };
+
   const handleMenuAction = (note: Note, action: NoteMenuAction) => {
-    switch (action) {
+    switch (action.kind) {
       case "edit":
         openEditor(note);
         return;
@@ -197,6 +263,12 @@ function NotesPanelBody(props: {
         return;
       case "delete":
         void removeNote(note);
+        return;
+      case "category":
+        void setCategory(note, action.categoryId);
+        return;
+      case "create-category":
+        setCategoryDialog({ kind: "create", name: action.name, assignTo: note.id });
         return;
     }
   };
@@ -278,6 +350,17 @@ function NotesPanelBody(props: {
     });
   };
 
+  const dialog =
+    categoryDialog === null ? null : (
+      <NoteCategoryDialog
+        key={categoryDialog.kind === "edit" ? categoryDialog.category.id : "new"}
+        request={categoryDialog}
+        saving={pending}
+        onSubmit={(input) => void submitCategoryDialog(input)}
+        onClose={() => setCategoryDialog(null)}
+      />
+    );
+
   if (mode.kind === "edit" && draft !== null) {
     return (
       <NoteEditor
@@ -311,27 +394,49 @@ function NotesPanelBody(props: {
   }
   if (mode.kind === "view" && viewed !== null) {
     return (
-      <NoteView
-        note={viewed}
-        environmentId={environmentId}
-        threadRef={props.threadRef}
-        canWrite={canWrite}
-        pending={pending}
-        onBack={() => setMode({ kind: "list" })}
-        onMenuAction={(action) => handleMenuAction(viewed, action)}
-        onTaskListChange={(input) => void toggleTask(viewed, input)}
-      />
+      <>
+        <NoteView
+          note={viewed}
+          categories={categories}
+          environmentId={environmentId}
+          threadRef={props.threadRef}
+          canWrite={canWrite}
+          pending={pending}
+          onBack={() => setMode({ kind: "list" })}
+          onMenuAction={(action) => handleMenuAction(viewed, action)}
+          onTaskListChange={(input) => void toggleTask(viewed, input)}
+        />
+        {dialog}
+      </>
     );
   }
   return (
-    <NotesListView
-      notes={notes}
-      error={live.error}
-      canWrite={canWrite}
-      onOpen={(note) => setMode({ kind: "view", noteId: note.id })}
-      onCreate={() => openEditor(null)}
-      onCreateWithAgent={() => setMode({ kind: "agent", noteId: null })}
-    />
+    <>
+      <NotesListView
+        notes={notes}
+        categories={categories}
+        collapsedGroups={collapsedGroups}
+        error={live.error}
+        canWrite={canWrite}
+        onOpen={(note) => setMode({ kind: "view", noteId: note.id })}
+        onCreate={() => openEditor(null)}
+        onCreateWithAgent={() => setMode({ kind: "agent", noteId: null })}
+        onToggleGroup={(groupKey) =>
+          useNotesPanelStore.getState().toggleGroupCollapsed(environmentId, groupKey)
+        }
+        onSetCategory={(note, categoryId) => void setCategory(note, categoryId)}
+        onCreateCategory={(name, assignTo) =>
+          setCategoryDialog({ kind: "create", name, assignTo: assignTo?.id ?? null })
+        }
+        onRenameCategory={(category) =>
+          setCategoryDialog({ kind: "edit", category, assignTo: null })
+        }
+        onRecolorCategory={(category, color) => void recolorCategory(category, color)}
+        onDeleteCategory={(category) => void removeCategory(category)}
+        onDelete={(note) => void removeNote(note)}
+      />
+      {dialog}
+    </>
   );
 }
 

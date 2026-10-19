@@ -54,7 +54,7 @@ const withNotesTools = <A, E>(
   scope: McpInvocationContext.McpInvocationScope,
   use: (
     call: (name: NoteToolName, params: Record<string, unknown>) => Effect.Effect<unknown, never>,
-  ) => Effect.Effect<A, E>,
+  ) => Effect.Effect<A, E, NotesService.NotesService>,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -66,6 +66,7 @@ const withNotesTools = <A, E>(
           ),
         ),
       );
+      // The test body may reach the service directly, e.g. to seed a category.
       return yield* use((name, params) =>
         toolkit.handle(name, params as never).pipe(
           Stream.unwrap,
@@ -74,7 +75,7 @@ const withNotesTools = <A, E>(
           Effect.map((results) => results.at(-1)?.result),
           Effect.orDie,
         ),
-      );
+      ).pipe(Effect.provide(dependencies));
     }),
   );
 
@@ -99,10 +100,44 @@ it.effect("a thread caller creates a note stamped with its own thread id", () =>
   ),
 );
 
+it.effect("a thread caller files a note under an existing category and can unfile it", () =>
+  withNotesTools(threadScope, (call) =>
+    Effect.gen(function* () {
+      const notes = yield* NotesService.NotesService;
+      const category = yield* notes.createCategory({ name: "Research", color: "teal" });
+      const note = (yield* call("t3_note_create", {
+        title: "Paper",
+        body: "",
+        categoryId: category.id,
+      })) as { id: string; categoryId: string | null };
+      assert.equal(note.categoryId, category.id);
+
+      const list = (yield* call("t3_note_list", {})) as {
+        categories: ReadonlyArray<{ id: string }>;
+      };
+      assert.deepEqual(
+        list.categories.map((entry) => entry.id),
+        [category.id],
+      );
+
+      const unfiled = (yield* call("t3_note_update", { noteId: note.id, categoryId: null })) as {
+        categoryId: string | null;
+      };
+      assert.isNull(unfiled.categoryId);
+
+      const refused = (yield* call("t3_note_update", {
+        noteId: note.id,
+        categoryId: "missing",
+      })) as { code?: string };
+      assert.equal(refused.code, "invalid_request");
+    }),
+  ),
+);
+
 it.effect("a read-only client lists notes but is refused a write", () =>
   withNotesTools(readOnlyClientScope, (call) =>
     Effect.gen(function* () {
-      assert.deepEqual(yield* call("t3_note_list", {}), { notes: [] });
+      assert.deepEqual(yield* call("t3_note_list", {}), { notes: [], categories: [] });
       const outcome = (yield* call("t3_note_create", { title: "Nope", body: "" })) as {
         code?: string;
       };

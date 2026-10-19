@@ -42,6 +42,7 @@ export const layer = McpToolAccess.toLayer(NotesToolkit, {
           title: input.title,
           body: input.body,
           ...(caller === undefined ? {} : { createdByThreadId: caller.id }),
+          ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
         })
         .pipe(Effect.mapError(notesFailure));
     }),
@@ -54,6 +55,7 @@ export const layer = McpToolAccess.toLayer(NotesToolkit, {
           id: input.noteId,
           ...(input.title === undefined ? {} : { title: input.title }),
           ...(input.body === undefined ? {} : { body: input.body }),
+          ...(input.categoryId === undefined ? {} : { categoryId: input.categoryId }),
         })
         .pipe(Effect.mapError(notesFailure));
     }),

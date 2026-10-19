@@ -1323,6 +1323,24 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
+    createNoteCategory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:category-create",
+      tag: WS_METHODS.notesCategoryCreate,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    updateNoteCategory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:category-update",
+      tag: WS_METHODS.notesCategoryUpdate,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    deleteNoteCategory: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:notes:category-delete",
+      tag: WS_METHODS.notesCategoryDelete,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",
       tag: WS_METHODS.scheduledTasksUpsert,
