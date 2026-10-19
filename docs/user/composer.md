@@ -58,10 +58,10 @@ are saved on the server and can be edited, reordered, or removed above the compo
 `Cmd+Enter` on macOS or `Ctrl+Enter` on Windows and Linux uses the opposite action:
 it steers when your default is Queue and queues when your default is Steer.
 
-Use `Cmd+Shift+Enter` on macOS or `Ctrl+Shift+Enter` on Windows and Linux to send
-the oldest queued message as a steer. This leaves the current draft intact and
-requires an active turn that supports steering. Change
-`thread.steerQueuedMessage` in **Settings → Keybindings** to use another shortcut.
+The oldest queued message can also be sent as a steer from the keyboard. This
+leaves the current draft intact and requires an active turn that supports
+steering. It has no default shortcut; assign one to `thread.steerQueuedMessage`
+in **Settings → Keybindings**.
 
 Press `Option+Up` on macOS or `Alt+Up` on Windows and Linux with the cursor at the
 start of the composer to edit the most recently queued message. Change

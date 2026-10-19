@@ -353,6 +353,28 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("hands mod+shift+enter from queued steering to the pane maximize toggle", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const when = "!terminalFocus";
+      const oldSteerDefault = {
+        key: "mod+shift+enter",
+        command: "thread.steerQueuedMessage",
+        when,
+      } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [oldSteerDefault]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.key === "mod+shift+enter"),
+        [{ key: "mod+shift+enter", command: "pane.toggleMaximized", when }],
+      );
+      assert.isFalse(persisted.some((entry) => entry.command === "thread.steerQueuedMessage"));
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("leaves a customized command without the late default", () =>
     Effect.gen(function* () {
       const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;

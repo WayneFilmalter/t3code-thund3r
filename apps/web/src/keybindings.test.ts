@@ -1454,24 +1454,30 @@ describe("composer and pull request shortcuts", () => {
     ["l", "composer.previousWorktree"],
     ["c", "thread.copyReference"],
     ["k", "pullRequest.copyNumber"],
-    ["Enter", "thread.steerQueuedMessage"],
+    ["Enter", "pane.toggleMaximized"],
   ] as const;
 
   it.each(["MacIntel", "Win32", "Linux"])(
-    "separates queued steering and background start on %s",
+    "separates pane maximize and background start on %s",
     (platform) => {
       const modifier = {
         metaKey: platform === "MacIntel",
         ctrlKey: platform !== "MacIntel",
       };
-      const queuedKey = event({ key: "Enter", shiftKey: true, ...modifier });
+      const maximizeKey = event({ key: "Enter", shiftKey: true, ...modifier });
       const backgroundKey = event({ key: "Enter", ...modifier });
       assert.strictEqual(
-        resolveShortcutCommand(queuedKey, DEFAULT_RESOLVED_KEYBINDINGS, {
+        resolveShortcutCommand(maximizeKey, DEFAULT_RESOLVED_KEYBINDINGS, {
           platform,
-          context: { terminalFocus: false, draftThreadRoute: false },
+          context: { terminalFocus: false, draftThreadRoute: false, composerFocus: true },
         }),
-        "thread.steerQueuedMessage",
+        "pane.toggleMaximized",
+      );
+      // Steering the queue has no default chord; the key is the pane toggle.
+      assert.isFalse(
+        DEFAULT_RESOLVED_KEYBINDINGS.some(
+          (binding) => binding.command === "thread.steerQueuedMessage",
+        ),
       );
       assert.strictEqual(
         resolveShortcutCommand(backgroundKey, DEFAULT_RESOLVED_KEYBINDINGS, {

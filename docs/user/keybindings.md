@@ -48,8 +48,11 @@ into a pane focuses it. Opening a thread — from the sidebar, `mod+1`–`mod+9`
 the command palette, or a new thread with `mod+n` — replaces the focused
 pane's thread, and opening a thread already shown in another pane focuses
 that pane instead. `ctrl+shift` plus an arrow key (Control on every platform)
-moves to the pane on that side, and `mod+w` closes the focused pane. Splitting and closing are also
-in the command palette, and all pane shortcuts are configurable under
+moves to the pane on that side, and `mod+w` closes the focused pane.
+`mod+shift+enter` maximizes the focused pane so it fills the chat area between
+the sidebars; press it again to bring the split back exactly as it was. While
+maximized, moving to another pane shows that pane instead. Splitting, closing,
+and maximizing are also in the command palette, and all pane shortcuts are configurable under
 **Navigation** in **Settings → Keybindings**. A split layout and the threads in
 it are saved, so reopening the app brings the same panes back; close the panes
 to return to a single view.

@@ -10,6 +10,7 @@ import type { useNavigate } from "@tanstack/react-router";
 import {
   findPaneInDirection,
   findPaneWithTarget,
+  layoutPaneRects,
   usePaneLayoutStore,
   type PaneFocusDirection,
   type PaneId,
@@ -82,22 +83,35 @@ export function openPaneDraftIds(paneTargets: PaneTargets): ReadonlySet<string> 
 /**
  * Focuses the pane on `direction`'s side of the focused one, measured from
  * the rendered panes, and moves keyboard focus into its composer so typing
- * follows. Returns false at an edge.
+ * follows. Returns false at an edge. While maximized the other panes are
+ * hidden, so the geometry comes from the tree and the big pane swaps; focus
+ * then waits a frame for the newly shown pane to render.
  */
 export function movePaneFocus(direction: PaneFocusDirection, root: ParentNode = document): boolean {
+  const store = usePaneLayoutStore.getState();
+  const rects = store.maximized ? layoutPaneRects(store.root) : measurePaneRects(root);
+  const nextPaneId = findPaneInDirection(rects, store.focusedPaneId, direction);
+  if (nextPaneId === null) return false;
+  store.focusPane(nextPaneId);
+  const focusComposer = () => {
+    const paneElement = root.querySelector<HTMLElement>(
+      `[data-pane-id="${CSS.escape(nextPaneId)}"]`,
+    );
+    const composer = paneElement?.querySelector<HTMLElement>('[data-testid="composer-editor"]');
+    (composer ?? paneElement)?.focus({ preventScroll: true });
+  };
+  if (store.maximized) requestAnimationFrame(focusComposer);
+  else focusComposer();
+  return true;
+}
+
+function measurePaneRects(root: ParentNode): Map<PaneId, PaneRect> {
   const rects = new Map<PaneId, PaneRect>();
   for (const element of root.querySelectorAll<HTMLElement>("[data-pane-id]")) {
     const paneId = element.dataset.paneId;
     if (paneId) rects.set(paneId, element.getBoundingClientRect());
   }
-  const store = usePaneLayoutStore.getState();
-  const nextPaneId = findPaneInDirection(rects, store.focusedPaneId, direction);
-  if (nextPaneId === null) return false;
-  store.focusPane(nextPaneId);
-  const paneElement = root.querySelector<HTMLElement>(`[data-pane-id="${CSS.escape(nextPaneId)}"]`);
-  const composer = paneElement?.querySelector<HTMLElement>('[data-testid="composer-editor"]');
-  (composer ?? paneElement)?.focus({ preventScroll: true });
-  return true;
+  return rects;
 }
 
 export type PaneUrlSync =

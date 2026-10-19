@@ -188,4 +188,32 @@ describe("movePaneFocus", () => {
     assert.strictEqual(state().focusedPaneId, added);
     assert.lengthOf(collectLeafIds(state().root), 2);
   });
+
+  it("while maximized, uses the tree's geometry and focuses the composer once it is shown", () => {
+    const original = state().focusedPaneId;
+    state().splitFocusedPane("row", null);
+    const added = state().focusedPaneId;
+    state().toggleMaximizedPane();
+    // Hidden panes measure as empty rects.
+    mountPanes({ [original]: { left: 0, right: 0 }, [added]: { left: 0, right: 1000 } });
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    try {
+      assert.isTrue(movePaneFocus("left"));
+      assert.strictEqual(state().focusedPaneId, original);
+      assert.isTrue(state().maximized);
+      assert.lengthOf(frames, 1);
+      frames[0]!(0);
+      assert.strictEqual(
+        document.activeElement,
+        container.querySelector(`[data-pane-id="${original}"] [data-testid="composer-editor"]`),
+      );
+      assert.isFalse(movePaneFocus("left"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

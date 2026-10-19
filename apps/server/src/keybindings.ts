@@ -149,6 +149,10 @@ const RETIRED_DEFAULT_KEYBINDINGS: ReadonlyArray<{
     id: "retire:pane.close:mod+alt+w",
     rule: { key: "mod+alt+w", command: "pane.close" },
   },
+  {
+    id: "retire:thread.steerQueuedMessage:mod+shift+enter",
+    rule: { key: "mod+shift+enter", command: "thread.steerQueuedMessage", when: "!terminalFocus" },
+  },
   ...(["left", "right", "up", "down"] as const).map((direction) => ({
     id: `retire:pane.focus.${direction}:mod+shift+arrow`,
     rule: {

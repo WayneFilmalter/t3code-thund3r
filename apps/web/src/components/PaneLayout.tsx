@@ -20,6 +20,7 @@ import { isTerminalFocused } from "../lib/terminalFocus";
 import { isModelPickerOpen } from "../modelPickerVisibility";
 import { movePaneFocus, navigateToPaneTarget, resolvePaneUrlSync } from "../paneLayoutActions";
 import {
+  paneExists,
   usePaneLayoutStore,
   type PaneFocusDirection,
   type PaneId,
@@ -40,6 +41,7 @@ type SplitNode = Extract<PaneNode, { type: "split" }>;
 export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget | null }) {
   const root = usePaneLayoutStore((state) => state.root);
   const focusedPaneId = usePaneLayoutStore((state) => state.focusedPaneId);
+  const maximized = usePaneLayoutStore((state) => state.maximized);
   const navigate = useNavigate();
   const [panelRow, setPanelRow] = useState<HTMLDivElement | null>(null);
   const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
@@ -78,7 +80,7 @@ export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget |
       <div ref={setPanelRow} className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <PanePanelPortalContext value={panelPortal}>
           <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <PaneTree node={root} />
+            <PaneTree node={root} maximizedPaneId={maximized ? focusedPaneId : null} />
           </div>
         </PanePanelPortalContext>
         <div ref={setPanelHost} className="relative flex min-h-0 shrink-0" />
@@ -95,9 +97,11 @@ const PANE_FOCUS_DIRECTIONS: Partial<Record<KeybindingCommand, PaneFocusDirectio
 };
 
 /**
- * Moves focus to the neighboring pane. Listens in the capture phase so the
- * composer and terminals cannot claim the chord first; mounted only while
- * split, so outside split panes the keys keep their native behavior.
+ * Moves focus to the neighboring pane and toggles the maximized pane. Listens
+ * in the capture phase so the composer and terminals cannot claim the chord
+ * first; mounted only while split, so outside split panes the keys keep their
+ * native behavior. A focused desktop browser page forwards the maximize chord
+ * as a menu action instead.
  */
 function usePaneFocusShortcuts() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -113,6 +117,12 @@ function usePaneFocusShortcuts() {
           paneSplit: true,
         },
       });
+      if (command === "pane.toggleMaximized") {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) usePaneLayoutStore.getState().toggleMaximizedPane();
+        return;
+      }
       const direction = command ? PANE_FOCUS_DIRECTIONS[command] : undefined;
       if (!direction) return;
       event.preventDefault();
@@ -122,16 +132,34 @@ function usePaneFocusShortcuts() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [keybindings]);
+  useEffect(() => {
+    return window.desktopBridge?.onMenuAction((action) => {
+      if (action === "pane.toggleMaximized") usePaneLayoutStore.getState().toggleMaximizedPane();
+    });
+  }, []);
 }
 
-function PaneTree({ node }: { node: PaneNode }) {
+function PaneTree({ node, maximizedPaneId }: { node: PaneNode; maximizedPaneId: PaneId | null }) {
   if (node.type === "leaf") {
-    return <PaneLeaf paneId={node.id} />;
+    return <PaneLeaf paneId={node.id} maximized={node.id === maximizedPaneId} />;
   }
-  return <PaneSplit node={node} />;
+  return <PaneSplit node={node} maximizedPaneId={maximizedPaneId} />;
 }
 
-function PaneSplit({ node }: { node: SplitNode }) {
+/**
+ * While a pane is maximized, the half that does not hold it is hidden with
+ * display:none rather than unmounted, so its views keep their state and the
+ * split's ratio is untouched for when the layout comes back.
+ */
+function PaneSplit({ node, maximizedPaneId }: { node: SplitNode; maximizedPaneId: PaneId | null }) {
+  const maximizedSide =
+    maximizedPaneId === null
+      ? null
+      : paneExists(node.first, maximizedPaneId)
+        ? "first"
+        : paneExists(node.second, maximizedPaneId)
+          ? "second"
+          : null;
   return (
     <div
       className={cn(
@@ -139,12 +167,18 @@ function PaneSplit({ node }: { node: SplitNode }) {
         node.direction === "row" ? "flex-row" : "flex-col",
       )}
     >
-      <div className="flex min-h-0 min-w-0 basis-0" style={{ flexGrow: node.ratio }}>
-        <PaneTree node={node.first} />
+      <div
+        className={cn(maximizedSide === "second" ? "hidden" : "flex", "min-h-0 min-w-0 basis-0")}
+        style={{ flexGrow: maximizedSide === null ? node.ratio : 1 }}
+      >
+        <PaneTree node={node.first} maximizedPaneId={maximizedPaneId} />
       </div>
-      <PaneDivider split={node} />
-      <div className="flex min-h-0 min-w-0 basis-0" style={{ flexGrow: 1 - node.ratio }}>
-        <PaneTree node={node.second} />
+      {maximizedSide === null ? <PaneDivider split={node} /> : null}
+      <div
+        className={cn(maximizedSide === "first" ? "hidden" : "flex", "min-h-0 min-w-0 basis-0")}
+        style={{ flexGrow: maximizedSide === null ? 1 - node.ratio : 1 }}
+      >
+        <PaneTree node={node.second} maximizedPaneId={maximizedPaneId} />
       </div>
     </div>
   );
@@ -213,7 +247,7 @@ function PaneDivider({ split }: { split: SplitNode }) {
   );
 }
 
-function PaneLeaf({ paneId }: { paneId: PaneId }) {
+function PaneLeaf({ paneId, maximized }: { paneId: PaneId; maximized: boolean }) {
   const focused = usePaneLayoutStore((state) => state.focusedPaneId === paneId);
   const target = usePaneLayoutStore((state) => state.paneTargets[paneId] ?? null);
   const navigate = useNavigate();
@@ -264,12 +298,13 @@ function PaneLeaf({ paneId }: { paneId: PaneId }) {
         )}
       </PaneFocusContext>
       {/* Drawn over the view, not as an inset ring: the view's own
-          background would paint over a box-shadow on this element. */}
+          background would paint over a box-shadow on this element. A
+          maximized pane is the only one visible, so it needs no ring. */}
       <div
         aria-hidden
         className={cn(
           "pointer-events-none absolute inset-0 z-30 rounded-xs border border-primary/40 transition-opacity duration-150",
-          focused ? "opacity-100" : "opacity-0",
+          focused && !maximized ? "opacity-100" : "opacity-0",
         )}
       />
     </div>

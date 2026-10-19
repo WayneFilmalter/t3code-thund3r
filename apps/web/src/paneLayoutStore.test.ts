@@ -9,6 +9,7 @@ import {
   findPaneInDirection,
   collectLeafIds,
   findPaneWithTarget,
+  layoutPaneRects,
   resetPaneLayoutForTesting,
   restorePersistedPaneLayout,
   usePaneLayoutStore,
@@ -108,6 +109,34 @@ describe("paneLayoutStore", () => {
     assert.isNull(findPaneWithTarget(state().root, state().paneTargets, serverTarget("thread-3")));
   });
 
+  it("toggleMaximizedPane flips while split and is a no-op on a lone pane", () => {
+    state().toggleMaximizedPane();
+    assert.isFalse(state().maximized);
+    state().splitFocusedPane("row", null);
+    state().toggleMaximizedPane();
+    assert.isTrue(state().maximized);
+    state().toggleMaximizedPane();
+    assert.isFalse(state().maximized);
+  });
+
+  it("maximize keeps the tree and follows focus; split and close restore the layout", () => {
+    const original = state().focusedPaneId;
+    state().splitFocusedPane("row", serverTarget("thread-1"));
+    state().setSplitRatio(state().root.id, 0.3);
+    const rootBefore = state().root;
+    state().toggleMaximizedPane();
+    state().focusPane(original);
+    assert.isTrue(state().maximized);
+    assert.strictEqual(state().root, rootBefore);
+
+    state().splitFocusedPane("column", null);
+    assert.isFalse(state().maximized);
+    state().toggleMaximizedPane();
+    state().closeFocusedPane();
+    assert.isFalse(state().maximized);
+    assert.deepEqual(state().root, rootBefore);
+  });
+
   it("setPaneTarget with an equal target keeps the same state object", () => {
     const original = state().focusedPaneId;
     state().splitFocusedPane("row", serverTarget("thread-1"));
@@ -169,9 +198,36 @@ function leaf(id: string): PaneNode {
   return { type: "leaf", id };
 }
 
-function split(id: string, first: PaneNode, second: PaneNode, ratio = 0.5): PaneNode {
-  return { type: "split", id, direction: "row", ratio, first, second };
+function split(
+  id: string,
+  first: PaneNode,
+  second: PaneNode,
+  ratio = 0.5,
+  direction: "row" | "column" = "row",
+): PaneNode {
+  return { type: "split", id, direction, ratio, first, second };
 }
+
+describe("layoutPaneRects", () => {
+  it("lays panes out from the tree so directional focus works without the DOM", () => {
+    // [ left | top-right / bottom-right ]
+    const root = split(
+      "s1",
+      leaf("left"),
+      split("s2", leaf("topRight"), leaf("bottomRight"), 0.25, "column"),
+      0.4,
+    );
+    const rects = layoutPaneRects(root, 1000);
+    assert.deepEqual(rects.get("left"), { left: 0, top: 0, right: 400, bottom: 1000 });
+    assert.deepEqual(rects.get("topRight"), { left: 400, top: 0, right: 1000, bottom: 250 });
+    assert.deepEqual(rects.get("bottomRight"), { left: 400, top: 250, right: 1000, bottom: 1000 });
+    // Both right-hand panes touch the left one; the taller bottom pane's centre lines up best.
+    assert.strictEqual(findPaneInDirection(rects, "left", "right"), "bottomRight");
+    assert.strictEqual(findPaneInDirection(rects, "topRight", "down"), "bottomRight");
+    assert.strictEqual(findPaneInDirection(rects, "bottomRight", "left"), "left");
+    assert.isNull(findPaneInDirection(rects, "left", "left"));
+  });
+});
 
 describe("restorePersistedPaneLayout", () => {
   const savedLayout = {
@@ -183,9 +239,12 @@ describe("restorePersistedPaneLayout", () => {
     } satisfies Record<string, ThreadRouteTarget>,
   };
 
-  it("restores a saved split with its targets and focus", () => {
+  it("restores a saved split with its targets and focus; older saves are not maximized", () => {
     const restored = restorePersistedPaneLayout({ layout: savedLayout });
-    assert.deepEqual(restored, savedLayout);
+    assert.deepEqual(restored, { ...savedLayout, maximized: false });
+    assert.isTrue(
+      restorePersistedPaneLayout({ layout: { ...savedLayout, maximized: true } })?.maximized,
+    );
   });
 
   it.each([
@@ -273,8 +332,11 @@ describe("paneLayoutStore persistence", () => {
   it("saves the layout while split and clears it once a lone pane remains", async () => {
     const { storage, name } = usePaneLayoutStore.persist.getOptions();
     state().splitFocusedPane("row", serverTarget("thread-1"));
-    const saved = (await storage!.getItem(name!)) as { state: { layout: unknown } };
-    assert.isNotNull(saved.state.layout);
+    state().toggleMaximizedPane();
+    const saved = (await storage!.getItem(name!)) as {
+      state: { layout: { maximized?: boolean } | null };
+    };
+    assert.isTrue(saved.state.layout?.maximized);
     state().closeFocusedPane();
     const cleared = (await storage!.getItem(name!)) as { state: { layout: unknown } };
     assert.isNull(cleared.state.layout);

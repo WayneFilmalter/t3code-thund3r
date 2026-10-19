@@ -9,6 +9,8 @@
  * and this store is dormant; pane targets are re-seeded from the URL on split.
  * A split layout is saved to local storage and comes back on the next launch;
  * a lone pane saves nothing, so closing the panes also forgets them.
+ * `maximized` shows only the focused pane; the tree underneath is untouched, so
+ * toggling it off restores the exact split, and focus moves swap the big pane.
  */
 import { ScopedThreadRef } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -138,9 +140,13 @@ export interface PaneLayoutStore {
   focusPane: (paneId: PaneId) => void;
   setPaneTarget: (paneId: PaneId, target: ThreadRouteTarget | null) => void;
   setSplitRatio: (splitId: string, ratio: number) => void;
+  /** Only the focused pane is shown while true; the split tree stays as it is. */
+  maximized: boolean;
+  /** Fills the chat area with the focused pane, or restores the split. No-op on a lone pane. */
+  toggleMaximizedPane: () => void;
 }
 
-function paneExists(node: PaneNode, paneId: PaneId): boolean {
+export function paneExists(node: PaneNode, paneId: PaneId): boolean {
   if (node.type === "leaf") return node.id === paneId;
   return paneExists(node.first, paneId) || paneExists(node.second, paneId);
 }
@@ -212,7 +218,36 @@ export function findPaneInDirection(
   return best?.id ?? null;
 }
 
-type PaneLayoutState = Pick<PaneLayoutStore, "root" | "focusedPaneId" | "paneTargets">;
+/**
+ * Pane rects laid out from the tree's ratios on a `size` square, for directional
+ * focus while a maximized pane hides the others (their DOM rects are all zero).
+ * The large canvas keeps findPaneInDirection's pixel tolerance negligible.
+ */
+export function layoutPaneRects(root: PaneNode, size = 10_000): Map<PaneId, PaneRect> {
+  const rects = new Map<PaneId, PaneRect>();
+  const visit = (node: PaneNode, rect: PaneRect) => {
+    if (node.type === "leaf") {
+      rects.set(node.id, rect);
+      return;
+    }
+    if (node.direction === "row") {
+      const x = rect.left + (rect.right - rect.left) * node.ratio;
+      visit(node.first, { ...rect, right: x });
+      visit(node.second, { ...rect, left: x });
+    } else {
+      const y = rect.top + (rect.bottom - rect.top) * node.ratio;
+      visit(node.first, { ...rect, bottom: y });
+      visit(node.second, { ...rect, top: y });
+    }
+  };
+  visit(root, { left: 0, top: 0, right: size, bottom: size });
+  return rects;
+}
+
+type PaneLayoutState = Pick<
+  PaneLayoutStore,
+  "root" | "focusedPaneId" | "paneTargets" | "maximized"
+>;
 
 function createInitialState(): PaneLayoutState {
   const id = nextId("pane");
@@ -220,6 +255,7 @@ function createInitialState(): PaneLayoutState {
     root: { type: "leaf", id },
     focusedPaneId: id,
     paneTargets: {},
+    maximized: false,
   };
 }
 
@@ -247,6 +283,7 @@ const PersistedPaneLayout = Schema.Struct({
   root: PersistedPaneNode,
   focusedPaneId: Schema.String,
   paneTargets: Schema.Record(Schema.String, Schema.NullOr(PersistedPaneTarget)),
+  maximized: Schema.optional(Schema.Boolean),
 });
 
 /** What the store writes: the layout while split, nothing once it is a lone pane. */
@@ -296,6 +333,7 @@ export function restorePersistedPaneLayout(persisted: unknown): PaneLayoutState 
       ? layout.focusedPaneId
       : firstLeafId(root),
     paneTargets,
+    maximized: layout.maximized === true,
   };
 }
 
@@ -317,6 +355,7 @@ export const usePaneLayoutStore = create<PaneLayoutStore>()(
           const newLeaf = { type: "leaf", id: nextId("pane") } as const;
           const root = splitLeafNode(state.root, state.focusedPaneId, direction, newLeaf);
           if (!root) return state;
+          // The new pane should appear beside the old one, not alone.
           return {
             root,
             focusedPaneId: newLeaf.id,
@@ -325,6 +364,7 @@ export const usePaneLayoutStore = create<PaneLayoutStore>()(
               [state.focusedPaneId]: currentTarget,
               [newLeaf.id]: null,
             },
+            maximized: false,
           };
         });
       },
@@ -335,8 +375,13 @@ export const usePaneLayoutStore = create<PaneLayoutStore>()(
           if (!root) return state;
           const paneTargets = { ...state.paneTargets };
           delete paneTargets[state.focusedPaneId];
-          return { root, focusedPaneId: firstLeafId(root), paneTargets };
+          // Closing the big pane reveals what is left.
+          return { root, focusedPaneId: firstLeafId(root), paneTargets, maximized: false };
         });
+      },
+
+      toggleMaximizedPane: () => {
+        set((state) => (state.root.type === "leaf" ? state : { maximized: !state.maximized }));
       },
 
       focusPane: (paneId) => {
@@ -377,6 +422,7 @@ export const usePaneLayoutStore = create<PaneLayoutStore>()(
                 root: state.root,
                 focusedPaneId: state.focusedPaneId,
                 paneTargets: state.paneTargets,
+                maximized: state.maximized,
               }
             : null,
       }),

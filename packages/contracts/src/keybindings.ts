@@ -77,6 +77,7 @@ export const STATIC_KEYBINDING_COMMANDS = [
   "pane.focusRight",
   "pane.focusUp",
   "pane.focusDown",
+  "pane.toggleMaximized",
   "view.reopenClosed",
   "pullRequest.copyNumber",
   "diff.toggle",

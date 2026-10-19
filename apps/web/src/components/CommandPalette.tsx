@@ -69,7 +69,9 @@ import {
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
+  Maximize2Icon,
   MessageSquareIcon,
+  Minimize2Icon,
   MonitorIcon,
   MoonIcon,
   NotebookPenIcon,
@@ -657,6 +659,7 @@ function OpenCommandPaletteDialog(props: {
     select: (params) => resolveThreadRouteTarget(params),
   });
   const paneLayoutSplit = usePaneLayoutStore((state) => state.root.type === "split");
+  const paneMaximized = usePaneLayoutStore((state) => state.maximized);
   const projects = useProjects();
   const referenceThreadRef =
     pathname === "/pull-requests"
@@ -1920,15 +1923,30 @@ function OpenCommandPaletteDialog(props: {
     },
   );
   if (paneLayoutSplit) {
-    actionItems.push({
-      kind: "action",
-      value: "action:pane-close",
-      searchTerms: ["close", "pane", "split", "unsplit"],
-      title: "Close pane",
-      icon: <SquareXIcon className={ITEM_ICON_CLASS} />,
-      shortcutCommand: "pane.close",
-      run: async () => closeFocusedPane(navigate),
-    });
+    actionItems.push(
+      {
+        kind: "action",
+        value: "action:pane-toggle-maximized",
+        searchTerms: ["maximize", "zoom", "restore", "pane", "split", "focus"],
+        title: paneMaximized ? "Restore pane layout" : "Maximize pane",
+        icon: paneMaximized ? (
+          <Minimize2Icon className={ITEM_ICON_CLASS} />
+        ) : (
+          <Maximize2Icon className={ITEM_ICON_CLASS} />
+        ),
+        shortcutCommand: "pane.toggleMaximized",
+        run: async () => usePaneLayoutStore.getState().toggleMaximizedPane(),
+      },
+      {
+        kind: "action",
+        value: "action:pane-close",
+        searchTerms: ["close", "pane", "split", "unsplit"],
+        title: "Close pane",
+        icon: <SquareXIcon className={ITEM_ICON_CLASS} />,
+        shortcutCommand: "pane.close",
+        run: async () => closeFocusedPane(navigate),
+      },
+    );
   }
 
   // Read once per open: the palette is a snapshot of the composer, not a live view of it.
