@@ -2292,10 +2292,12 @@ export default function ChatView(props: ChatViewProps) {
   );
   // Electron hosts its own browser tabs; other clients need the environment to host them.
   const browserAvailable = isPreviewSupportedInRuntime() || activeEnvironmentServerBrowser;
-  const previewPanelInlineSize = usePreviewPanelInlineSize(undefined, {
-    container: panePanelPortal?.row ?? workspaceLayoutElement,
-    // One width for every thread and pane: switching threads or focus never resizes the panel.
+  // One width for every thread and pane: switching threads or focus never resizes
+  // the panel. Split panes size their shared panel from the layout's own hook.
+  const ownPreviewPanelInlineSize = usePreviewPanelInlineSize(undefined, {
+    container: panePanelPortal === null ? workspaceLayoutElement : null,
   });
+  const previewPanelInlineSize = panePanelPortal?.inlineSize ?? ownPreviewPanelInlineSize;
   const activeThreadShell = useThreadShell(isServerThread ? activeThreadRef : null);
   const timelineThreadError =
     serverRuntime?.status === "failed" &&

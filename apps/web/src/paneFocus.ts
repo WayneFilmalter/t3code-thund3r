@@ -10,6 +10,8 @@
  */
 import { createContext, use, useSyncExternalStore } from "react";
 
+import type { PreviewPanelInlineSize } from "./hooks/usePreviewPanelInlineSize";
+
 export interface PaneFocusHandle {
   isFocused: () => boolean;
   /** Notifies on pane focus changes. Never fires outside split panes. */
@@ -29,12 +31,15 @@ export function usePaneFocusHandle(): PaneFocusHandle {
 
 /**
  * Where split panes host the single right panel: `host` sits beside the split
- * tree and `row` spans the tree plus the panel, for width clamping. Null
- * outside split panes, where each view renders its panel inline.
+ * tree and `row` spans the tree plus the panel, for width clamping. The layout
+ * owns the panel's one width in `inlineSize`, so every pane's view sizes the
+ * panel the same way. Null outside split panes, where each view renders its
+ * panel inline.
  */
 export interface PanePanelPortal {
   readonly host: HTMLElement | null;
   readonly row: HTMLElement | null;
+  readonly inlineSize: PreviewPanelInlineSize;
 }
 
 export const PanePanelPortalContext = createContext<PanePanelPortal | null>(null);

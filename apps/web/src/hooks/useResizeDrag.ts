@@ -1,4 +1,4 @@
-import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 interface ResizeSession {
   width: number;
@@ -24,6 +24,11 @@ export function useResizeDrag<T extends HTMLElement>(
     moved: boolean;
     frame: number | null;
   } | null>(null);
+  // Read at pointer-down so the returned handlers keep one identity across renders.
+  const startRef = useRef(start);
+  useLayoutEffect(() => {
+    startRef.current = start;
+  });
 
   const flush = useCallback(() => {
     const active = drag.current;
@@ -73,56 +78,57 @@ export function useResizeDrag<T extends HTMLElement>(
     };
   }, [finish]);
 
-  const end = (event: PointerEvent<T>, usePosition: boolean) => {
-    const active = drag.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    if (usePosition) active.pendingX = event.clientX;
-    finish();
-  };
-
-  return {
-    /** Re-applies the pointer position to an active drag, e.g. after its bounds change. */
-    refresh: flush,
-    onPointerDown(event: PointerEvent<T>) {
-      if (event.button !== 0 || drag.current) return;
-      const session = start(event);
-      if (!session) return;
-      try {
-        event.currentTarget.setPointerCapture(event.pointerId);
-      } catch {
-        session.cleanup?.(false);
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      drag.current = {
-        session,
-        target: event.currentTarget,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        pendingX: event.clientX,
-        width: session.width,
-        moved: false,
-        frame: null,
-      };
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    onPointerMove(event: PointerEvent<T>) {
+  return useMemo(() => {
+    const end = (event: PointerEvent<T>, usePosition: boolean) => {
       const active = drag.current;
       if (!active || active.pointerId !== event.pointerId) return;
       event.preventDefault();
-      active.pendingX = event.clientX;
-      active.moved ||= Math.abs(event.clientX - active.startX) > 2;
-      if (active.frame !== null) return;
-      active.frame = requestAnimationFrame(() => {
-        active.frame = null;
-        flush();
-      });
-    },
-    onPointerUp: (event: PointerEvent<T>) => end(event, true),
-    onPointerCancel: (event: PointerEvent<T>) => end(event, false),
-    onLostPointerCapture: (event: PointerEvent<T>) => end(event, false),
-  };
+      if (usePosition) active.pendingX = event.clientX;
+      finish();
+    };
+    return {
+      /** Re-applies the pointer position to an active drag, e.g. after its bounds change. */
+      refresh: flush,
+      onPointerDown(event: PointerEvent<T>) {
+        if (event.button !== 0 || drag.current) return;
+        const session = startRef.current(event);
+        if (!session) return;
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          session.cleanup?.(false);
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        drag.current = {
+          session,
+          target: event.currentTarget,
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          pendingX: event.clientX,
+          width: session.width,
+          moved: false,
+          frame: null,
+        };
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      },
+      onPointerMove(event: PointerEvent<T>) {
+        const active = drag.current;
+        if (!active || active.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        active.pendingX = event.clientX;
+        active.moved ||= Math.abs(event.clientX - active.startX) > 2;
+        if (active.frame !== null) return;
+        active.frame = requestAnimationFrame(() => {
+          active.frame = null;
+          flush();
+        });
+      },
+      onPointerUp: (event: PointerEvent<T>) => end(event, true),
+      onPointerCancel: (event: PointerEvent<T>) => end(event, false),
+      onLostPointerCapture: (event: PointerEvent<T>) => end(event, false),
+    };
+  }, [finish, flush]);
 }

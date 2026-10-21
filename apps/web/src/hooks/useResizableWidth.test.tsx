@@ -287,4 +287,13 @@ describe("shared panel width", () => {
     expect(other?.width).toBe(460);
     await act(() => otherRenderer?.unmount());
   });
+
+  it("keeps one result identity across renders that leave the width alone", async () => {
+    const before = result;
+    await act(() => renderer.update(<Panel />));
+    expect(result).toBe(before);
+    await act(() => renderer.update(<Panel maxWidth={300} />));
+    expect(result.width).toBe(300);
+    expect(result.handlers).toBe(before.handlers);
+  });
 });

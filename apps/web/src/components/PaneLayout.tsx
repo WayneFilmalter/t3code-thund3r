@@ -13,6 +13,7 @@ import { ThreadRouteView } from "./ThreadRouteView";
 import { SidebarInset } from "./ui/sidebar";
 import type { KeybindingCommand } from "@t3tools/contracts";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
+import { usePreviewPanelInlineSize } from "../hooks/usePreviewPanelInlineSize";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { isEditableFocused } from "../lib/editableFocus";
 import { isPreviewFocused } from "../lib/previewFocus";
@@ -45,9 +46,12 @@ export function PaneLayout({ threadTarget }: { threadTarget: ThreadRouteTarget |
   const navigate = useNavigate();
   const [panelRow, setPanelRow] = useState<HTMLDivElement | null>(null);
   const [panelHost, setPanelHost] = useState<HTMLDivElement | null>(null);
+  // One width for the one panel: a view sizing it from its own state would let
+  // panes drift apart, e.g. a width measured while that pane was hidden.
+  const inlineSize = usePreviewPanelInlineSize(undefined, { container: panelRow });
   const panelPortal = useMemo<PanePanelPortal>(
-    () => ({ host: panelHost, row: panelRow }),
-    [panelHost, panelRow],
+    () => ({ host: panelHost, row: panelRow, inlineSize }),
+    [inlineSize, panelHost, panelRow],
   );
 
   // Keeps the URL and the focused pane pointing at the same thread; see

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -64,10 +65,12 @@ export interface ResizableWidthHandlers {
  * re-rendering the owner. `width` state and localStorage commit once when the
  * user lifts the pointer or the drag is interrupted.
  */
-export function useResizableWidth(options: UseResizableWidthOptions): {
+export interface ResizableWidth {
   readonly width: number;
   readonly handlers: ResizableWidthHandlers;
-} {
+}
+
+export function useResizableWidth(options: UseResizableWidthOptions): ResizableWidth {
   const { storageKey, defaultWidth, minWidth, maxWidth, edge } = options;
 
   const clamp = useCallback(
@@ -116,7 +119,7 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
     latestOptions.current = { clamp, storageKey, width: clampedWidth };
   }, [clamp, clampedWidth, storageKey]);
 
-  const { refresh, ...handlers } = useResizeDrag<HTMLElement>((event) => {
+  const drag = useResizeDrag<HTMLElement>((event) => {
     const host = event.currentTarget.parentElement;
     // A collapsible host animates width; live drag writes must not. The host
     // renders its own transition-duration, so override a property it leaves alone.
@@ -151,7 +154,12 @@ export function useResizableWidth(options: UseResizableWidthOptions): {
 
   // Bounds can change mid-drag (sidebar opens, window narrows) and the render
   // rewrites the committed width, so re-apply the live pointer position.
-  useLayoutEffect(refresh, [clamp, clampedWidth, refresh]);
+  useLayoutEffect(drag.refresh, [clamp, clampedWidth, drag.refresh]);
 
-  return { width: clampedWidth, handlers };
+  // Stable while nothing changed, so a context carrying it does not re-render its readers.
+  const handlers = useMemo(() => {
+    const { refresh: _refresh, ...rest } = drag;
+    return rest;
+  }, [drag]);
+  return useMemo(() => ({ width: clampedWidth, handlers }), [clampedWidth, handlers]);
 }
