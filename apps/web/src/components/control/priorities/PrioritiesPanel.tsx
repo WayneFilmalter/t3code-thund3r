@@ -241,7 +241,7 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
       {notice !== null ? (
         <PanelMessage>{notice}</PanelMessage>
       ) : (
-        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2 *:shrink-0">
           {linearNotice !== null ? (
             <li className="px-1 text-xs text-muted-foreground">{linearNotice}</li>
           ) : null}
