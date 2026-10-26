@@ -81,6 +81,9 @@ export const LinearStateType = Schema.Literals([
 ]);
 export type LinearStateType = typeof LinearStateType.Type;
 
+export const LinearPullRequestState = Schema.Literals(["open", "draft", "merged", "closed"]);
+export type LinearPullRequestState = typeof LinearPullRequestState.Type;
+
 export const LinearTicket = Schema.Struct({
   ...LinearIssue.fields,
   stateType: LinearStateType,
@@ -88,6 +91,8 @@ export const LinearTicket = Schema.Struct({
   stateColor: Schema.String,
   /** The ticket's linked GitHub pull request, preferring an open one. */
   pullRequestUrl: Schema.NullOr(Schema.String),
+  /** That pull request's state, or null without one. */
+  pullRequestState: Schema.NullOr(LinearPullRequestState),
   /** When someone other than the API key's owner last commented. */
   latestOthersCommentAt: Schema.NullOr(Schema.String),
   /** The API key's owner is @-mentioned in the description or in someone else's comment. */

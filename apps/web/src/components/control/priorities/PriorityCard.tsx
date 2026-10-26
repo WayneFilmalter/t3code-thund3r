@@ -9,6 +9,7 @@ import {
   CommentBox,
   CommentToggle,
   DoneButton,
+  TicketBranchIcon,
   TicketLinks,
   TicketPriorityBadge,
   TicketStateChip,
@@ -63,6 +64,7 @@ export function PriorityCard(props: {
               {ticket.identifier}
             </span>
             <TicketStateChip ticket={ticket} />
+            <TicketBranchIcon ticket={ticket} />
             <TicketPriorityBadge ticket={ticket} />
           </span>
         </button>

@@ -1,5 +1,6 @@
 import {
   LinearError,
+  type LinearPullRequestState,
   type LinearStateType,
   type LinearTicket,
   type LinearTicketComment,
@@ -102,20 +103,37 @@ const STATE_TYPES: ReadonlySet<string> = new Set<LinearStateType>([
 const PULL_REQUEST_URL = /^https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+/;
 
 /** Open beats draft beats merged beats closed: the request still worth opening wins. */
-const PULL_REQUEST_RANK: Record<string, number> = { open: 0, draft: 1, merged: 2, closed: 3 };
+const PULL_REQUEST_RANK: Record<LinearPullRequestState, number> = {
+  open: 0,
+  draft: 1,
+  merged: 2,
+  closed: 3,
+};
+
+/**
+ * GitHub's state from a Linear attachment's metadata. Linear reports a draft
+ * as `status: "open"` with `draft: true`; an unreadable status counts as open.
+ */
+function readPullRequestState(metadata: Record<string, unknown>): LinearPullRequestState {
+  const status = (readString(metadata.status) ?? readString(metadata.state) ?? "").toLowerCase();
+  if (status === "merged" || status === "closed" || status === "draft") return status;
+  return metadata.draft === true ? "draft" : "open";
+}
 
 /** The linked GitHub pull request most worth opening, from the issue's attachments. */
-export function pickPullRequestUrl(attachments: unknown): string | null {
-  let best: { url: string; rank: number } | null = null;
+export function pickPullRequest(
+  attachments: unknown,
+): { readonly url: string; readonly state: LinearPullRequestState } | null {
+  let best: { url: string; state: LinearPullRequestState } | null = null;
   for (const attachment of readNodes(attachments)) {
     const url = readString(attachment.url);
     if (url === null || !PULL_REQUEST_URL.test(url)) continue;
-    const metadata = isRecord(attachment.metadata) ? attachment.metadata : {};
-    const status = (readString(metadata.status) ?? readString(metadata.state) ?? "").toLowerCase();
-    const rank = PULL_REQUEST_RANK[status] ?? 1;
-    if (best === null || rank < best.rank) best = { url, rank };
+    const state = readPullRequestState(isRecord(attachment.metadata) ? attachment.metadata : {});
+    if (best === null || PULL_REQUEST_RANK[state] < PULL_REQUEST_RANK[best.state]) {
+      best = { url, state };
+    }
   }
-  return best?.url ?? null;
+  return best;
 }
 
 /** The newest comment written by someone other than the API key's owner. */
@@ -161,6 +179,7 @@ export function mapTicket(node: unknown, viewerHandle: string | null = null): Li
   if (id === null || identifier === null) return null;
   const state = isRecord(node.state) ? node.state : {};
   const stateType = readString(state.type);
+  const pullRequest = pickPullRequest(node.attachments);
   return {
     id,
     identifier,
@@ -173,7 +192,8 @@ export function mapTicket(node: unknown, viewerHandle: string | null = null): Li
     stateType:
       stateType !== null && STATE_TYPES.has(stateType) ? (stateType as LinearStateType) : "unknown",
     stateColor: readString(state.color) ?? "#8a8f98",
-    pullRequestUrl: pickPullRequestUrl(node.attachments),
+    pullRequestUrl: pullRequest?.url ?? null,
+    pullRequestState: pullRequest?.state ?? null,
     latestOthersCommentAt: latestOthersCommentAt(node.comments),
     mentionsViewer: ticketMentionsViewer(node, viewerHandle),
   };

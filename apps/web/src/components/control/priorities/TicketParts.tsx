@@ -1,10 +1,11 @@
 import type { EnvironmentId, LinearTicket } from "@t3tools/contracts";
 import { GitBranch, Link } from "lucide";
-import { CircleCheckIcon, SendIcon } from "lucide-react";
+import { CircleCheckIcon, GitBranchIcon, SendIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactElement, useState } from "react";
 
 import { useOpenLink } from "~/browser/useOpenLink";
 import { GitHubIcon } from "~/components/Icons";
+import { PULL_REQUEST_STATE_PRESENTATION } from "~/components/pullRequest/pullRequestIcons";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
@@ -12,6 +13,7 @@ import { toastManager } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { linearEnvironment } from "~/state/linear";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { cn } from "~/lib/utils";
 
 import { LinearCopyButton } from "../../linear/LinearCopyButton";
 import { PRIORITY_LABELS } from "../../linear/linearPanel.logic";
@@ -39,6 +41,56 @@ export function TicketStateChip({
       />
       {ticket.stateName}
     </span>
+  );
+}
+
+/**
+ * The ticket's pull request at a glance, in GitHub's colours: a grey branch
+ * without one, green while open (drafts included), purple once merged, red
+ * when closed unmerged.
+ */
+const BRANCH_TONES: Record<
+  LinearTicket["pullRequestState"] & string,
+  { label: string; className: string }
+> = {
+  open: {
+    label: "Pull request open",
+    className: PULL_REQUEST_STATE_PRESENTATION.open.toneClassName,
+  },
+  draft: {
+    label: "Draft pull request open",
+    className: PULL_REQUEST_STATE_PRESENTATION.open.toneClassName,
+  },
+  merged: {
+    label: "Pull request merged",
+    className: PULL_REQUEST_STATE_PRESENTATION.merged.toneClassName,
+  },
+  closed: {
+    label: "Pull request closed",
+    className: PULL_REQUEST_STATE_PRESENTATION.closed.toneClassName,
+  },
+};
+
+export function TicketBranchIcon({ ticket }: { ticket: Pick<LinearTicket, "pullRequestState"> }) {
+  const state = ticket.pullRequestState;
+  const tone =
+    state === null
+      ? { label: "No pull request", className: "text-muted-foreground" }
+      : BRANCH_TONES[state];
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <GitBranchIcon
+            aria-label={tone.label}
+            className={cn("size-3.5 shrink-0", tone.className)}
+          />
+        }
+      />
+      <TooltipPopup>
+        <p>{tone.label}</p>
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -91,7 +143,7 @@ export function CommentToggle(props: { allowed: boolean; open: boolean; onToggle
     <Button
       type="button"
       size="xs"
-      variant="ghost-muted"
+      variant="outline"
       aria-pressed={props.open}
       disabled={!props.allowed}
       title={props.allowed ? undefined : "This connection cannot comment"}

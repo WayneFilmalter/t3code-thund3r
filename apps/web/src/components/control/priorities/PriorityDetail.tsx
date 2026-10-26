@@ -14,6 +14,7 @@ import { useEscapeBack } from "../useEscapeBack";
 import {
   CommentBox,
   DoneButton,
+  TicketBranchIcon,
   TicketLinks,
   TicketPriorityBadge,
   TicketStateChip,
@@ -82,6 +83,7 @@ export function PriorityDetail(props: {
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <TicketStateChip ticket={ticket} />
+            <TicketBranchIcon ticket={ticket} />
             <TicketPriorityBadge ticket={ticket} />
             {full?.assigneeName ? <span>· {full.assigneeName}</span> : null}
             <span className="ml-auto">

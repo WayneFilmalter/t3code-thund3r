@@ -7,7 +7,7 @@ import {
   mapTicket,
   mapTicketDetail,
   mentionsHandle,
-  pickPullRequestUrl,
+  pickPullRequest,
   readGraphqlData,
 } from "./linearTickets.logic.ts";
 
@@ -55,17 +55,25 @@ describe("identifierFilter", () => {
   });
 });
 
-describe("pickPullRequestUrl", () => {
+describe("pickPullRequest", () => {
   it("prefers an open pull request over a merged one and ignores other links", () => {
-    assert.strictEqual(
-      pickPullRequestUrl(issueNode.attachments),
-      "https://github.com/acme/web/pull/12",
-    );
+    assert.deepStrictEqual(pickPullRequest(issueNode.attachments), {
+      url: "https://github.com/acme/web/pull/12",
+      state: "open",
+    });
+  });
+
+  it("reads merged and Linear's draft flag", () => {
+    const one = (metadata: unknown) =>
+      pickPullRequest({ nodes: [{ url: "https://github.com/acme/web/pull/3", metadata }] })?.state;
+    assert.strictEqual(one({ status: "merged" }), "merged");
+    assert.strictEqual(one({ status: "open", draft: true }), "draft");
+    assert.strictEqual(one({}), "open");
   });
 
   it("is null without a GitHub pull request", () => {
-    assert.isNull(pickPullRequestUrl({ nodes: [{ url: "https://github.com/acme/web/issues/3" }] }));
-    assert.isNull(pickPullRequestUrl(undefined));
+    assert.isNull(pickPullRequest({ nodes: [{ url: "https://github.com/acme/web/issues/3" }] }));
+    assert.isNull(pickPullRequest(undefined));
   });
 });
 
@@ -97,6 +105,7 @@ describe("mapTicket", () => {
       stateType: "started",
       stateColor: "#0f783c",
       pullRequestUrl: "https://github.com/acme/web/pull/12",
+      pullRequestState: "open",
       latestOthersCommentAt: "2026-10-22T10:00:00.000Z",
       mentionsViewer: false,
     });
