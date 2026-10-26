@@ -291,6 +291,7 @@ import { PullRequestDetailPanel } from "./pullRequest/PullRequestDetailPanel";
 import { AgentMapPanel } from "./agent-map/AgentMapPanel";
 import { LinearPanel } from "./linear/LinearPanel";
 import { NotesPanel } from "./notes/NotesPanel";
+import { ControlPanel } from "./control/ControlPanel";
 import { WorkflowsPanel } from "./workflows/WorkflowsPanel";
 import { PullRequestDetailGhost } from "./pullRequest/PullRequestGhosts";
 import { PullRequestsUnavailableState } from "./pullRequest/PullRequestsUnavailableState";
@@ -5542,6 +5543,10 @@ export default function ChatView(props: ChatViewProps) {
   const addNotesSurface = useCallback(() => {
     if (!activeThreadRef) return;
     useRightPanelStore.getState().open(activeThreadRef, "notes");
+  }, [activeThreadRef]);
+  const addControlSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "control");
   }, [activeThreadRef]);
   const supportsThreadPullRequests =
     serverConfig?.environment.capabilities.threadPullRequests === true;
@@ -11385,6 +11390,8 @@ export default function ChatView(props: ChatViewProps) {
         maximized={rightPanelMaximized}
         onSetMaximized={canMaximizeRightPanel ? setRightPanelMaximized : undefined}
       />
+    ) : renderedRightPanelSurface?.kind === "control" ? (
+      <ControlPanel />
     ) : renderedRightPanelSurface?.kind === "agent-map" ? (
       <AgentMapPanel threadRef={activeThreadRef} />
     ) : renderedRightPanelSurface?.kind === "pull-requests" && activeThreadRef ? (
@@ -12308,6 +12315,7 @@ export default function ChatView(props: ChatViewProps) {
               onAddAgentMap={addAgentMapSurface}
               onAddLinear={addLinearSurface}
               onAddNotes={addNotesSurface}
+              onAddControl={addControlSurface}
               browserAvailable={canOperatePreview && browserAvailable}
               terminalAvailable={activeProject !== null && canOperateTerminal}
               diffAvailable={isServerThread && isGitRepo}
@@ -12319,6 +12327,7 @@ export default function ChatView(props: ChatViewProps) {
               agentMapAvailable={activeThreadRef !== null}
               linearAvailable={activeThreadRef !== null}
               notesAvailable={activeThreadRef !== null}
+              controlAvailable={activeThreadRef !== null}
             >
               {rightPanelContent}
             </RightPanelTabs>,
@@ -12376,6 +12385,7 @@ export default function ChatView(props: ChatViewProps) {
             onAddAgentMap={addAgentMapSurface}
             onAddLinear={addLinearSurface}
             onAddNotes={addNotesSurface}
+            onAddControl={addControlSurface}
             browserAvailable={canOperatePreview && browserAvailable}
             terminalAvailable={activeProject !== null && canOperateTerminal}
             diffAvailable={isServerThread && isGitRepo}
@@ -12387,6 +12397,7 @@ export default function ChatView(props: ChatViewProps) {
             agentMapAvailable={activeThreadRef !== null}
             linearAvailable={activeThreadRef !== null}
             notesAvailable={activeThreadRef !== null}
+            controlAvailable={activeThreadRef !== null}
           >
             {rightPanelContent}
           </RightPanelTabs>

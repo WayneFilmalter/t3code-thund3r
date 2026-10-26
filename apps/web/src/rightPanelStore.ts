@@ -40,6 +40,7 @@ const RIGHT_PANEL_KINDS = [
   "agent-map",
   "linear",
   "notes",
+  "control",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -101,6 +102,8 @@ export type RightPanelSurface =
   | { id: "linear"; kind: "linear" }
   /** The server's notes: markdown documents outside any project or thread. */
   | { id: "notes"; kind: "notes" }
+  /** Buttons that open and close the desktop Control window. */
+  | { id: "control"; kind: "control" }
   /** The thread drawn as a bubble map of its agent and subagents. */
   | { id: "agent-map"; kind: "agent-map" };
 
@@ -266,6 +269,8 @@ const singletonSurface = (
       return { id: "linear", kind };
     case "notes":
       return { id: "notes", kind };
+    case "control":
+      return { id: "control", kind };
     case "agent-map":
       return { id: "agent-map", kind };
   }

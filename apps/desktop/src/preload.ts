@@ -263,6 +263,23 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(IpcChannels.WINDOW_FULLSCREEN_STATE_CHANNEL, wrappedListener);
     };
   },
+  controlWindow: {
+    open: () => ipcRenderer.invoke(IpcChannels.CONTROL_WINDOW_OPEN_CHANNEL),
+    close: () => ipcRenderer.invoke(IpcChannels.CONTROL_WINDOW_CLOSE_CHANNEL),
+    isOpen: async () =>
+      (await ipcRenderer.invoke(IpcChannels.CONTROL_WINDOW_IS_OPEN_CHANNEL)) === true,
+    onStateChange: (listener) => {
+      const wrappedListener = (_event: Electron.IpcRendererEvent, open: unknown) => {
+        if (typeof open !== "boolean") return;
+        listener(open);
+      };
+
+      ipcRenderer.on(IpcChannels.CONTROL_WINDOW_STATE_CHANNEL, wrappedListener);
+      return () => {
+        ipcRenderer.removeListener(IpcChannels.CONTROL_WINDOW_STATE_CHANNEL, wrappedListener);
+      };
+    },
+  },
   getUpdateState: () => ipcRenderer.invoke(IpcChannels.UPDATE_GET_STATE_CHANNEL),
   setUpdateChannel: (channel) =>
     ipcRenderer.invoke(IpcChannels.UPDATE_SET_CHANNEL_CHANNEL, channel),

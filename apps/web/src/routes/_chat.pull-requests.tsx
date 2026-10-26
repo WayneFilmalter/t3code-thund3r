@@ -2298,6 +2298,7 @@ function PullRequestsRouteView() {
             onAddAgentMap={() => undefined}
             onAddLinear={() => undefined}
             onAddNotes={() => undefined}
+            onAddControl={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
             diffAvailable={false}
@@ -2309,6 +2310,7 @@ function PullRequestsRouteView() {
             agentMapAvailable={false}
             linearAvailable={false}
             notesAvailable={false}
+            controlAvailable={false}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel

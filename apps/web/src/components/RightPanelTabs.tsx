@@ -35,6 +35,7 @@ import {
   Globe2,
   ListTodo,
   NotebookPen,
+  SlidersHorizontal,
   Orbit,
   Plus,
   TerminalSquare,
@@ -151,6 +152,7 @@ interface RightPanelTabsProps {
   onAddAgentMap: () => void;
   onAddLinear: () => void;
   onAddNotes: () => void;
+  onAddControl: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -162,6 +164,7 @@ interface RightPanelTabsProps {
   agentMapAvailable: boolean;
   linearAvailable: boolean;
   notesAvailable: boolean;
+  controlAvailable: boolean;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
   children: ReactNode;
 }
@@ -194,6 +197,7 @@ const SURFACE_DISABLED_REASONS = {
   agentMap: "The agent map is only available from a thread.",
   linear: "Linear is only available from a thread.",
   notes: "Notes are only available from a thread.",
+  control: "Control is only available from a thread.",
 } as const;
 
 /** Overlays that must win over the launcher's letter shortcuts. */
@@ -221,6 +225,7 @@ const SURFACE_UNAVAILABLE_HINTS = {
   agentMap: "Available from a thread.",
   linear: "Available from a thread.",
   notes: "Available from a thread.",
+  control: "Available from a thread.",
 } as const;
 
 type TabContextMenuAction =
@@ -365,6 +370,7 @@ function RightPanelEmptyState(props: {
   onAddAgentMap: () => void;
   onAddLinear: () => void;
   onAddNotes: () => void;
+  onAddControl: () => void;
   browserAvailable: boolean;
   terminalAvailable: boolean;
   diffAvailable: boolean;
@@ -376,6 +382,7 @@ function RightPanelEmptyState(props: {
   agentMapAvailable: boolean;
   linearAvailable: boolean;
   notesAvailable: boolean;
+  controlAvailable: boolean;
 }) {
   // -1 means no highlight: it only appears on hover or arrow use.
   const [highlight, setHighlight] = useState(-1);
@@ -469,6 +476,14 @@ function RightPanelEmptyState(props: {
       available: props.notesAvailable,
       disabledReason: SURFACE_UNAVAILABLE_HINTS.notes,
       onClick: props.onAddNotes,
+    },
+    {
+      label: "Control",
+      icon: SlidersHorizontal,
+      shortcut: "C",
+      available: props.controlAvailable,
+      disabledReason: SURFACE_UNAVAILABLE_HINTS.control,
+      onClick: props.onAddControl,
     },
   ] as const;
 
@@ -667,6 +682,8 @@ function surfaceTitle(
       return "Linear";
     case "notes":
       return "Notes";
+    case "control":
+      return "Control";
     case "agent-map":
       return "Agents";
     case "diff":
@@ -750,6 +767,8 @@ function SurfaceIcon({
       return <ListTodo className="size-3 shrink-0" />;
     case "notes":
       return <NotebookPen className="size-3 shrink-0" />;
+    case "control":
+      return <SlidersHorizontal className="size-3 shrink-0" />;
     case "agent-map":
       return <Orbit className="size-3 shrink-0" />;
     case "diff":
@@ -1098,6 +1117,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
       available: props.notesAvailable,
       disabledReason: SURFACE_DISABLED_REASONS.notes,
       onClick: props.onAddNotes,
+    },
+    {
+      label: "Control",
+      icon: SlidersHorizontal,
+      shortcut: "C",
+      available: props.controlAvailable,
+      disabledReason: SURFACE_DISABLED_REASONS.control,
+      onClick: props.onAddControl,
     },
   ] as const;
 
@@ -1595,6 +1622,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             onAddAgentMap={props.onAddAgentMap}
             onAddLinear={props.onAddLinear}
             onAddNotes={props.onAddNotes}
+            onAddControl={props.onAddControl}
             browserAvailable={props.browserAvailable}
             terminalAvailable={props.terminalAvailable}
             diffAvailable={props.diffAvailable}
@@ -1606,6 +1634,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
             agentMapAvailable={props.agentMapAvailable}
             linearAvailable={props.linearAvailable}
             notesAvailable={props.notesAvailable}
+            controlAvailable={props.controlAvailable}
           />
         ) : (
           props.children

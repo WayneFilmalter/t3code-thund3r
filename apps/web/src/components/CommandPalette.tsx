@@ -75,6 +75,7 @@ import {
   MonitorIcon,
   MoonIcon,
   NotebookPenIcon,
+  SlidersHorizontalIcon,
   PaletteIcon,
   RotateCcwIcon,
   Rows2Icon,
@@ -2055,6 +2056,18 @@ function OpenCommandPaletteDialog(props: {
         useRightPanelStore
           .getState()
           .open(scopeThreadRef(thread.environmentId, thread.id), "notes");
+      },
+    });
+    actionItems.push({
+      kind: "action",
+      value: "action:open-control",
+      searchTerms: ["control", "window", "panels", "popout"],
+      title: "Show control",
+      icon: <SlidersHorizontalIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        useRightPanelStore
+          .getState()
+          .open(scopeThreadRef(thread.environmentId, thread.id), "control");
       },
     });
     actionItems.push({

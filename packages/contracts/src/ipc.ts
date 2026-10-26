@@ -1240,6 +1240,16 @@ export interface DesktopBridge {
   onQuitShortcut?: (listener: (event: QuitShortcutHintEvent) => void) => () => void;
   getWindowFullscreenState: () => boolean;
   onWindowFullscreenStateChange: (listener: (fullscreen: boolean) => void) => () => void;
+  /**
+   * The single Control window opened from the Control tab. Optional: older
+   * desktop builds do not have it.
+   */
+  controlWindow?: {
+    open: () => Promise<void>;
+    close: () => Promise<void>;
+    isOpen: () => Promise<boolean>;
+    onStateChange: (listener: (open: boolean) => void) => () => void;
+  };
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;
   checkForUpdate: () => Promise<DesktopUpdateCheckResult>;

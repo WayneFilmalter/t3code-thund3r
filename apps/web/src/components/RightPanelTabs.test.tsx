@@ -137,6 +137,7 @@ function renderTabs(
       onAddAgentMap={() => undefined}
       onAddLinear={() => undefined}
       onAddNotes={() => undefined}
+      onAddControl={() => undefined}
       browserAvailable
       terminalAvailable={false}
       diffAvailable={false}
@@ -148,6 +149,7 @@ function renderTabs(
       agentMapAvailable={false}
       linearAvailable={false}
       notesAvailable={false}
+      controlAvailable={false}
     >
       <div>content</div>
     </RightPanelTabs>,

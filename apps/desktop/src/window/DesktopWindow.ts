@@ -5,6 +5,7 @@ import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 
 import * as Electron from "electron";
 
@@ -19,6 +20,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
+  CONTROL_WINDOW_STATE_CHANNEL,
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
@@ -56,6 +58,8 @@ const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linu
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
+// Matches the web route in apps/web/src/routes/control-window.tsx.
+const CONTROL_WINDOW_ROUTE = "#/control-window";
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 // Renderer crash (usually V8 OOM on long sessions) recovery: reload after a
 // short delay, at most MAX_ATTEMPTS times per rolling WINDOW so a renderer
@@ -146,6 +150,12 @@ export class DesktopWindow extends Context.Service<
     // which is a preview guest whenever a browser page has focus.
     readonly runMainContentsCommand: (command: MainWindowContentsCommand) => Effect.Effect<void>;
     readonly syncAppearance: Effect.Effect<void>;
+    // The single Control window, opened from the web Control tab. Opening while
+    // one exists focuses it; open/closed changes broadcast on
+    // CONTROL_WINDOW_STATE_CHANNEL.
+    readonly openControlWindow: Effect.Effect<void, DesktopWindowError>;
+    readonly closeControlWindow: Effect.Effect<void>;
+    readonly isControlWindowOpen: Effect.Effect<boolean>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -355,6 +365,10 @@ export const make = Effect.gen(function* () {
     }
   });
 
+  const controlWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+  // Serializes opens so a double click cannot create two Control windows.
+  const controlWindowPermit = yield* Semaphore.make(1);
+
   // currentMainOrFirst / focusedMainOrFirst fall back to "any first window",
   // which during WSL-only boot is the connecting splash. The splash is never
   // registered via setMain, so it must be treated as "no real main window" --
@@ -362,17 +376,28 @@ export const make = Effect.gen(function* () {
   // open (or retry) the real main. That is the failure the pool's swallowed
   // post-readiness window-open error would otherwise strand the user in:
   // splash up, backend ready, no main, and activation only re-reveals splash.
-  const withoutSplash = (window: Option.Option<Electron.BrowserWindow>) =>
-    Ref.get(splashWindowRef).pipe(
-      Effect.map((splash) =>
-        Option.isSome(splash) && Option.isSome(window) && window.value === splash.value
-          ? Option.none<Electron.BrowserWindow>()
-          : window,
-      ),
-    );
+  // The Control window is never the main window either: while it has focus,
+  // menu actions, zoom and reveals still target the registered main.
+  const withoutAuxiliaryWindows = (window: Option.Option<Electron.BrowserWindow>) =>
+    Effect.gen(function* () {
+      if (Option.isNone(window)) return window;
+      const splash = yield* Ref.get(splashWindowRef);
+      if (Option.isSome(splash) && window.value === splash.value) {
+        return Option.none<Electron.BrowserWindow>();
+      }
+      const control = yield* Ref.get(controlWindowRef);
+      if (Option.isSome(control) && window.value === control.value) {
+        return yield* electronWindow.main;
+      }
+      return window;
+    });
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
-  const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(
+    Effect.flatMap(withoutAuxiliaryWindows),
+  );
+  const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(
+    Effect.flatMap(withoutAuxiliaryWindows),
+  );
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
     Electron.BrowserWindow,
@@ -953,6 +978,84 @@ export const make = Effect.gen(function* () {
     Effect.withSpan("desktop.window.showConnectingSplash"),
   );
 
+  const liveControlWindow = Ref.get(controlWindowRef).pipe(
+    Effect.map(Option.filter((window) => !window.isDestroyed())),
+  );
+
+  const openControlWindow = Effect.gen(function* () {
+    const existing = yield* liveControlWindow;
+    if (Option.isSome(existing)) {
+      yield* electronWindow.reveal(existing.value);
+      return;
+    }
+
+    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+    const iconOption = getIconOption(yield* assets.iconPaths, environment.platform);
+    const window = yield* electronWindow.create({
+      width: 1200,
+      height: 800,
+      minWidth: 600,
+      minHeight: 400,
+      center: true,
+      show: false,
+      autoHideMenuBar: true,
+      fullscreenable: true,
+      backgroundColor: getInitialWindowBackgroundColor(shouldUseDarkColors),
+      ...iconOption,
+      title: "Control",
+      webPreferences: {
+        preload: environment.preloadPath,
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    yield* rendererHistory.register(window.webContents, { surface: "control" });
+    yield* Ref.set(controlWindowRef, Option.some(window));
+
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+      return { action: "deny" };
+    });
+    window.webContents.on("will-navigate", (event, url) => {
+      if (isSameOriginRendererNavigation({ applicationUrl, navigationUrl: url })) return;
+      event.preventDefault();
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+    });
+    window.on("page-title-updated", (event) => {
+      event.preventDefault();
+    });
+    window.once("ready-to-show", () => {
+      void runPromise(electronWindow.reveal(window));
+    });
+    window.once("closed", () => {
+      void runPromise(
+        Ref.update(controlWindowRef, (current) =>
+          Option.isSome(current) && current.value === window ? Option.none() : current,
+        ).pipe(Effect.andThen(electronWindow.sendAll(CONTROL_WINDOW_STATE_CHANNEL, false))),
+      );
+    });
+
+    void window.loadURL(`${applicationUrl}${CONTROL_WINDOW_ROUTE}`).catch(() => undefined);
+    yield* electronWindow.sendAll(CONTROL_WINDOW_STATE_CHANNEL, true);
+    yield* logWindowInfo("control window created");
+  }).pipe(
+    Semaphore.withPermits(controlWindowPermit, 1),
+    Effect.withSpan("desktop.window.openControlWindow"),
+  );
+
+  const closeControlWindow = Effect.gen(function* () {
+    const existing = yield* liveControlWindow;
+    if (Option.isSome(existing)) {
+      existing.value.close();
+    }
+  }).pipe(Effect.withSpan("desktop.window.closeControlWindow"));
+
   const dispatchRendererEvent = Effect.fn("desktop.window.dispatchRendererEvent")(function* (
     channel: string,
     payload: unknown,
@@ -1064,10 +1167,18 @@ export const make = Effect.gen(function* () {
     }),
     syncAppearance: Effect.gen(function* () {
       const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
+      const control = yield* liveControlWindow;
+      // The Control window has a native title bar, and setTitleBarOverlay throws
+      // on a window created without one.
       yield* electronWindow.syncAllAppearance((window) =>
-        syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
+        Option.isSome(control) && control.value === window
+          ? Effect.void
+          : syncWindowAppearance(window, shouldUseDarkColors, environment.platform),
       );
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
+    openControlWindow,
+    closeControlWindow,
+    isControlWindowOpen: liveControlWindow.pipe(Effect.map(Option.isSome)),
   });
 });
 

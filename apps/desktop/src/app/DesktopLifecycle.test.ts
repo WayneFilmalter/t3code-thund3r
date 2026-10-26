@@ -98,6 +98,9 @@ function layerDesktopWindow(
     zoomMain: () => Effect.void,
     runMainContentsCommand: () => Effect.void,
     syncAppearance: Effect.void,
+    openControlWindow: Effect.void,
+    closeControlWindow: Effect.void,
+    isControlWindowOpen: Effect.succeed(false),
   });
 }
 

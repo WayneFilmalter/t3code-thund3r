@@ -48,6 +48,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
+  CONTROL_WINDOW_STATE_CHANNEL,
   MENU_ACTION_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
@@ -131,6 +132,7 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    close: window.close,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -233,6 +235,9 @@ function layerTest(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
+  // Windows returned by successive `create` calls; falls back to `window`.
+  readonly createdWindows?: readonly Electron.BrowserWindow[];
+  readonly onSendAll?: (channel: string, args: readonly unknown[]) => void;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -274,8 +279,8 @@ function layerTest(input: {
       Effect.sync(() => {
         input.createdWindowOptions?.push(options);
       }).pipe(
-        Effect.andThen(Ref.update(input.createCount, (count) => count + 1)),
-        Effect.as(input.window),
+        Effect.andThen(Ref.getAndUpdate(input.createCount, (count) => count + 1)),
+        Effect.map((index) => input.createdWindows?.[index] ?? input.window),
       ),
     main: Ref.get(input.mainWindow),
     currentMainOrFirst: Ref.get(input.mainWindow),
@@ -287,7 +292,7 @@ function layerTest(input: {
     clearMain: () => Ref.set(input.mainWindow, Option.none()),
     prepareReveal: () => Effect.succeed(false),
     reveal: (window) => Effect.sync(() => input.onReveal?.(window)),
-    sendAll: () => Effect.void,
+    sendAll: (channel, ...args) => Effect.sync(() => input.onSendAll?.(channel, args)),
     destroyAll: Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
@@ -832,6 +837,102 @@ describe("DesktopWindow", () => {
         assert.equal(popup.reload.mock.calls.length, 0);
         assert.equal(popup.reloadIgnoringCache.mock.calls.length, 0);
         assert.equal(popup.toggleDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("keeps a single control window and focuses it when opened again", () =>
+    Effect.gen(function* () {
+      const control = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const revealed: Electron.BrowserWindow[] = [];
+      const broadcasts: unknown[] = [];
+      const layer = layerTest({
+        window: control.window,
+        createCount,
+        mainWindow,
+        onReveal: (window) => revealed.push(window),
+        onSendAll: (channel, args) => {
+          if (channel === CONTROL_WINDOW_STATE_CHANNEL) broadcasts.push(args[0]);
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.openControlWindow;
+        yield* desktopWindow.openControlWindow;
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.deepEqual(control.loadURL.mock.calls[0], ["t3code-dev://app/#/control-window"]);
+        assert.deepEqual(revealed, [control.window]);
+        assert.deepEqual(broadcasts, [true]);
+        assert.isTrue(yield* desktopWindow.isControlWindowOpen);
+        assert.isTrue(Option.isNone(yield* Ref.get(mainWindow)));
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("clears the control window on close so the next open creates a new one", () =>
+    Effect.gen(function* () {
+      const first = makeFakeBrowserWindow();
+      const second = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const closedBroadcast = yield* Deferred.make<void>();
+      const layer = layerTest({
+        window: first.window,
+        createdWindows: [first.window, second.window],
+        createCount,
+        mainWindow,
+        onSendAll: (channel, args) => {
+          if (channel === CONTROL_WINDOW_STATE_CHANNEL && args[0] === false) {
+            Deferred.doneUnsafe(closedBroadcast, Effect.void);
+          }
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.openControlWindow;
+        yield* desktopWindow.closeControlWindow;
+        assert.equal(first.close.mock.calls.length, 1);
+
+        // Electron destroys the window and then emits "closed".
+        first.isDestroyed.mockReturnValue(true);
+        first.windowListeners.get("closed")?.();
+        yield* Deferred.await(closedBroadcast);
+        assert.isFalse(yield* desktopWindow.isControlWindowOpen);
+
+        yield* desktopWindow.openControlWindow;
+        assert.equal(yield* Ref.get(createCount), 2);
+        assert.isTrue(yield* desktopWindow.isControlWindowOpen);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("zooms the main window while the control window has focus", () =>
+    Effect.gen(function* () {
+      const main = makeFakeBrowserWindow();
+      const control = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = layerTest({
+        window: main.window,
+        createdWindows: [main.window, control.window],
+        createCount,
+        mainWindow,
+        focusedWindow: control.window,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        yield* desktopWindow.openControlWindow;
+        yield* desktopWindow.zoomMain("in");
+
+        assert.equal(main.setZoomLevel.mock.calls.length, 1);
+        assert.equal(control.setZoomLevel.mock.calls.length, 0);
       }).pipe(Effect.provide(layer));
     }),
   );
