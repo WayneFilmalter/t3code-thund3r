@@ -19,8 +19,10 @@ import {
 /**
  * One priority. The border, a faint wash, and the strip down the left edge
  * all take the ticket's priority colour, so the list reads at a glance; the
- * workflow state keeps its own colour in the chip. Done sits top right, the
- * ticket's links bottom right. A red dot means someone else commented since
+ * workflow state keeps its own colour in the chip. Done sits top right; the
+ * bottom row is Comment, the status, priority and pull request branch, then
+ * the ticket's links on the right. Both rows share one left inset so the
+ * ticket number and Comment line up. A red dot means someone else commented since
  * the ticket was last opened, and a blue glowing border that you are
  * @-mentioned in it. The glow is a static shadow, not an animation, so it
  * costs nothing per frame.
@@ -55,16 +57,11 @@ export function PriorityCard(props: {
         <button
           type="button"
           onClick={props.onOpen}
-          className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 pt-0.5 text-left"
+          className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 text-left"
         >
           <TicketIdentifierChip identifier={ticket.identifier} />
           <span className="line-clamp-2 text-sm leading-snug font-medium text-foreground">
             {ticket.title}
-          </span>
-          <span className="flex flex-wrap items-center gap-1.5">
-            <TicketStateChip ticket={ticket} />
-            <TicketPriorityBadge ticket={ticket} />
-            <TicketBranchIcon ticket={ticket} />
           </span>
         </button>
         {props.unread ? (
@@ -76,16 +73,21 @@ export function PriorityCard(props: {
         ) : null}
         <DoneButton checking={props.checkingDone} onDone={props.onDone} />
       </div>
-      <div className="flex items-center justify-between gap-1 px-1.5 pt-1 pb-1.5 pl-3">
+      <div className="flex flex-wrap items-center gap-1.5 pt-1.5 pr-1.5 pb-1.5 pl-4">
         <CommentToggle
           allowed={props.canComment}
           open={props.commenting}
           onToggle={props.onToggleComment}
         />
-        <TicketLinks ticket={ticket} />
+        <TicketStateChip ticket={ticket} />
+        <TicketPriorityBadge ticket={ticket} />
+        <TicketBranchIcon ticket={ticket} />
+        <span className="ml-auto">
+          <TicketLinks ticket={ticket} />
+        </span>
       </div>
       {props.commenting ? (
-        <div className="border-t border-border/60 p-2 pl-3">
+        <div className="border-t border-border/60 p-2 pl-4">
           <CommentBox
             environmentId={props.environmentId}
             ticket={ticket}
