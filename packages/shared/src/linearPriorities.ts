@@ -61,10 +61,11 @@ const HASH_NUMBER_PATTERN = /(?<![\w&])#(\d{1,7})(?!\w)/g;
 const LIST_MARKER_PATTERN = /^(\s*)(?:[-*•–]|\d{1,3}[.)])(?=\s)/gm;
 /**
  * A standalone number: nothing word-like, a separator, or a currency sign
- * before it, and no unit, separator, or decimal after it, so `10:30`, `26/10`,
- * `3.5`, `40%` and `v2` are skipped while `482.` at the end of a sentence is not.
+ * before it, and no unit, joined separator, or decimal after it, so `10:30`,
+ * `26/10`, `2026-10-26`, `3.5`, `40%` and `v2` are skipped while `482.` at the
+ * end of a sentence and `482- Title` or `482: Title` are not.
  */
-const BARE_NUMBER_PATTERN = /(?<![\w:/.%$#-])(\d{2,6})(?![\w:/%-]|[.,]\d)/g;
+const BARE_NUMBER_PATTERN = /(?<![\w:/.%$#-])(\d{2,6})(?![\w%]|[:/-]\S|[.,]\d)/g;
 const DATE_NEIGHBOUR_PATTERN = new RegExp(
   `(?:\\b(?:${MONTHS})\\.?\\s+$)|(?:^\\s*(?:${MONTHS})\\b)`,
   "i",

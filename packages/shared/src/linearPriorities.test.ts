@@ -24,6 +24,24 @@ describe("parsePriorityPaste", () => {
     ]);
   });
 
+  it("reads numbers followed by a dash or colon and a title", () => {
+    const message = [
+      "1784- Create Profile has Department for Florida Commerce",
+      "1775- Kirby refinements",
+      "",
+      "1699: Create account error",
+      "559- App feedback popup, ",
+      "Due 2026-10-26, standup at 10:30, see 26/10",
+    ].join("\n");
+
+    expect(parsePriorityPaste(message, "ENG")).toEqual([
+      "ENG-1784",
+      "ENG-1775",
+      "ENG-1699",
+      "ENG-559",
+    ]);
+  });
+
   it("accepts a number at the end of a sentence", () => {
     expect(parsePriorityPaste("Please pick up 482.", "ENG")).toEqual(["ENG-482"]);
   });
