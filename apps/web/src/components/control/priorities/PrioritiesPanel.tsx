@@ -22,7 +22,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
 import { MissingPriorityCard, PendingPriorityCard, PriorityCard } from "./PriorityCard";
 import { PriorityDetail } from "./PriorityDetail";
-import { hasUnreadComments, isTicketDone } from "./priorities.logic";
+import { hasUnreadComments, isTicketDone, orderByPriority } from "./priorities.logic";
 import { usePriorityList } from "./prioritiesStore";
 
 const isLinearError = Schema.is(LinearError);
@@ -31,8 +31,8 @@ const isLinearError = Schema.is(LinearError);
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
- * Control window panel 1: the local priority list of Linear tickets, in the
- * order they were added. Tickets are added from the Control tab's Priorities
+ * Control window panel 1: the local priority list of Linear tickets, most
+ * urgent first. Tickets are added from the Control tab's Priorities
  * block; Done takes them off.
  */
 export function PrioritiesPanel() {
@@ -210,7 +210,7 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
         <PanelMessage>{notice}</PanelMessage>
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
-          {list.entries.map((entry) => {
+          {orderByPriority(list.entries, known).map((entry) => {
             const ticket = known.get(entry.identifier);
             if (ticket === undefined) {
               return missing.has(entry.identifier) ? (

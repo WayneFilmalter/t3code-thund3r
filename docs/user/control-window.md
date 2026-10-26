@@ -6,7 +6,7 @@ The window is desktop-only. On the web the Control tab still shows the Prioritie
 
 ## Priorities
 
-The tall left panel is a list of the Linear tickets you have been asked to work on, in the order you added them. It uses the Linear API key and team key from **Settings → Integrations → Linear**. The list is kept on this device, not in Linear.
+The tall left panel is a list of the Linear tickets you have been asked to work on, most urgent first. Each card's border takes its priority colour. It uses the Linear API key and team key from **Settings → Integrations → Linear**. The list is kept on this device, not in Linear.
 
 Add tickets from the **Priorities** block in the Control tab. Search by ticket number (`ENG-482`, or just `482` for your team) or by words in the title. Or paste a whole message, such as this week's priorities from your lead, and press **Find tickets**. T3 Code picks out ticket numbers, `#482`, and Linear links, then asks you to confirm the tickets before adding them. Numbers it could not find in Linear are listed so you can check them.
 

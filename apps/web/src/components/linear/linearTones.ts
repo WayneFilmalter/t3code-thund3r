@@ -49,25 +49,38 @@ export const STATUS_TONES: Record<LinearIssueStatus, { label: string; rule: stri
   },
 };
 
-export const PRIORITY_TONES: Record<LinearIssuePriority, { bubble: string; dot: string | null }> = {
+/**
+ * `bubble` is the Linear tab's quiet border. `card` is the Priorities panel's
+ * louder border and wash, where the priority is the point of the list, and
+ * `dot` doubles as its left strip.
+ */
+export const PRIORITY_TONES: Record<
+  LinearIssuePriority,
+  { bubble: string; card: string; dot: string | null }
+> = {
   urgent: {
     bubble: "border-red-500/40 dark:border-red-400/35",
+    card: "border-red-500/75 bg-red-500/[0.07] dark:border-red-400/65 dark:bg-red-400/[0.08]",
     dot: "bg-red-500 dark:bg-red-400",
   },
   high: {
     bubble: "border-orange-500/40 dark:border-orange-400/35",
+    card: "border-orange-500/75 bg-orange-500/[0.07] dark:border-orange-400/65 dark:bg-orange-400/[0.08]",
     dot: "bg-orange-500 dark:bg-orange-400",
   },
   medium: {
     bubble: "border-yellow-500/35 dark:border-yellow-400/30",
+    card: "border-yellow-500/70 bg-yellow-500/[0.06] dark:border-yellow-400/60 dark:bg-yellow-400/[0.07]",
     dot: "bg-yellow-500 dark:bg-yellow-400",
   },
   low: {
     bubble: "border-blue-500/30 dark:border-blue-400/25",
+    card: "border-blue-500/65 bg-blue-500/[0.06] dark:border-blue-400/55 dark:bg-blue-400/[0.07]",
     dot: "bg-blue-500 dark:bg-blue-400",
   },
   none: {
     bubble: "border-border/60",
+    card: "border-border bg-card/60",
     dot: null,
   },
 };

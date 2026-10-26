@@ -85,32 +85,39 @@ function ActionButton(props: {
   );
 }
 
-/**
- * A ticket's quick actions: comment, open its pull request, copy its link and
- * branch, and Done. Without `onComment` there is no comment button, for views
- * that already show a comment box.
- */
-export function TicketActions(props: {
-  ticket: LinearTicket;
-  checkingDone: boolean;
-  comment?: { readonly allowed: boolean; readonly open: boolean; readonly toggle: () => void };
-  onDone: () => void;
-}) {
-  const { ticket } = props;
+/** Opens the comment box; pressed while it is open. */
+export function CommentToggle(props: { allowed: boolean; open: boolean; onToggle: () => void }) {
+  return (
+    <ActionButton
+      label={props.allowed ? "Comment" : "This connection cannot comment"}
+      disabled={!props.allowed}
+      pressed={props.open}
+      onClick={props.onToggle}
+    >
+      <MessageSquarePlusIcon />
+    </ActionButton>
+  );
+}
+
+/** The ticket's way out of the list: a green check, top right of the ticket. */
+export function DoneButton(props: { checking: boolean; onDone: () => void }) {
+  return (
+    <ActionButton
+      label="Done — remove from priorities"
+      disabled={props.checking}
+      onClick={props.onDone}
+    >
+      <CircleCheckIcon className="text-success" />
+    </ActionButton>
+  );
+}
+
+/** Where the ticket leads: its pull request when there is one, its link, its branch. */
+export function TicketLinks({ ticket }: { ticket: LinearTicket }) {
   const openLink = useOpenLink(null);
   const pullRequestUrl = ticket.pullRequestUrl;
   return (
     <div className="flex items-center gap-0.5">
-      {props.comment ? (
-        <ActionButton
-          label={props.comment.allowed ? "Comment" : "This connection cannot comment"}
-          disabled={!props.comment.allowed}
-          pressed={props.comment.open}
-          onClick={props.comment.toggle}
-        >
-          <MessageSquarePlusIcon />
-        </ActionButton>
-      ) : null}
       {pullRequestUrl !== null ? (
         <ActionButton
           label="Open pull request"
@@ -141,19 +148,11 @@ export function TicketActions(props: {
         hint={ticket.branchName === null ? undefined : `Copy branch · ${ticket.branchName}`}
         unavailableHint="Linear returned no branch name"
       />
-      <span className="flex-1" />
-      <ActionButton
-        label="Done — remove from priorities"
-        disabled={props.checkingDone}
-        onClick={props.onDone}
-      >
-        <CircleCheckIcon className="text-success" />
-      </ActionButton>
     </div>
   );
 }
 
-/** Enter posts, Shift+Enter adds a line, Escape closes an inline box. */
+/** Enter posts, Shift+Enter adds a line, Escape cancels: it closes an inline box or leaves the ticket. */
 export function CommentBox(props: {
   environmentId: EnvironmentId;
   ticket: Pick<LinearTicket, "id" | "identifier">;

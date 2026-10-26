@@ -45,6 +45,32 @@ export function hasUnreadComments(
   return entry.seenCommentsAt === null || latest > entry.seenCommentsAt;
 }
 
+const PRIORITY_RANK: Record<LinearTicket["priority"], number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
+};
+
+/**
+ * Most urgent first; the order they were added breaks ties. Tickets not
+ * loaded yet, or gone from Linear, sit at the bottom.
+ */
+export function orderByPriority<T extends Pick<PriorityEntry, "identifier">>(
+  entries: ReadonlyArray<T>,
+  tickets: ReadonlyMap<string, Pick<LinearTicket, "priority">>,
+): ReadonlyArray<T> {
+  const rank = (entry: T) => {
+    const ticket = tickets.get(entry.identifier);
+    return ticket === undefined ? 5 : PRIORITY_RANK[ticket.priority];
+  };
+  return entries
+    .map((entry, index) => ({ entry, index, rank: rank(entry) }))
+    .toSorted((left, right) => left.rank - right.rank || left.index - right.index)
+    .map(({ entry }) => entry);
+}
+
 const DONE_STATE_NAMES = new Set(["qa", "qa approved", "done"]);
 
 /** QA, QA Approved and Done leave the list without asking; so does any completed state. */

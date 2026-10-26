@@ -5,15 +5,23 @@ import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
 
 import { PRIORITY_TONES } from "../../linear/linearTones";
-import { CommentBox, TicketActions, TicketPriorityBadge, TicketStateChip } from "./TicketParts";
+import {
+  CommentBox,
+  CommentToggle,
+  DoneButton,
+  TicketLinks,
+  TicketPriorityBadge,
+  TicketStateChip,
+} from "./TicketParts";
 
 /**
- * One priority. The border takes the ticket's priority colour, or its
- * workflow state's when it has none, and a strip down the left edge always
- * carries the state colour, so the list reads at a glance. A red dot means
- * someone else commented since the ticket was last opened, and a blue glowing
- * border that you are @-mentioned in it. The glow is a static shadow, not an
- * animation, so it costs nothing per frame.
+ * One priority. The border, a faint wash, and the strip down the left edge
+ * all take the ticket's priority colour, so the list reads at a glance; the
+ * workflow state keeps its own colour in the chip. Done sits top right, the
+ * ticket's links bottom right. A red dot means someone else commented since
+ * the ticket was last opened, and a blue glowing border that you are
+ * @-mentioned in it. The glow is a static shadow, not an animation, so it
+ * costs nothing per frame.
  */
 export function PriorityCard(props: {
   environmentId: EnvironmentId;
@@ -29,60 +37,51 @@ export function PriorityCard(props: {
 }) {
   const { ticket } = props;
   const tone = PRIORITY_TONES[ticket.priority];
-  const tintedBorder =
-    ticket.priority === "none" && !ticket.mentionsViewer
-      ? { borderColor: `color-mix(in srgb, ${ticket.stateColor} 45%, transparent)` }
-      : undefined;
   return (
     <li
       className={cn(
-        "relative overflow-hidden rounded-lg border bg-card/60 transition-colors hover:bg-card",
-        ticket.mentionsViewer ? "border-info shadow-mention-glow" : tone.bubble,
+        "relative overflow-hidden rounded-lg border transition-colors hover:bg-card",
+        ticket.mentionsViewer ? "border-info bg-card/60 shadow-mention-glow" : tone.card,
       )}
-      style={tintedBorder}
     >
       {ticket.mentionsViewer ? <span className="sr-only">Mentions you.</span> : null}
       <span
         aria-hidden
-        className="absolute inset-y-0 left-0 w-[3px]"
-        style={{ backgroundColor: ticket.stateColor }}
+        className={cn("absolute inset-y-0 left-0 w-[3px]", tone.dot ?? "bg-border")}
       />
-      <button
-        type="button"
-        onClick={props.onOpen}
-        className="flex w-full cursor-pointer flex-col gap-1.5 pt-2 pr-3 pl-4 text-left"
-      >
-        <span className="flex items-start gap-2">
-          <span className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-medium text-foreground">
+      <div className="flex items-start gap-1 pt-1.5 pr-1.5 pl-4">
+        <button
+          type="button"
+          onClick={props.onOpen}
+          className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 pt-0.5 text-left"
+        >
+          <span className="line-clamp-2 text-sm leading-snug font-medium text-foreground">
             {ticket.title}
           </span>
-          {props.unread ? (
-            <span
-              role="img"
-              aria-label="New comments"
-              className="mt-1 size-2 shrink-0 rounded-full bg-destructive ring-2 ring-destructive/20"
-            />
-          ) : null}
-        </span>
-        <span className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-medium tabular-nums text-muted-foreground">
-            {ticket.identifier}
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {ticket.identifier}
+            </span>
+            <TicketStateChip ticket={ticket} />
+            <TicketPriorityBadge ticket={ticket} />
           </span>
-          <TicketStateChip ticket={ticket} />
-          <TicketPriorityBadge ticket={ticket} />
-        </span>
-      </button>
-      <div className="px-2 pt-1 pb-1.5 pl-3">
-        <TicketActions
-          ticket={ticket}
-          checkingDone={props.checkingDone}
-          comment={{
-            allowed: props.canComment,
-            open: props.commenting,
-            toggle: props.onToggleComment,
-          }}
-          onDone={props.onDone}
+        </button>
+        {props.unread ? (
+          <span
+            role="img"
+            aria-label="New comments"
+            className="mt-2 size-2 shrink-0 rounded-full bg-destructive ring-2 ring-destructive/20"
+          />
+        ) : null}
+        <DoneButton checking={props.checkingDone} onDone={props.onDone} />
+      </div>
+      <div className="flex items-center justify-between gap-1 px-1.5 pt-1 pb-1.5 pl-3">
+        <CommentToggle
+          allowed={props.canComment}
+          open={props.commenting}
+          onToggle={props.onToggleComment}
         />
+        <TicketLinks ticket={ticket} />
       </div>
       {props.commenting ? (
         <div className="border-t border-border/60 p-2 pl-3">

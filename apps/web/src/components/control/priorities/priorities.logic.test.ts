@@ -4,6 +4,7 @@ import {
   appendPriorities,
   hasUnreadComments,
   isTicketDone,
+  orderByPriority,
   parsePriorityPaste,
 } from "./priorities.logic";
 
@@ -85,5 +86,24 @@ describe("isTicketDone", () => {
     expect(isTicketDone({ stateName: "Shipped", stateType: "completed" })).toBe(true);
     expect(isTicketDone({ stateName: "In Review", stateType: "started" })).toBe(false);
     expect(isTicketDone({ stateName: "Canceled", stateType: "canceled" })).toBe(false);
+  });
+});
+
+describe("orderByPriority", () => {
+  it("puts the most urgent first, keeps added order within a priority, and unloaded last", () => {
+    const entries = ["A-1", "A-2", "A-3", "A-4", "A-5"].map((identifier) => ({ identifier }));
+    const tickets = new Map([
+      ["A-1", { priority: "low" as const }],
+      ["A-2", { priority: "urgent" as const }],
+      ["A-4", { priority: "none" as const }],
+      ["A-5", { priority: "urgent" as const }],
+    ]);
+    expect(orderByPriority(entries, tickets).map((entry) => entry.identifier)).toEqual([
+      "A-2",
+      "A-5",
+      "A-1",
+      "A-4",
+      "A-3",
+    ]);
   });
 });
