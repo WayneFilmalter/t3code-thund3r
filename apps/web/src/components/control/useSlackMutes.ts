@@ -17,6 +17,7 @@ export function useSlackMutes(environmentId: EnvironmentId) {
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "update muted Slack channels",
   });
+  /** A name mutes, null unmutes. */
   const setMuted = (channelId: string, name: string | null) =>
     updateSettings({
       environmentId,
@@ -42,5 +43,5 @@ export function useSlackMutes(environmentId: EnvironmentId) {
     });
   };
 
-  return { mutedChannels, mute, unmute };
+  return { mutedChannels, mute, unmute, setMuted };
 }

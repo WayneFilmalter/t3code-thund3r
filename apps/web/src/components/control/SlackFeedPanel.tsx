@@ -4,6 +4,7 @@ import {
   ArrowLeftIcon,
   BellOffIcon,
   ExternalLinkIcon,
+  ListFilterIcon,
   MoreHorizontalIcon,
   ReplyIcon,
   SendIcon,
@@ -13,6 +14,7 @@ import { type KeyboardEvent, useState } from "react";
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "~/components/ui/popover";
 import { Textarea } from "~/components/ui/textarea";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -23,6 +25,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "~/timestampFormat";
 
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
+import { SlackChannelToggles } from "./SlackChannelToggles";
 import { useEscapeBack } from "./useEscapeBack";
 import { useSlackMutes } from "./useSlackMutes";
 import {
@@ -100,6 +103,22 @@ function SlackFeed({ environmentId }: { environmentId: EnvironmentId }) {
         </span>
         {status?.state === "error" && messages.length > 0 ? (
           <span className="min-w-0 truncate text-xs text-destructive">{status.detail}</span>
+        ) : null}
+        {status !== null && status.state !== "unconfigured" ? (
+          <Popover>
+            <PopoverTrigger render={<Button type="button" size="xs" variant="ghost-muted" />}>
+              <ListFilterIcon />
+              Channels
+            </PopoverTrigger>
+            <PopoverPopup align="end">
+              <div className="flex w-64 flex-col gap-2">
+                <PopoverTitle>Channels in the feed</PopoverTitle>
+                <div className="max-h-80 overflow-y-auto">
+                  <SlackChannelToggles environmentId={environmentId} messages={messages} />
+                </div>
+              </div>
+            </PopoverPopup>
+          </Popover>
         ) : null}
       </WorkflowsSubheader>
       {notice !== null ? (

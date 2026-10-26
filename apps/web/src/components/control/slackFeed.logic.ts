@@ -24,3 +24,40 @@ export const slackPreviewText = (markdown: string) =>
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1");
+
+export interface SlackFeedChannel {
+  readonly channelId: string;
+  readonly name: string;
+  /** Messages in the feed now; muted channels have none to count. */
+  readonly count: number;
+  readonly muted: boolean;
+}
+
+/**
+ * Every conversation the feed has shown, busiest first so the noisy ones are
+ * at hand, then the muted ones by name. The server already dropped muted
+ * channels' messages, so those come from the mute list.
+ */
+export function slackFeedChannels(
+  messages: ReadonlyArray<SlackFeedMessage>,
+  mutedChannels: Readonly<Record<string, string>>,
+): SlackFeedChannel[] {
+  const live = new Map<string, SlackFeedChannel>();
+  for (const message of messages) {
+    if (message.channelId in mutedChannels) continue;
+    const current = live.get(message.channelId);
+    live.set(message.channelId, {
+      channelId: message.channelId,
+      name: message.channelName,
+      count: (current?.count ?? 0) + 1,
+      muted: false,
+    });
+  }
+  const muted = Object.entries(mutedChannels)
+    .map(([channelId, name]) => ({ channelId, name, count: 0, muted: true }))
+    .toSorted((a, b) => a.name.localeCompare(b.name));
+  const active = [...live.values()].toSorted(
+    (a, b) => b.count - a.count || a.name.localeCompare(b.name),
+  );
+  return [...active, ...muted];
+}

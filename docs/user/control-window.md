@@ -20,7 +20,7 @@ The top middle panel lists every Slack message from the last five days in the ch
 
 Click an item to read the whole message, and press **Back** to return to the list. **Reply** answers the way Slack's own Reply does: a message in a channel gets a reply in its thread, a reply in a thread stays in that thread, and a direct message is answered in the conversation. Press `Enter` to send and `Shift+Enter` for a new line. **Open in Slack** jumps to the message in Slack.
 
-To hide a busy channel, such as one where an app like Linear or GitHub posts updates, open the **⋯** menu on one of its messages and choose **Mute**. Muted channels are listed in the Control tab and in **Settings → Integrations → Slack**; press **×** beside one to bring it back.
+To hide a busy channel, such as one where an app like Linear or GitHub posts updates, press **Channels** at the top of the feed (or look under **Slack** in the Control tab) and switch it off. The list shows the busiest channels first. Switch a channel back on to see its messages again. You can also mute a channel from the **⋯** menu on any of its messages, and unmute from **Settings → Integrations → Slack**.
 
 **Refetch** in the Control tab reconnects to Slack and loads the last five days again.
 

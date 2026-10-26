@@ -15,7 +15,7 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { SlackSettings } from "../settings/SlackSettings";
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { useBtopSession } from "./btopSession";
-import { SlackMutedChannels } from "./SlackMutedChannels";
+import { SlackChannelToggles } from "./SlackChannelToggles";
 import { PrioritiesAdder } from "./priorities/PrioritiesAdder";
 
 const HOST_STATS_POLL_MS = 5_000;
@@ -154,7 +154,12 @@ function SlackBlock({ environmentId }: { environmentId: EnvironmentId }) {
           >
             {statusLine}
           </p>
-          <SlackMutedChannels environmentId={environmentId} />
+          {feed.data !== null ? (
+            <div className="flex flex-col gap-1 border-t border-border/60 pt-2">
+              <span className="text-xs font-medium">Channels</span>
+              <SlackChannelToggles environmentId={environmentId} messages={feed.data.messages} />
+            </div>
+          ) : null}
         </>
       ) : (
         <SlackSettings environmentId={environmentId} />
