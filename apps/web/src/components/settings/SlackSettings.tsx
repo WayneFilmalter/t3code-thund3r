@@ -22,6 +22,8 @@ const SLACK_APP_MANIFEST = JSON.stringify(
   {
     display_information: { name: "T3 Code" },
     features: {
+      // Slack only accepts slash commands and the `commands` scope on an app with a bot user.
+      bot_user: { display_name: "T3 Code", always_online: false },
       slash_commands: [
         { command: "/priorities", description: "List the priority tickets" },
         {
