@@ -120,6 +120,7 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { LinearSettings } from "./LinearSettings";
 import { SlackSettings } from "./SlackSettings";
+import { SlackMutedChannels } from "../control/SlackMutedChannels";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
 import type { ImportOutcome } from "./browserImportWizard.logic";
@@ -1563,10 +1564,10 @@ function SlackIntegrationSettings() {
       {primaryEnvironment == null ? (
         <p className="text-xs text-muted-foreground">Connect to an environment to set up Slack.</p>
       ) : (
-        <SlackSettings
-          key={primaryEnvironment.environmentId}
-          environmentId={primaryEnvironment.environmentId}
-        />
+        <div key={primaryEnvironment.environmentId} className="grid gap-4">
+          <SlackSettings environmentId={primaryEnvironment.environmentId} />
+          <SlackMutedChannels environmentId={primaryEnvironment.environmentId} showEmpty />
+        </div>
       )}
     </SettingsSection>
   );

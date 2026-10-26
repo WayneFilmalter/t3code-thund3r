@@ -78,11 +78,15 @@ const fakeSlackApi = (posted: Array<URLSearchParams>) =>
     return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
   });
 
-const makeLayer = (socket: ReturnType<typeof makeFakeSocket>, posted: Array<URLSearchParams>) =>
+const makeLayer = (
+  socket: ReturnType<typeof makeFakeSocket>,
+  posted: Array<URLSearchParams>,
+  mutedChannels: Record<string, string> = {},
+) =>
   SlackService.layer.pipe(
     Layer.provide(
       ServerSettings.ServerSettingsService.layerTest({
-        slack: { userToken: "xoxp-test", appToken: "xapp-test" },
+        slack: { userToken: "xoxp-test", appToken: "xapp-test", mutedChannels },
       }),
     ),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, fakeSlackApi(posted))),
@@ -151,4 +155,36 @@ it.effect("backfills, applies live events with acks, and closes the socket when 
     yield* TestClock.adjust("31 seconds");
     yield* Deferred.await(socket.closed);
   }).pipe(Effect.provide(makeLayer(socket, posted)));
+});
+
+it.effect("keeps muted channels out of snapshots and live updates", () => {
+  const socket = makeFakeSocket();
+  return Effect.gen(function* () {
+    const slack = yield* SlackService.SlackService;
+    const events = yield* Queue.unbounded<SlackFeedEvent>();
+    yield* slack.subscribe().pipe(
+      Stream.runForEach((event) => Queue.offer(events, event)),
+      Effect.forkChild,
+    );
+
+    const live = yield* takeUntil(
+      events,
+      (event) => event._tag === "snapshot" && event.status.state === "live",
+    );
+    // The only backfilled message is in the muted #general.
+    assert.deepEqual(live._tag === "snapshot" ? live.messages : null, []);
+
+    const message = (channel: string, ts: string) => ({
+      type: "events_api",
+      payload: {
+        event: { type: "message", channel, channel_type: "channel", user: "U2", text: "x", ts },
+      },
+    });
+    socket.deliver({ envelope_id: "env-1", ...message("C1", "2.0") });
+    socket.deliver({ envelope_id: "env-2", ...message("C2", "3.0") });
+    const upsert = yield* takeUntil(events, (event) => event._tag === "upsert");
+    assert.equal(upsert._tag === "upsert" ? upsert.message.channelId : null, "C2");
+    // Muted or not, Slack still gets its acknowledgement.
+    assert.lengthOf(socket.sent, 2);
+  }).pipe(Effect.provide(makeLayer(socket, [], { C1: "#general" })));
 });

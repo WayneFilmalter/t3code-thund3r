@@ -100,6 +100,7 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   RpcScopeAuthorization,
+  LinearWsRpcGroup,
   SlackWsRpcGroup,
   WS_METHODS,
   WsRpcGroup,
@@ -555,11 +556,16 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
-// Slack's methods get their own handler layer; see SlackWsRpcGroup for why.
+// Slack's and Linear's methods get their own handler layers; see SlackWsRpcGroup for why.
 const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.slackSubscribe,
   WS_METHODS.slackRefetch,
   WS_METHODS.slackReply,
+  WS_METHODS.linearIssuesList,
+  WS_METHODS.linearTicketsGet,
+  WS_METHODS.linearTicketsSearch,
+  WS_METHODS.linearTicketDetail,
+  WS_METHODS.linearCommentCreate,
 );
 const ServerSlackRpcGroup =
   SlackWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
@@ -574,6 +580,24 @@ const layerSlackRpc = ServerSlackRpcGroup.toLayer(
     });
   }),
 );
+
+const ServerLinearRpcGroup =
+  LinearWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
+
+const layerLinearRpc = ServerLinearRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const linearIssues = yield* LinearIssues.LinearIssues;
+    const linearTickets = yield* LinearTickets.LinearTickets;
+    return ServerLinearRpcGroup.of({
+      [WS_METHODS.linearIssuesList]: (input) => linearIssues.listIssues(input),
+      [WS_METHODS.linearTicketsGet]: (input) => linearTickets.getTickets(input),
+      [WS_METHODS.linearTicketsSearch]: (input) => linearTickets.searchTickets(input),
+      [WS_METHODS.linearTicketDetail]: (input) => linearTickets.getTicketDetail(input),
+      [WS_METHODS.linearCommentCreate]: (input) => linearTickets.createComment(input),
+    });
+  }),
+);
+
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1348,8 +1372,6 @@ const layerWsRpc = (
       const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
       const sourceControlDiscovery = yield* SourceControlDiscovery.SourceControlDiscovery;
       const otlpEndpointCheck = yield* OtlpEndpointCheck.OtlpEndpointCheck;
-      const linearIssues = yield* LinearIssues.LinearIssues;
-      const linearTickets = yield* LinearTickets.LinearTickets;
       const notes = yield* NotesService.NotesService;
       const automaticGitFetchInterval = serverSettings.getSettings.pipe(
         Effect.map(
@@ -2475,11 +2497,6 @@ const layerWsRpc = (
         [WS_METHODS.serverRefreshUsageRates]: (_input) => usage.refreshRates,
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,
         [WS_METHODS.serverCheckOtlpEndpoint]: (input) => otlpEndpointCheck.check(input),
-        [WS_METHODS.linearIssuesList]: (input) => linearIssues.listIssues(input),
-        [WS_METHODS.linearTicketsGet]: (input) => linearTickets.getTickets(input),
-        [WS_METHODS.linearTicketsSearch]: (input) => linearTickets.searchTickets(input),
-        [WS_METHODS.linearTicketDetail]: (input) => linearTickets.getTicketDetail(input),
-        [WS_METHODS.linearCommentCreate]: (input) => linearTickets.createComment(input),
         [WS_METHODS.notesList]: (_input) => notes.list(),
         [WS_METHODS.notesSubscribe]: (_input) => notes.subscribeList(),
         [WS_METHODS.notesCreate]: (input) => notes.create(input),
@@ -3269,7 +3286,7 @@ export const layer = Layer.unwrap(
                 previewAutomationBroker,
                 serverBrowser,
               ),
-              layerSlackRpc,
+              Layer.merge(layerSlackRpc, layerLinearRpc),
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

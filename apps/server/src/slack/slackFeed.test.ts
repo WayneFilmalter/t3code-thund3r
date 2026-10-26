@@ -109,6 +109,20 @@ describe("feedChangeFromEvent", () => {
     );
     assert.equal(edited?._tag === "upsert" && edited.message.text, "fixed");
 
+    // Apps such as Linear edit attachment-only posts; those must not become blank items.
+    assert.isNull(
+      feedChangeFromEvent(
+        {
+          type: "message",
+          subtype: "message_changed",
+          channel: "C1",
+          channel_type: "channel",
+          message: { username: "linear", text: "", ts: "6.0" },
+        },
+        SELF,
+      ),
+    );
+
     assert.deepEqual(
       feedChangeFromEvent(
         { type: "message", subtype: "message_deleted", channel: "C1", deleted_ts: "5.0" },

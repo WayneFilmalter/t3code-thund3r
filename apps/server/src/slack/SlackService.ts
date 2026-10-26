@@ -127,11 +127,18 @@ const make = Effect.gen(function* () {
       status = { ...status, ...next };
       return publish({ _tag: "status", status });
     });
+  // Muted conversations stay in the feed but never reach a client, so
+  // unmuting shows their messages again without a refetch.
+  let muted = new Set<string>();
   const snapshot = Clock.currentTimeMillis.pipe(
     Effect.map((now): SlackFeedEvent => ({
       _tag: "snapshot",
       status,
-      messages: windowFeed(feed.values(), now, FEED_LIMIT),
+      messages: windowFeed(
+        Array.from(feed.values()).filter((message) => !muted.has(message.channelId)),
+        now,
+        FEED_LIMIT,
+      ),
     })),
   );
 
@@ -293,7 +300,7 @@ const make = Effect.gen(function* () {
       if (!isInsideWindow(change.message.ts, yield* Clock.currentTimeMillis)) return;
       const message = yield* resolve(token, self, change.message);
       feed.set(feedKey(message.channelId, message.ts), message);
-      yield* publish({ _tag: "upsert", message });
+      if (!muted.has(message.channelId)) yield* publish({ _tag: "upsert", message });
     });
 
   /**
@@ -418,23 +425,41 @@ const make = Effect.gen(function* () {
     }
   }).pipe(Effect.catch((error) => setStatus({ state: "error", detail: error.detail })));
 
+  const slackSettings = Stream.concat(
+    Stream.fromEffect(settingsService.getSettings.pipe(Effect.orDie)),
+    settingsService.streamChanges,
+  ).pipe(Stream.map((settings) => settings.slack));
+
   /** Restarts the session whenever the Slack tokens change or a refetch is asked for. */
   const restarts = Stream.merge(
-    Stream.concat(
-      Stream.fromEffect(settingsService.getSettings.pipe(Effect.orDie)),
-      settingsService.streamChanges,
-    ).pipe(
-      Stream.map((settings) => `${settings.slack.userToken}\n${settings.slack.appToken}`),
+    slackSettings.pipe(
+      Stream.map((slack) => `${slack.userToken}\n${slack.appToken}`),
       Stream.changes,
     ),
     Stream.fromPubSub(refetchRequests),
   );
 
+  /** A changed mute list re-sends the feed; the Slack connection is untouched. */
+  const followMutes = slackSettings.pipe(
+    Stream.map((slack) => Object.keys(slack.mutedChannels).toSorted().join("\n")),
+    Stream.changes,
+    Stream.runForEach((ids) =>
+      Effect.suspend(() => {
+        muted = new Set(ids.length === 0 ? [] : ids.split("\n"));
+        return Effect.flatMap(snapshot, publish);
+      }),
+    ),
+  );
+
   const connection = yield* RcRef.make({
     acquire: Effect.gen(function* () {
-      // Before forking, so a subscriber's snapshot never shows a stale "live".
+      // Before forking, so a subscriber's first snapshot never shows a stale
+      // "live" or a channel muted while nobody was watching.
       if (status.state !== "unconfigured")
         status = { ...status, state: "connecting", detail: null };
+      const settings = yield* settingsService.getSettings.pipe(Effect.orDie);
+      muted = new Set(Object.keys(settings.slack.mutedChannels));
+      yield* Effect.forkScoped(followMutes);
       yield* restarts.pipe(
         Stream.switchMap(() => Stream.fromEffect(supervise)),
         Stream.runDrain,

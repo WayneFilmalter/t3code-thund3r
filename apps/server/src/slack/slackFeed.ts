@@ -124,7 +124,8 @@ export function feedChangeFromEvent(event: unknown, selfUserId: string): SlackFe
       return ts === null ? null : { _tag: "remove", channelId, ts };
     }
     const raw = rawFromMessage(message, channelId, kind);
-    return raw === null ? null : { _tag: "upsert", message: raw };
+    // Apps like Linear edit attachment-only posts; with no text there is nothing to show.
+    return raw === null || raw.text.length === 0 ? null : { _tag: "upsert", message: raw };
   }
   if (!CONTENT_SUBTYPES.has(subtype) || event.hidden === true) return null;
   if (event.user === selfUserId) return null;

@@ -1,10 +1,18 @@
 import { useAtomValue } from "@effect/atom-react";
 import { type EnvironmentId, type SlackFeedMessage, slackReplyThreadTs } from "@t3tools/contracts";
-import { ArrowLeftIcon, ExternalLinkIcon, ReplyIcon, SendIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  BellOffIcon,
+  ExternalLinkIcon,
+  MoreHorizontalIcon,
+  ReplyIcon,
+  SendIcon,
+} from "lucide-react";
 import { type KeyboardEvent, useState } from "react";
 
 import ChatMarkdown from "~/components/ChatMarkdown";
 import { Button } from "~/components/ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Textarea } from "~/components/ui/textarea";
 import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
@@ -15,6 +23,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel, formatShortTimestamp } from "~/timestampFormat";
 
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
+import { useSlackMutes } from "./useSlackMutes";
 import {
   slackMessageContext,
   slackMessageKey,
@@ -46,6 +55,7 @@ function SlackFeed({ environmentId }: { environmentId: EnvironmentId }) {
   const canReply = useAtomValue(serverEnvironment.slackReply.permissionAtom(environmentId));
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [replyKey, setReplyKey] = useState<string | null>(null);
+  const { mute } = useSlackMutes(environmentId);
   // Re-renders the relative times once a minute.
   useNowMinute();
 
@@ -62,6 +72,7 @@ function SlackFeed({ environmentId }: { environmentId: EnvironmentId }) {
         message={open}
         canReply={canReply}
         onBack={() => setOpenKey(null)}
+        onMute={() => mute(open.channelId, open.channelName)}
       />
     );
   }
@@ -106,6 +117,7 @@ function SlackFeed({ environmentId }: { environmentId: EnvironmentId }) {
                 onOpen={() => setOpenKey(key)}
                 onReply={() => setReplyKey(replyKey === key ? null : key)}
                 onReplyDone={() => setReplyKey(null)}
+                onMute={() => mute(message.channelId, message.channelName)}
               />
             );
           })}
@@ -142,6 +154,7 @@ function SlackMessageItem(props: {
   onOpen: () => void;
   onReply: () => void;
   onReplyDone: () => void;
+  onMute: () => void;
 }) {
   const { message } = props;
   return (
@@ -156,7 +169,8 @@ function SlackMessageItem(props: {
           {slackPreviewText(message.text)}
         </span>
       </button>
-      <div className="flex justify-end px-1.5 pb-1">
+      <div className="flex justify-end gap-1 px-1.5 pb-1">
+        <SlackMessageMenu message={message} onMute={props.onMute} />
         <Button
           type="button"
           size="xs"
@@ -189,6 +203,7 @@ function SlackMessageView(props: {
   message: SlackFeedMessage;
   canReply: boolean;
   onBack: () => void;
+  onMute: () => void;
 }) {
   const { message } = props;
   const { timestampFormat } = useClientSettings();
@@ -217,6 +232,7 @@ function SlackMessageView(props: {
             <ExternalLinkIcon />
           </Button>
         ) : null}
+        <SlackMessageMenu message={message} onMute={props.onMute} />
       </WorkflowsSubheader>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <p className="mb-2 text-2xs text-muted-foreground">
@@ -232,6 +248,26 @@ function SlackMessageView(props: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SlackMessageMenu(props: { message: SlackFeedMessage; onMute: () => void }) {
+  return (
+    <Menu>
+      <MenuTrigger
+        render={
+          <Button type="button" size="icon-xs" variant="ghost-muted" aria-label="Message actions" />
+        }
+      >
+        <MoreHorizontalIcon className="size-3.5" />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuItem onClick={props.onMute}>
+          <BellOffIcon />
+          Mute {props.message.channelName}
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 

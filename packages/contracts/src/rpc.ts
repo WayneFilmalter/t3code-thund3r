@@ -1056,6 +1056,15 @@ const WsSlackReplyRpc = Rpc.make(WS_METHODS.slackReply, {
   error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
 });
 
+/** Its own group for the reason on `SlackWsRpcGroup`. */
+export const LinearWsRpcGroup = RpcGroup.make(
+  WsLinearIssuesListRpc,
+  WsLinearTicketsGetRpc,
+  WsLinearTicketsSearchRpc,
+  WsLinearTicketDetailRpc,
+  WsLinearCommentCreateRpc,
+);
+
 /**
  * Its own group so the server implements it as a separate handler layer.
  * Type-checking one handler object grows with the square of its methods, and
@@ -2093,11 +2102,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
-  WsLinearIssuesListRpc,
-  WsLinearTicketsGetRpc,
-  WsLinearTicketsSearchRpc,
-  WsLinearTicketDetailRpc,
-  WsLinearCommentCreateRpc,
   WsNotesListRpc,
   WsNotesSubscribeRpc,
   WsNotesCreateRpc,
@@ -2253,5 +2257,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
 )
-  .merge(SlackWsRpcGroup)
+  .merge(SlackWsRpcGroup, LinearWsRpcGroup)
   .middleware(RpcScopeAuthorization);

@@ -846,6 +846,10 @@ export type LinearSettings = typeof LinearSettings.Type;
 export const SlackSettings = Schema.Struct({
   userToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
   appToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  /** Conversations left out of the feed, by channel id, with the name to list them under. */
+  mutedChannels: Schema.Record(Schema.String, Schema.String).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type SlackSettings = typeof SlackSettings.Type;
 
@@ -1668,11 +1672,15 @@ export const ServerSettingsPatch = Schema.Struct({
       teamKey: Schema.optionalKey(TrimmedString),
     }),
   ),
-  /** Either token alone; an empty token removes the stored one. */
+  /**
+   * Either token alone; an empty token removes the stored one. Muted channels
+   * merge per entry, like `usageLimitSources`: `null` unmutes.
+   */
   slack: Schema.optionalKey(
     Schema.Struct({
       userToken: Schema.optionalKey(TrimmedString),
       appToken: Schema.optionalKey(TrimmedString),
+      mutedChannels: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
     }),
   ),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),

@@ -15,6 +15,7 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { SlackSettings } from "../settings/SlackSettings";
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { useBtopSession } from "./btopSession";
+import { SlackMutedChannels } from "./SlackMutedChannels";
 import { PrioritiesAdder } from "./priorities/PrioritiesAdder";
 
 const HOST_STATS_POLL_MS = 5_000;
@@ -143,13 +144,18 @@ function SlackBlock({ environmentId }: { environmentId: EnvironmentId }) {
       }
     >
       {configured ? (
-        <p
-          className={
-            status?.state === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"
-          }
-        >
-          {statusLine}
-        </p>
+        <>
+          <p
+            className={
+              status?.state === "error"
+                ? "text-xs text-destructive"
+                : "text-xs text-muted-foreground"
+            }
+          >
+            {statusLine}
+          </p>
+          <SlackMutedChannels environmentId={environmentId} />
+        </>
       ) : (
         <SlackSettings environmentId={environmentId} />
       )}

@@ -732,6 +732,23 @@ describe("serverSettings helpers", () => {
     expect(Object.keys(removed.usageLimitSources)).toEqual([hubB]);
   });
 
+  it("mutes and unmutes Slack channels per entry without touching the tokens", () => {
+    const current = {
+      ...DEFAULT_SERVER_SETTINGS,
+      slack: { userToken: "xoxp", appToken: "xapp", mutedChannels: { C1: "#linear" } },
+    };
+    const muted = applyServerSettingsPatch(current, {
+      slack: { mutedChannels: { C2: "#github" } },
+    });
+    expect(muted.slack).toEqual({
+      userToken: "xoxp",
+      appToken: "xapp",
+      mutedChannels: { C1: "#linear", C2: "#github" },
+    });
+    const unmuted = applyServerSettingsPatch(muted, { slack: { mutedChannels: { C1: null } } });
+    expect(unmuted.slack.mutedChannels).toEqual({ C2: "#github" });
+  });
+
   it("replaces and removes individual usage prices without clobbering other models", () => {
     const prices = { inputCostPerMillionTokens: 2, outputCostPerMillionTokens: 8 };
     const current = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {

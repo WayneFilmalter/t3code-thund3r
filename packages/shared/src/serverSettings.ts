@@ -265,6 +265,21 @@ function mergeModelSelectionOptionsById(input: {
 }
 
 /** Upsert each patched entry; `null` removes it. Entries the patch omits are untouched. */
+/** Tokens replace; muted channels merge per entry so muting one cannot undo unmuting another. */
+function applySlackSettingsPatch(
+  current: ServerSettings["slack"],
+  patch: NonNullable<ServerSettingsPatch["slack"]>,
+): ServerSettings["slack"] {
+  const { mutedChannels, ...tokens } = patch;
+  return {
+    ...current,
+    ...tokens,
+    ...(mutedChannels !== undefined
+      ? { mutedChannels: mergeSettingsEntries(current.mutedChannels, mutedChannels) }
+      : {}),
+  };
+}
+
 function mergeSettingsEntries<Value>(
   current: Readonly<Record<string, Value>>,
   patch: Readonly<Record<string, Value | null>>,
@@ -415,6 +430,7 @@ export function applyServerSettingsPatch(
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
+    slack: slackPatch,
     sourceControlHosts: sourceControlHostsPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
     usageModelAliases: usageModelAliasesPatch,
@@ -603,6 +619,9 @@ export function applyServerSettingsPatch(
             usageLimitSourcesPatch,
           ),
         }
+      : {}),
+    ...(slackPatch !== undefined
+      ? { slack: applySlackSettingsPatch(current.slack, slackPatch) }
       : {}),
     ...(usagePriceOverridesPatch !== undefined
       ? {
