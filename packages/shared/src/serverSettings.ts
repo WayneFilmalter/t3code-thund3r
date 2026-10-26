@@ -295,6 +295,29 @@ function applyLinearSettingsPatch(
   };
 }
 
+/**
+ * Tasks merge per entry like priorities. A new id takes the next number
+ * unless it brings one back (Undo); an edit keeps its number. Runs inside the
+ * server's serialized settings update, so two adds never share a number.
+ */
+export function applyPriorityTasksPatch(
+  current: Pick<ServerSettings, "priorityTasks" | "priorityTaskNextNumber">,
+  patch: NonNullable<ServerSettingsPatch["priorityTasks"]>,
+): Pick<ServerSettings, "priorityTasks" | "priorityTaskNextNumber"> {
+  const items = new Map(Object.entries(current.priorityTasks));
+  let nextNumber = current.priorityTaskNextNumber;
+  for (const [id, input] of Object.entries(patch)) {
+    if (input === null) {
+      items.delete(id);
+      continue;
+    }
+    const number = items.get(id)?.number ?? input.number ?? nextNumber;
+    items.set(id, { ...input, number });
+    nextNumber = Math.max(nextNumber, number + 1);
+  }
+  return { priorityTasks: Object.fromEntries(items), priorityTaskNextNumber: nextNumber };
+}
+
 function mergeSettingsEntries<Value>(
   current: Readonly<Record<string, Value>>,
   patch: Readonly<Record<string, Value | null>>,
@@ -447,6 +470,7 @@ export function applyServerSettingsPatch(
     usageLimitSources: usageLimitSourcesPatch,
     linear: linearPatch,
     slack: slackPatch,
+    priorityTasks: priorityTasksPatch,
     sourceControlHosts: sourceControlHostsPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
     usageModelAliases: usageModelAliasesPatch,
@@ -641,6 +665,9 @@ export function applyServerSettingsPatch(
       : {}),
     ...(slackPatch !== undefined
       ? { slack: applySlackSettingsPatch(current.slack, slackPatch) }
+      : {}),
+    ...(priorityTasksPatch !== undefined
+      ? applyPriorityTasksPatch(current, priorityTasksPatch)
       : {}),
     ...(usagePriceOverridesPatch !== undefined
       ? {

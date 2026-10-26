@@ -84,3 +84,12 @@ export const PRIORITY_TONES: Record<
     dot: null,
   },
 };
+
+/**
+ * Priorities panel tasks are always purple, whatever their priority, so they
+ * stand apart from tickets. Same `card` / `dot` shapes as `PRIORITY_TONES`.
+ */
+export const TASK_TONE = {
+  card: "border-purple-500/75 bg-purple-500/[0.07] dark:border-purple-400/65 dark:bg-purple-400/[0.08]",
+  dot: "bg-purple-500 dark:bg-purple-400",
+};

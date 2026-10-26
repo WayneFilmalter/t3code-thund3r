@@ -11,6 +11,10 @@
       "types": "./src/linearPriorities.ts",
       "import": "./src/linearPriorities.ts"
     },
+    "./priorityTasks": {
+      "types": "./src/priorityTasks.ts",
+      "import": "./src/priorityTasks.ts"
+    },
     "./authScopeOptions": {
       "types": "./src/authScopeOptions.ts",
       "import": "./src/authScopeOptions.ts"

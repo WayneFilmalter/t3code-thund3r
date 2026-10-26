@@ -852,6 +852,28 @@ export const LinearSettings = Schema.Struct({
 });
 export type LinearSettings = typeof LinearSettings.Type;
 
+/** A task's priority, Linear's scale without "none". */
+export const PriorityTaskPriority = Schema.Literals(["urgent", "high", "medium", "low"]);
+export type PriorityTaskPriority = typeof PriorityTaskPriority.Type;
+
+/** A task as written, from the Control tab or Slack's `/add-task`. */
+export const PriorityTaskInput = Schema.Struct({
+  /** Set only to restore a task under its old number; new tasks take the next one. */
+  number: Schema.optionalKey(Schema.Int),
+  title: TrimmedNonEmptyString,
+  body: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  priority: PriorityTaskPriority,
+  createdAt: Schema.String,
+});
+export type PriorityTaskInput = typeof PriorityTaskInput.Type;
+
+/** One task on the Control window's priority list, shown as `T-<number>`. */
+export const PriorityTask = Schema.Struct({
+  ...PriorityTaskInput.fields,
+  number: Schema.Int,
+});
+export type PriorityTask = typeof PriorityTask.Type;
+
 /**
  * Slack access for the Control window's feed. The tokens come from a Slack
  * app the user installs in their own workspace: the user token (`xoxp-`)
@@ -1383,6 +1405,15 @@ export const ServerSettings = Schema.Struct({
   slack: SlackSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(SlackSettings)({}))),
   ),
+  /** Plain tasks on the priority list, beside the Linear tickets, by id. */
+  priorityTasks: Schema.Record(Schema.String, PriorityTask).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  /**
+   * The number the next task takes. Only the server moves it, and never back,
+   * so a stale `/get-tasks` cannot point at a different task.
+   */
+  priorityTaskNextNumber: Schema.Int.pipe(Schema.withDecodingDefault(Effect.succeed(1))),
   /** Allows this server to read the Cursor CLI's macOS Keychain login for account usage. */
   cursorKeychainUsageEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
@@ -1712,6 +1743,8 @@ export const ServerSettingsPatch = Schema.Struct({
       mutedChannels: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
     }),
   ),
+  /** Tasks by id, merged per entry: `null` removes one, a new id takes the next number. */
+  priorityTasks: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(PriorityTaskInput))),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),
   /** Each entry replaces one model's rates; `null` restores automatic pricing. */
   usagePriceOverrides: Schema.optionalKey(

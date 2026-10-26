@@ -1171,3 +1171,42 @@ describe("synchronized model preferences", () => {
     });
   });
 });
+
+describe("priority tasks patch", () => {
+  const task = (title: string) => ({
+    title,
+    body: "",
+    priority: "high" as const,
+    createdAt: "2026-10-26T12:00:00.000Z",
+  });
+
+  it("numbers new tasks in order and never reuses a removed number", () => {
+    const added = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      priorityTasks: { a: task("One"), b: task("Two") },
+    });
+    expect(added.priorityTasks.a?.number).toBe(1);
+    expect(added.priorityTasks.b?.number).toBe(2);
+
+    const removed = applyServerSettingsPatch(added, { priorityTasks: { b: null } });
+    expect(Object.keys(removed.priorityTasks)).toEqual(["a"]);
+    const next = applyServerSettingsPatch(removed, { priorityTasks: { c: task("Three") } });
+    expect(next.priorityTasks.c?.number).toBe(3);
+  });
+
+  it("keeps a task's number through an edit, and brings it back on restore", () => {
+    const added = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      priorityTasks: { a: task("One") },
+    });
+    const edited = applyServerSettingsPatch(added, {
+      priorityTasks: { a: { ...task("One, renamed"), number: 9 } },
+    });
+    expect(edited.priorityTasks.a).toMatchObject({ number: 1, title: "One, renamed" });
+
+    const removed = applyServerSettingsPatch(edited, { priorityTasks: { a: null } });
+    const restored = applyServerSettingsPatch(removed, {
+      priorityTasks: { a: { ...task("One"), number: 1 } },
+    });
+    expect(restored.priorityTasks.a?.number).toBe(1);
+    expect(restored.priorityTaskNextNumber).toBe(2);
+  });
+});

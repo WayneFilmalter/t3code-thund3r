@@ -24,7 +24,8 @@ export function priorityAdditions(
   return additions;
 }
 
-const PRIORITY_RANK: Record<LinearTicket["priority"], number> = {
+/** Most urgent first; tickets and tasks share it. */
+export const PRIORITY_RANK: Record<LinearTicket["priority"], number> = {
   urgent: 0,
   high: 1,
   medium: 2,

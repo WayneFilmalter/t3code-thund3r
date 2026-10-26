@@ -1,8 +1,8 @@
 # Control window
 
-The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets, your Slack messages, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, a place to add priorities, and the state of the Slack connection.
+The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets and tasks, your Slack messages, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, places to add priorities and tasks, and the state of the Slack connection.
 
-The window is desktop-only. On the web the Control tab still shows the Priorities and Slack blocks, so you can add tickets and connect Slack from anywhere.
+The window is desktop-only. On the web the Control tab still shows the Priorities, Tasks and Slack blocks, so you can add tickets and tasks and connect Slack from anywhere.
 
 ## Priorities
 
@@ -14,6 +14,10 @@ Each card has buttons to comment on the ticket, open its GitHub pull request whe
 
 The green check takes a ticket off the list. Tickets in QA, QA Approved or Done come off straight away; for any other status T3 Code asks first.
 
+### Tasks
+
+Not everything has a Linear ticket. Add a task from the **Tasks** block in the Control tab: a title, an optional description and a priority. Tasks don't need a Linear key. They sit among the tickets by priority, with a purple border, a number such as `T-12`, and how long ago they were added. The green check takes a task off straight away, and **Undo** in the message that follows brings it back.
+
 ### Priorities from Slack
 
 Once Slack is connected, anyone in your workspace can look at and change the list with slash commands:
@@ -21,10 +25,13 @@ Once Slack is connected, anyone in your workspace can look at and change the lis
 - `/priorities` lists the tickets, most urgent first.
 - `/add-priority ENG-482 #490` adds tickets. It reads ticket numbers, `#482`, bare numbers and Linear links, just like pasting into the Control tab.
 - `/remove-priority ENG-482` takes tickets off.
+- `/get-tasks` lists the tasks, most urgent first, with how long ago each was added.
+- `/add-task high: Fix login | Users can't sign in on Safari` adds a task. The priority (`urgent:`, `high:`, `medium:` or `low:`) is optional and defaults to medium. The text after `|`, or on the lines after the first, is the description.
+- `/remove-task T-12` takes a task off. Just `12` works too.
 
 Only the person who ran the command sees the answer. Changes show up in the Priorities panel straight away. Slash commands only work while T3 Code's server is running; one sent while it is off fails and is not kept.
 
-Requests posted as messages in a `#priorities` channel are never lost. Start a message with `add`, `remove` or `list`, such as `add ENG-482 #490`. Other messages in the channel are ignored. Thund3rBot answers in the message's thread. If T3 Code was off, it handles everything posted since it last ran as soon as it starts again, and answers each one then.
+Requests posted as messages in a `#priorities` channel are never lost. Start a message with `add`, `remove` or `list`, such as `add ENG-482 #490`, or with `add-task`, `remove-task` or `get-tasks` for tasks. Other messages in the channel are ignored. Thund3rBot answers in the message's thread. If T3 Code was off, it handles everything posted since it last ran as soon as it starts again, and answers each one then.
 
 For `#priorities` to work:
 

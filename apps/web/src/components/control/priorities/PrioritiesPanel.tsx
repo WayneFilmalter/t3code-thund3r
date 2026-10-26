@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { type EnvironmentId, LinearError, type LinearTicket } from "@t3tools/contracts";
-import { orderByPriority } from "@t3tools/shared/linearPriorities";
+import { orderPriorityItems, taskLabel } from "@t3tools/shared/priorityTasks";
 import * as Schema from "effect/Schema";
 import { RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "~/components/ui/alert-dialog";
 import { Button } from "~/components/ui/button";
+import { toastManager } from "~/components/ui/toast";
 import { usePrimaryEnvironmentId } from "~/state/environments";
 import { linearEnvironment } from "~/state/linear";
 import { useEnvironmentQuery } from "~/state/query";
@@ -24,7 +25,8 @@ import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
 import { MissingPriorityCard, PendingPriorityCard, PriorityCard } from "./PriorityCard";
 import { PriorityDetail } from "./PriorityDetail";
 import { hasUnreadComments, isTicketDone } from "./priorities.logic";
-import { usePriorityList } from "./prioritiesStore";
+import { type TaskEntry, usePriorityList, usePriorityTasks } from "./prioritiesStore";
+import { TaskCard } from "./TaskCard";
 
 const isLinearError = Schema.is(LinearError);
 
@@ -32,9 +34,9 @@ const isLinearError = Schema.is(LinearError);
 const REFRESH_INTERVAL_MS = 60_000;
 
 /**
- * Control window panel 1: the local priority list of Linear tickets, most
- * urgent first. Tickets are added from the Control tab's Priorities
- * block; Done takes them off.
+ * Control window panel 1: the priority list of Linear tickets and plain
+ * tasks, most urgent first. Both are added from the Control tab's
+ * Priorities and Tasks blocks; Done takes them off.
  */
 export function PrioritiesPanel() {
   const environmentId = usePrimaryEnvironmentId();
@@ -52,6 +54,7 @@ function PanelMessage({ children }: { children: string }) {
 
 function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
   const list = usePriorityList(environmentId);
+  const taskList = usePriorityTasks(environmentId);
   const identifiers = useMemo(() => list.entries.map((entry) => entry.identifier), [list.entries]);
   const query = useEnvironmentQuery(
     identifiers.length === 0
@@ -115,6 +118,26 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
     }
   };
 
+  /** No Linear state to check, so a task goes at once; Undo brings it back under its number. */
+  const { remove: removeTask, restore: restoreTask } = taskList;
+  const markTaskDone = useCallback(
+    (task: TaskEntry) => {
+      void removeTask(task.id);
+      const toastId = toastManager.add({
+        type: "success",
+        title: `Done: ${taskLabel(task.number)} ${task.title}`,
+        actionProps: {
+          children: "Undo",
+          onClick: () => {
+            toastManager.close(toastId);
+            void restoreTask(task);
+          },
+        },
+      });
+    },
+    [removeTask, restoreTask],
+  );
+
   const openEntry = list.entries.find((entry) => entry.identifier === openIdentifier);
   const openTicket = openIdentifier === null ? undefined : known.get(openIdentifier);
   const onSeen = useCallback(
@@ -173,23 +196,31 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
     );
   }
 
-  const notice =
+  const count = list.entries.length + taskList.tasks.length;
+  const linearNotice =
     list.entries.length === 0
-      ? "No priorities yet. Add tickets from the Control tab."
+      ? null
       : isLinearError(query.failure) && query.failure.kind === "not-configured"
         ? "Add a Linear API key in Settings → Integrations."
         : known.size === 0 && query.error !== null
           ? query.error
           : null;
+  // Tasks need no Linear, so a Linear problem only replaces the list when there are none.
+  const notice =
+    count === 0
+      ? "No priorities yet. Add tickets or tasks from the Control tab."
+      : taskList.tasks.length === 0
+        ? linearNotice
+        : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <WorkflowsSubheader>
         <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-foreground">
           Priorities
-          {list.entries.length > 0 ? (
+          {count > 0 ? (
             <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-              {list.entries.length}
+              {count}
             </span>
           ) : null}
         </span>
@@ -211,7 +242,20 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
         <PanelMessage>{notice}</PanelMessage>
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
-          {orderByPriority(list.entries, known).map((entry) => {
+          {linearNotice !== null ? (
+            <li className="px-1 text-xs text-muted-foreground">{linearNotice}</li>
+          ) : null}
+          {orderPriorityItems(list.entries, taskList.tasks, known).map((item) => {
+            if (item.kind === "task") {
+              return (
+                <TaskCard
+                  key={item.task.id}
+                  task={item.task}
+                  onDone={() => markTaskDone(item.task)}
+                />
+              );
+            }
+            const { entry } = item;
             const ticket = known.get(entry.identifier);
             if (ticket === undefined) {
               return missing.has(entry.identifier) ? (

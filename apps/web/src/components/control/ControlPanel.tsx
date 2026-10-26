@@ -18,6 +18,7 @@ import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { useBtopSession } from "./btopSession";
 import { SlackChannelToggles } from "./SlackChannelToggles";
 import { PrioritiesAdder } from "./priorities/PrioritiesAdder";
+import { TaskAdder } from "./priorities/TaskAdder";
 
 const HOST_STATS_POLL_MS = 5_000;
 const BYTES_PER_GB = 1024 ** 3;
@@ -306,6 +307,11 @@ export function ControlPanel() {
         {btop.environmentId !== null ? (
           <ControlBlock title="Priorities">
             <PrioritiesAdder environmentId={btop.environmentId} />
+          </ControlBlock>
+        ) : null}
+        {btop.environmentId !== null ? (
+          <ControlBlock title="Tasks">
+            <TaskAdder environmentId={btop.environmentId} />
           </ControlBlock>
         ) : null}
         {btop.environmentId !== null ? <SlackBlock environmentId={btop.environmentId} /> : null}

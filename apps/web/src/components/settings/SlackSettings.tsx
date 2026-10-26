@@ -15,7 +15,7 @@ const NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
 /**
  * Pasted into Slack's "From a manifest" flow: user scopes to read every
- * conversation and reply as the user, the priority slash commands, the
+ * conversation and reply as the user, the priority and task slash commands, the
  * Thund3rBot user that answers in #priorities, and Socket Mode so new
  * messages and commands arrive without a public URL.
  */
@@ -36,6 +36,17 @@ const SLACK_APP_MANIFEST = JSON.stringify(
           command: "/remove-priority",
           description: "Take tickets off the priority list",
           usage_hint: "ENG-482",
+        },
+        { command: "/get-tasks", description: "List the tasks on the priority list" },
+        {
+          command: "/add-task",
+          description: "Add a task to the priority list",
+          usage_hint: "high: Fix login | optional description",
+        },
+        {
+          command: "/remove-task",
+          description: "Take a task off the priority list",
+          usage_hint: "T-12",
         },
       ],
     },

@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import type { LinearTicket, SlackFeedEvent } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -154,6 +155,7 @@ const makeLayer = (
       }),
     ),
     Layer.provide(Layer.succeed(LinearTickets.LinearTickets, fakeLinear)),
+    Layer.provide(NodeCrypto.layer),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, fakeSlackApi(posted, commands))),
     Layer.provide(Layer.succeed(Socket.WebSocketConstructor, () => socket.ws)),
   );
@@ -373,6 +375,73 @@ it.effect("catches up on #priorities requests missed while off, then answers liv
           { priorityCursor: "100.000000" },
           { answers, connected, history },
         ),
+      ),
+    );
+  });
+});
+
+it.effect("adds, lists and removes tasks from slash commands and #priorities messages", () => {
+  const socket = makeFakeSocket();
+  return Effect.gen(function* () {
+    const answers = yield* Queue.unbounded<string>();
+    const connected = Deferred.makeUnsafe<void>();
+    yield* Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const command = (envelopeId: string, name: string, text: string) =>
+        socket.deliver({
+          envelope_id: envelopeId,
+          type: "slash_commands",
+          payload: { command: name, text, response_url: RESPONSE_URL },
+        });
+      const tasks = settings.getSettings.pipe(
+        Effect.map((current) =>
+          Object.values(current.priorityTasks).map((task) => [task.number, task.title]),
+        ),
+      );
+
+      yield* Deferred.await(connected);
+
+      command("env-1", "/add-task", "low: Tidy <docs> | after the release");
+      assert.equal(yield* Queue.take(answers), "Added T-1 *Tidy &lt;docs&gt;* · Low");
+
+      // `add-task` is a task verb, not the ticket verb `add`.
+      socket.deliver({
+        envelope_id: "env-2",
+        type: "events_api",
+        payload: {
+          event: {
+            type: "message",
+            channel: "CPRI",
+            user: "U2",
+            text: "add-task urgent: Fix login",
+            ts: "104.000000",
+          },
+        },
+      });
+      assert.equal(yield* Queue.take(answers), "Added T-2 *Fix login* · Urgent");
+
+      const current = yield* settings.getSettings;
+      assert.deepEqual(Object.keys(current.linear.priorities), []);
+      assert.deepEqual(yield* tasks, [
+        [1, "Tidy <docs>"],
+        [2, "Fix login"],
+      ]);
+
+      command("env-3", "/get-tasks", "");
+      const listed = (yield* Queue.take(answers)).split("\n");
+      assert.equal(listed[0], "*Tasks* (2)");
+      assert.match(listed[1]!, /^• T-2 \*Fix login\* · Urgent · <!date\^\d+\^\{ago\}\|/);
+      assert.include(listed[2]!, "T-1");
+
+      command("env-4", "/remove-task", "T-1 9");
+      assert.equal(yield* Queue.take(answers), "Removed T-1 Tidy &lt;docs&gt;.\nNo task T-9.");
+      assert.deepEqual(yield* tasks, [[2, "Fix login"]]);
+
+      command("env-5", "/add-task", "  ");
+      assert.include(yield* Queue.take(answers), "Write the task");
+    }).pipe(
+      Effect.provide(
+        makeLayer(socket, [], { priorityCursor: "100.000000" }, { answers, connected }),
       ),
     );
   });

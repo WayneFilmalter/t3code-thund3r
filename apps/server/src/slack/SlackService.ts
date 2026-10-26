@@ -21,6 +21,7 @@ import {
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -118,6 +119,7 @@ const make = Effect.gen(function* () {
   const httpClient = yield* HttpClient.HttpClient;
   const makeWebSocket = yield* Socket.WebSocketConstructor;
   const linearTickets = yield* LinearTickets;
+  const crypto = yield* Crypto.Crypto;
 
   const events = yield* PubSub.unbounded<SlackFeedEvent>();
   const refetchRequests = yield* PubSub.unbounded<void>();
@@ -320,6 +322,7 @@ const make = Effect.gen(function* () {
     runPriorityCommand(request).pipe(
       Effect.provideService(Settings.ServerSettingsService, settingsService),
       Effect.provideService(LinearTickets, linearTickets),
+      Effect.provideService(Crypto.Crypto, crypto),
       Effect.catch((error) => Effect.succeed(`Could not update priorities: ${describe(error)}`)),
     );
 

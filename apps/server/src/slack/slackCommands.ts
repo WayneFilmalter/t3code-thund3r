@@ -5,15 +5,29 @@
  * `remove ENG-482`, `list`) stay in Slack's history, so a restart catches up
  * on them and Thund3rBot answers in their thread. Both change the list in the
  * server's Linear settings, so every open Priorities panel updates at once.
+ * `/add-task`, `/remove-task` and `/get-tasks` (or `add-task …` messages)
+ * do the same for the list's plain tasks.
  *
  * @module slack/slackCommands
  */
-import type { LinearIssuePriority, LinearPriority, LinearTicket } from "@t3tools/contracts";
+import type {
+  LinearIssuePriority,
+  LinearPriority,
+  LinearTicket,
+  PriorityTask,
+} from "@t3tools/contracts";
 import {
   orderByPriority,
   parsePriorityPaste,
   priorityAdditions,
 } from "@t3tools/shared/linearPriorities";
+import {
+  orderPriorityItems,
+  parseTaskNumbers,
+  parseTaskRequest,
+  taskLabel,
+} from "@t3tools/shared/priorityTasks";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 
@@ -46,6 +60,9 @@ const MESSAGE_VERBS: Record<string, string> = {
   add: "/add-priority",
   remove: "/remove-priority",
   list: "/priorities",
+  "add-task": "/add-task",
+  "remove-task": "/remove-task",
+  "get-tasks": "/get-tasks",
 };
 
 /**
@@ -68,7 +85,7 @@ export const readPriorityMessage = (
   if (type !== "message" || subtype !== undefined || botId !== undefined) return null;
   if (typeof ts !== "string" || typeof text !== "string") return null;
   if (threadTs !== undefined && threadTs !== ts) return null;
-  const match = /^\s*(\w+)\b(.*)$/s.exec(text);
+  const match = /^\s*([\w-]+)(?![\w-])(.*)$/s.exec(text);
   const command = match === null ? undefined : MESSAGE_VERBS[match[1]!.toLowerCase()];
   return command === undefined ? null : { ts, command, text: match![2]!.trim() };
 };
@@ -135,10 +152,84 @@ const USAGE: Record<string, string> = {
   "/remove-priority": "Name the tickets to remove, like `ENG-482`.",
 };
 
+const TASK_USAGE =
+  "Write the task, like `/add-task high: Fix login | Users cannot sign in`. The priority (urgent, high, medium, low) is optional; the text after `|`, or on later lines, is the description.";
+
+/** One task as Slack mrkdwn. `{ago}` lets Slack show "3 days ago" in each reader's own time. */
+const taskLine = (task: PriorityTask) => {
+  const seconds = Math.floor(Date.parse(task.createdAt) / 1000);
+  return [
+    `• ${taskLabel(task.number)} *${escapeSlackText(task.title)}*`,
+    PRIORITY_LABELS[task.priority],
+    Number.isFinite(seconds) ? `<!date^${seconds}^{ago}|${task.createdAt}>` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
+};
+
+/** The tasks most urgent first, oldest first within a priority. */
+export const formatTaskList = (tasks: ReadonlyArray<PriorityTask>): string => {
+  if (tasks.length === 0) return `There are no tasks. ${TASK_USAGE}`;
+  const ordered = orderPriorityItems([], tasks, new Map()).flatMap((item) =>
+    item.kind === "task" ? [item.task] : [],
+  );
+  return [`*Tasks* (${tasks.length})`, ...ordered.map(taskLine)].join("\n");
+};
+
+const runTaskCommand = Effect.fn("slackCommands.runTaskCommand")(function* (
+  command: PriorityRequest,
+) {
+  const settingsService = yield* ServerSettingsService;
+  const items = (yield* settingsService.getSettings).priorityTasks;
+
+  if (command.command === "/get-tasks") return formatTaskList(Object.values(items));
+
+  if (command.command === "/remove-task") {
+    const numbers = parseTaskNumbers(command.text);
+    if (numbers.length === 0) return "Name the tasks to remove, like `/remove-task T-12`.";
+    const entries = Object.entries(items);
+    const removed = numbers.flatMap((number) => {
+      const entry = entries.find(([, task]) => task.number === number);
+      return entry === undefined ? [] : [entry];
+    });
+    if (removed.length > 0) {
+      yield* settingsService.updateSettings({
+        priorityTasks: Object.fromEntries(removed.map(([id]) => [id, null])),
+      });
+    }
+    return [
+      ...removed.map(
+        ([, task]) => `Removed ${taskLabel(task.number)} ${escapeSlackText(task.title)}.`,
+      ),
+      ...sentence(
+        "No task",
+        numbers
+          .filter((number) => !removed.some(([, task]) => task.number === number))
+          .map(taskLabel),
+      ),
+    ].join("\n");
+  }
+
+  const request = parseTaskRequest(command.text);
+  if (request === null) return TASK_USAGE;
+  const id = yield* (yield* Crypto.Crypto).randomUUIDv4();
+  const createdAt = DateTime.formatIso(yield* DateTime.now);
+  const updated = yield* settingsService.updateSettings({
+    priorityTasks: { [id]: { ...request, createdAt } },
+  });
+  const task = updated.priorityTasks[id];
+  return task === undefined
+    ? "Could not add the task."
+    : `Added ${taskLabel(task.number)} *${escapeSlackText(task.title)}* · ${PRIORITY_LABELS[task.priority]}`;
+});
+
+const TASK_COMMANDS = new Set(["/add-task", "/remove-task", "/get-tasks"]);
+
 /** Runs one command and answers in Slack mrkdwn. Unknown commands get a short note. */
 export const runPriorityCommand = Effect.fn("slackCommands.runPriorityCommand")(function* (
   command: PriorityRequest,
 ) {
+  if (TASK_COMMANDS.has(command.command)) return yield* runTaskCommand(command);
   const settingsService = yield* ServerSettingsService;
   const linearTickets = yield* LinearTickets;
   const settings = yield* settingsService.getSettings;
