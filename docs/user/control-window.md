@@ -1,8 +1,18 @@
 # Control window
 
-The Control window is a separate desktop window for keeping an eye on things while you work: your Slack messages, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, and the state of the Slack connection.
+The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets, your Slack messages, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, a place to add priorities, and the state of the Slack connection.
 
-The window is desktop-only. On the web the Control tab still shows the Slack block, so you can connect Slack from anywhere.
+The window is desktop-only. On the web the Control tab still shows the Priorities and Slack blocks, so you can add tickets and connect Slack from anywhere.
+
+## Priorities
+
+The tall left panel is a list of the Linear tickets you have been asked to work on, in the order you added them. It uses the Linear API key and team key from **Settings → Integrations → Linear**. The list is kept on this device, not in Linear.
+
+Add tickets from the **Priorities** block in the Control tab. Search by ticket number (`ENG-482`, or just `482` for your team) or by words in the title. Or paste a whole message, such as this week's priorities from your lead, and press **Find tickets**. T3 Code picks out ticket numbers, `#482`, and Linear links, then asks you to confirm the tickets before adding them. Numbers it could not find in Linear are listed so you can check them.
+
+Each card has buttons to comment on the ticket, open its GitHub pull request when there is one, copy the ticket link, and copy its branch name. Click a card to read the whole ticket and its comments. A red dot means someone else has commented since you last opened it. The list refreshes from Linear every minute while the window is open.
+
+The green check takes a ticket off the list. Tickets in QA, QA Approved or Done come off straight away; for any other status T3 Code asks first.
 
 ## Slack feed
 

@@ -15,6 +15,7 @@ import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { SlackSettings } from "../settings/SlackSettings";
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { useBtopSession } from "./btopSession";
+import { PrioritiesAdder } from "./priorities/PrioritiesAdder";
 
 const HOST_STATS_POLL_MS = 5_000;
 const BYTES_PER_GB = 1024 ** 3;
@@ -156,7 +157,10 @@ function SlackBlock({ environmentId }: { environmentId: EnvironmentId }) {
   );
 }
 
-/** The Control tab: the desktop Control window, this PC's stats and btop, and the Slack feed. */
+/**
+ * The Control tab: the desktop Control window, this PC's stats and btop, the
+ * priority list's lookup and paste import, and the Slack feed.
+ */
 export function ControlPanel() {
   const bridge = window.desktopBridge?.controlWindow;
   const open = useControlWindowOpen(bridge);
@@ -242,6 +246,11 @@ export function ControlPanel() {
             <HostStats environmentId={btop.environmentId} />
           )}
         </ControlBlock>
+        {btop.environmentId !== null ? (
+          <ControlBlock title="Priorities">
+            <PrioritiesAdder environmentId={btop.environmentId} />
+          </ControlBlock>
+        ) : null}
         {btop.environmentId !== null ? <SlackBlock environmentId={btop.environmentId} /> : null}
       </div>
     </div>

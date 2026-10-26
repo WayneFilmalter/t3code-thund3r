@@ -1,21 +1,15 @@
 import type { LinearIssue } from "@t3tools/contracts";
-import { Check, Copy, ExternalLink } from "lucide";
+import { Copy, ExternalLink } from "lucide";
 import { GitBranchIcon } from "lucide-react";
-import { useRef } from "react";
 
 import { MorphIcon } from "~/components/MorphIcon";
 import { PULL_REQUEST_STATE_PRESENTATION } from "~/components/pullRequest/pullRequestIcons";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
-import {
-  ANCHORED_COPY_TOAST_TIMEOUT_MS,
-  showAnchoredCopyErrorToast,
-  showAnchoredCopySuccessToast,
-} from "~/components/ui/anchoredCopyToast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
-import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { cn } from "~/lib/utils";
 
+import { LinearCopyButton } from "./LinearCopyButton";
 import { PRIORITY_BADGE_VARIANTS, PRIORITY_TONES } from "./linearTones";
 import { PRIORITY_LABELS, estimateLabel, type LinearGitPresence } from "./linearPanel.logic";
 
@@ -54,44 +48,6 @@ function GitPresenceIcon({ presence }: { presence: LinearGitPresence }) {
       />
       <TooltipPopup>
         <p>{tone.label}</p>
-      </TooltipPopup>
-    </Tooltip>
-  );
-}
-
-function BranchCopyButton({ issue }: { issue: LinearIssue }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const { copyToClipboard, isCopied } = useCopyToClipboard<void>({
-    onCopy: () => showAnchoredCopySuccessToast(ref),
-    onError: (error) => showAnchoredCopyErrorToast(ref, error),
-    timeout: ANCHORED_COPY_TOAST_TIMEOUT_MS,
-  });
-  const branch = issue.branchName;
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            ref={ref}
-            type="button"
-            size="xs"
-            variant="ghost-muted"
-            aria-label={`Copy branch name for ${issue.identifier}`}
-            disabled={branch === null}
-            onClick={() => {
-              if (branch !== null) copyToClipboard(branch, undefined);
-            }}
-          />
-        }
-      >
-        <MorphIcon
-          className={cn("size-3", isCopied && "text-success")}
-          icon={isCopied ? Check : Copy}
-        />
-        Branch
-      </TooltipTrigger>
-      <TooltipPopup>
-        <p>{branch === null ? "Linear returned no branch name" : isCopied ? "Copied" : branch}</p>
       </TooltipPopup>
     </Tooltip>
   );
@@ -140,7 +96,14 @@ export function LinearIssueBubble(props: {
         ) : null}
         <span className="flex-1" />
         <span className="flex shrink-0 items-center gap-1">
-          <BranchCopyButton issue={issue} />
+          <LinearCopyButton
+            value={issue.branchName}
+            icon={Copy}
+            ariaLabel={`Copy branch name for ${issue.identifier}`}
+            unavailableHint="Linear returned no branch name"
+          >
+            Branch
+          </LinearCopyButton>
           <Button
             type="button"
             size="xs"

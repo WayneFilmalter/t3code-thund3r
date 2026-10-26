@@ -52,6 +52,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Replying posts to Slack as the user, so it needs the same grant as driving agents.
   [WS_METHODS.slackRefetch]: AuthOrchestrationOperateScope,
   [WS_METHODS.slackReply]: AuthOrchestrationOperateScope,
+  // Commenting posts to Linear as the API key's owner, like a Slack reply.
+  [WS_METHODS.linearCommentCreate]: AuthOrchestrationOperateScope,
 
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,

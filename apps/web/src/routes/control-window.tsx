@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { BtopPanel } from "../components/control/BtopPanel";
+import { PrioritiesPanel } from "../components/control/priorities/PrioritiesPanel";
 import { SlackFeedPanel } from "../components/control/SlackFeedPanel";
 
 export const Route = createFileRoute("/control-window")({
@@ -19,7 +20,9 @@ const PLACEHOLDER_CLASS =
 function ControlWindowGrid() {
   return (
     <div className="grid h-dvh grid-flow-col grid-cols-3 grid-rows-2 gap-px bg-border">
-      <section className={`${PLACEHOLDER_CLASS} row-span-2`}>Panel 1</section>
+      <section className="row-span-2 min-h-0 min-w-0 overflow-hidden bg-background">
+        <PrioritiesPanel />
+      </section>
       <section className="min-h-0 min-w-0 overflow-hidden bg-background">
         <SlackFeedPanel />
       </section>

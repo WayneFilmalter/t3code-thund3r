@@ -106,11 +106,15 @@ describe("command permissions", () => {
     ),
   );
 
-  it.effect("requires the destination operate grant to post or refetch on Slack", () =>
+  it.effect("requires the destination operate grant to post to Slack or Linear", () =>
     Effect.scoped(
       Effect.gen(function* () {
         const registry = yield* setup;
-        for (const tag of [WS_METHODS.slackReply, WS_METHODS.slackRefetch]) {
+        for (const tag of [
+          WS_METHODS.slackReply,
+          WS_METHODS.slackRefetch,
+          WS_METHODS.linearCommentCreate,
+        ]) {
           const slack = createCommandPermissions(runtime, tag);
           registry.set(sessions(env), AsyncResult.success(grant(false)));
           expect(registry.get(slack.permissionAtom(env))).toBe(false);

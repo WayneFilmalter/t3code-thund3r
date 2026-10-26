@@ -63,3 +63,89 @@ export class LinearError extends Schema.TaggedError<LinearError>()("LinearError"
     return this.detail;
   }
 }
+
+/**
+ * Tickets for the Control window's Priorities panel. These come from Linear's
+ * GraphQL API (same API key as the Linear tab) because the panel needs
+ * comments, attachments and posting, which the hosted MCP results do not
+ * describe reliably.
+ */
+export const LinearStateType = Schema.Literals([
+  "triage",
+  "backlog",
+  "unstarted",
+  "started",
+  "completed",
+  "canceled",
+  "unknown",
+]);
+export type LinearStateType = typeof LinearStateType.Type;
+
+export const LinearTicket = Schema.Struct({
+  ...LinearIssue.fields,
+  stateType: LinearStateType,
+  /** The workflow state's colour in Linear, as `#rrggbb`. */
+  stateColor: Schema.String,
+  /** The ticket's linked GitHub pull request, preferring an open one. */
+  pullRequestUrl: Schema.NullOr(Schema.String),
+  /** When someone other than the API key's owner last commented. */
+  latestOthersCommentAt: Schema.NullOr(Schema.String),
+});
+export type LinearTicket = typeof LinearTicket.Type;
+
+export const LinearTicketComment = Schema.Struct({
+  id: Schema.String,
+  body: Schema.String,
+  createdAt: Schema.String,
+  authorName: Schema.String,
+  authorAvatarUrl: Schema.NullOr(Schema.String),
+  isViewer: Schema.Boolean,
+});
+export type LinearTicketComment = typeof LinearTicketComment.Type;
+
+export const LinearTicketDetail = Schema.Struct({
+  ...LinearTicket.fields,
+  description: Schema.String,
+  assigneeName: Schema.NullOr(Schema.String),
+  /** Oldest first. */
+  comments: Schema.Array(LinearTicketComment),
+});
+export type LinearTicketDetail = typeof LinearTicketDetail.Type;
+
+/** `ENG-482`: an upper-case team key, a dash, the issue number. */
+export const LINEAR_IDENTIFIER_PATTERN = /^[A-Z][A-Z0-9]{0,9}-\d{1,7}$/;
+
+const LinearIdentifier = Schema.String.check(Schema.isPattern(LINEAR_IDENTIFIER_PATTERN));
+
+export const LinearTicketsGetInput = Schema.Struct({
+  identifiers: Schema.Array(LinearIdentifier).check(Schema.isMaxLength(100)),
+});
+export type LinearTicketsGetInput = typeof LinearTicketsGetInput.Type;
+
+export const LinearTicketsGetResult = Schema.Struct({
+  tickets: Schema.Array(LinearTicket),
+  /** Requested identifiers Linear has no issue for. */
+  missing: Schema.Array(Schema.String),
+});
+export type LinearTicketsGetResult = typeof LinearTicketsGetResult.Type;
+
+export const LinearTicketsSearchInput = Schema.Struct({
+  query: Schema.String.check(Schema.isMaxLength(200)),
+});
+export type LinearTicketsSearchInput = typeof LinearTicketsSearchInput.Type;
+
+export const LinearTicketsSearchResult = Schema.Struct({ tickets: Schema.Array(LinearTicket) });
+export type LinearTicketsSearchResult = typeof LinearTicketsSearchResult.Type;
+
+export const LinearTicketDetailInput = Schema.Struct({ identifier: LinearIdentifier });
+export type LinearTicketDetailInput = typeof LinearTicketDetailInput.Type;
+
+export const LinearCommentCreateInput = Schema.Struct({
+  /** Linear's issue UUID. */
+  issueId: Schema.String,
+  body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(20_000)),
+});
+export type LinearCommentCreateInput = typeof LinearCommentCreateInput.Type;
+
+export const LinearCommentCreateResult = Schema.Struct({ commentId: Schema.String });
+export type LinearCommentCreateResult = typeof LinearCommentCreateResult.Type;

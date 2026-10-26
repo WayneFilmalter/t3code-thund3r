@@ -4,7 +4,19 @@ import {
   OrchestrationV2SearchThreadResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
-import { LinearError, LinearIssuesListInput, LinearIssuesListResult } from "./linear.ts";
+import {
+  LinearCommentCreateInput,
+  LinearCommentCreateResult,
+  LinearError,
+  LinearIssuesListInput,
+  LinearIssuesListResult,
+  LinearTicketDetail,
+  LinearTicketDetailInput,
+  LinearTicketsGetInput,
+  LinearTicketsGetResult,
+  LinearTicketsSearchInput,
+  LinearTicketsSearchResult,
+} from "./linear.ts";
 import {
   NoteCategory,
   NoteCategoryCreateInput,
@@ -530,6 +542,10 @@ export const WS_METHODS = {
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
   serverCheckOtlpEndpoint: "server.checkOtlpEndpoint",
   linearIssuesList: "linear.issues.list",
+  linearTicketsGet: "linear.tickets.get",
+  linearTicketsSearch: "linear.tickets.search",
+  linearTicketDetail: "linear.ticket.detail",
+  linearCommentCreate: "linear.comment.create",
   notesList: "notes.list",
   notesSubscribe: "notes.subscribe",
   notesCreate: "notes.create",
@@ -941,6 +957,30 @@ const WsServerCheckOtlpEndpointRpc = Rpc.make(WS_METHODS.serverCheckOtlpEndpoint
 const WsLinearIssuesListRpc = Rpc.make(WS_METHODS.linearIssuesList, {
   payload: LinearIssuesListInput,
   success: LinearIssuesListResult,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsLinearTicketsGetRpc = Rpc.make(WS_METHODS.linearTicketsGet, {
+  payload: LinearTicketsGetInput,
+  success: LinearTicketsGetResult,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsLinearTicketsSearchRpc = Rpc.make(WS_METHODS.linearTicketsSearch, {
+  payload: LinearTicketsSearchInput,
+  success: LinearTicketsSearchResult,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsLinearTicketDetailRpc = Rpc.make(WS_METHODS.linearTicketDetail, {
+  payload: LinearTicketDetailInput,
+  success: LinearTicketDetail,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsLinearCommentCreateRpc = Rpc.make(WS_METHODS.linearCommentCreate, {
+  payload: LinearCommentCreateInput,
+  success: LinearCommentCreateResult,
   error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
 });
 
@@ -2054,6 +2094,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
   WsLinearIssuesListRpc,
+  WsLinearTicketsGetRpc,
+  WsLinearTicketsSearchRpc,
+  WsLinearTicketDetailRpc,
+  WsLinearCommentCreateRpc,
   WsNotesListRpc,
   WsNotesSubscribeRpc,
   WsNotesCreateRpc,
