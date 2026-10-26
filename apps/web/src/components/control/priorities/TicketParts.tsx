@@ -54,50 +54,38 @@ export function TicketStateChip({
 }
 
 /**
- * The ticket's pull request at a glance, in GitHub's colours: a grey branch
- * without one, green while open (drafts included), purple once merged, red
- * when closed unmerged.
+ * The ticket's pull request at a glance, with GitHub's (and Linear's) own
+ * glyphs and colours: green pull request while open, grey draft, purple merge
+ * once merged, red closed when closed unmerged. Without a pull request it is a
+ * grey branch.
  */
-const BRANCH_TONES: Record<
-  LinearTicket["pullRequestState"] & string,
-  { label: string; className: string }
-> = {
-  open: {
-    label: "Pull request open",
-    className: PULL_REQUEST_STATE_PRESENTATION.open.toneClassName,
-  },
-  draft: {
-    label: "Draft pull request open",
-    className: PULL_REQUEST_STATE_PRESENTATION.open.toneClassName,
-  },
-  merged: {
-    label: "Pull request merged",
-    className: PULL_REQUEST_STATE_PRESENTATION.merged.toneClassName,
-  },
-  closed: {
-    label: "Pull request closed",
-    className: PULL_REQUEST_STATE_PRESENTATION.closed.toneClassName,
-  },
+const PULL_REQUEST_LABELS: Record<LinearTicket["pullRequestState"] & string, string> = {
+  open: "Pull request open",
+  draft: "Draft pull request",
+  merged: "Pull request merged",
+  closed: "Pull request closed",
 };
 
 export function TicketBranchIcon({ ticket }: { ticket: Pick<LinearTicket, "pullRequestState"> }) {
   const state = ticket.pullRequestState;
-  const tone =
-    state === null
-      ? { label: "No pull request", className: "text-muted-foreground" }
-      : BRANCH_TONES[state];
+  const presentation = state === null ? null : PULL_REQUEST_STATE_PRESENTATION[state];
+  const Icon = presentation?.Icon ?? GitBranchIcon;
+  const label = state === null ? "No pull request" : PULL_REQUEST_LABELS[state];
   return (
     <Tooltip>
       <TooltipTrigger
         render={
-          <GitBranchIcon
-            aria-label={tone.label}
-            className={cn("size-3.5 shrink-0", tone.className)}
+          <Icon
+            aria-label={label}
+            className={cn(
+              "size-3.5 shrink-0",
+              presentation?.toneClassName ?? "text-muted-foreground",
+            )}
           />
         }
       />
       <TooltipPopup>
-        <p>{tone.label}</p>
+        <p>{label}</p>
       </TooltipPopup>
     </Tooltip>
   );
