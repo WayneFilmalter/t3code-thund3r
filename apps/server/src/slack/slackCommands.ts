@@ -8,14 +8,16 @@
  * `/add-task`, `/remove-task` and `/get-tasks` (or `add-task …` messages)
  * do the same for the list's plain tasks. `/eod` (or `eod`) lists the Linear
  * tickets assigned to the user that changed today, whether listed or not.
+ * `/get-help` (or `help`) lists every command.
  *
  * @module slack/slackCommands
  */
-import type {
-  LinearIssuePriority,
-  LinearPriority,
-  LinearTicket,
-  PriorityTask,
+import {
+  SLACK_SLASH_COMMANDS,
+  type LinearIssuePriority,
+  type LinearPriority,
+  type LinearTicket,
+  type PriorityTask,
 } from "@t3tools/contracts";
 import {
   PRIORITY_RANK,
@@ -65,7 +67,21 @@ const MESSAGE_VERBS: Record<string, string> = {
   "remove-task": "/remove-task",
   "get-tasks": "/get-tasks",
   eod: "/eod",
+  help: "/get-help",
 };
+
+/** Every slash command with what it does, then the #priorities message verbs. */
+export const formatHelp = (): string =>
+  [
+    "*Commands*",
+    ...SLACK_SLASH_COMMANDS.map(
+      ({ command, description, usageHint }) =>
+        `• \`${command}\` ${description}${usageHint === undefined ? "" : `, like \`${usageHint}\``}`,
+    ),
+    `In #${PRIORITY_CHANNEL_NAME}, start a message with ${Object.keys(MESSAGE_VERBS)
+      .map((verb) => `\`${verb}\``)
+      .join(", ")} instead.`,
+  ].join("\n");
 
 /**
  * The request in a #priorities message, or null for ordinary chat. Only
@@ -287,6 +303,7 @@ export const runPriorityCommand = Effect.fn("slackCommands.runPriorityCommand")(
 ) {
   if (TASK_COMMANDS.has(command.command)) return yield* runTaskCommand(command);
   if (command.command === "/eod") return yield* runEod();
+  if (command.command === "/get-help") return formatHelp();
   const settingsService = yield* ServerSettingsService;
   const linearTickets = yield* LinearTickets;
   const settings = yield* settingsService.getSettings;

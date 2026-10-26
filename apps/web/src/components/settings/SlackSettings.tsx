@@ -1,4 +1,4 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { SLACK_SLASH_COMMANDS, type EnvironmentId } from "@t3tools/contracts";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -15,7 +15,7 @@ const NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
 /**
  * Pasted into Slack's "From a manifest" flow: user scopes to read every
- * conversation and reply as the user, the priority, task and EOD slash commands, the
+ * conversation and reply as the user, the slash commands, the
  * Thund3rBot user that answers in #priorities, and Socket Mode so new
  * messages and commands arrive without a public URL.
  */
@@ -25,31 +25,11 @@ const SLACK_APP_MANIFEST = JSON.stringify(
     features: {
       // Slack only accepts slash commands and the `commands` scope on an app with a bot user.
       bot_user: { display_name: "Thund3rBot", always_online: false },
-      slash_commands: [
-        { command: "/priorities", description: "List the priority tickets" },
-        {
-          command: "/add-priority",
-          description: "Add Linear tickets to the priority list",
-          usage_hint: "ENG-482 #490 or a Linear link",
-        },
-        {
-          command: "/remove-priority",
-          description: "Take tickets off the priority list",
-          usage_hint: "ENG-482",
-        },
-        { command: "/get-tasks", description: "List the tasks on the priority list" },
-        {
-          command: "/add-task",
-          description: "Add a task to the priority list",
-          usage_hint: "high: Fix login | optional description",
-        },
-        {
-          command: "/remove-task",
-          description: "Take a task off the priority list",
-          usage_hint: "T-12",
-        },
-        { command: "/eod", description: "List today's Linear tickets by priority" },
-      ],
+      slash_commands: SLACK_SLASH_COMMANDS.map(({ command, description, usageHint }) => ({
+        command,
+        description,
+        ...(usageHint === undefined ? {} : { usage_hint: usageHint }),
+      })),
     },
     oauth_config: {
       scopes: {

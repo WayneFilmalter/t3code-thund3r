@@ -74,6 +74,41 @@ export type SlackRefetchInput = typeof SlackRefetchInput.Type;
 export const SlackRefetchResult = Schema.Struct({});
 export type SlackRefetchResult = typeof SlackRefetchResult.Type;
 
+/**
+ * The slash commands T3 Code answers. The Slack app manifest and `/get-help`
+ * both read this list, so a new command shows up in both.
+ */
+export const SLACK_SLASH_COMMANDS: ReadonlyArray<{
+  readonly command: string;
+  readonly description: string;
+  readonly usageHint?: string;
+}> = [
+  { command: "/priorities", description: "List the priority tickets" },
+  {
+    command: "/add-priority",
+    description: "Add Linear tickets to the priority list",
+    usageHint: "ENG-482 #490 or a Linear link",
+  },
+  {
+    command: "/remove-priority",
+    description: "Take tickets off the priority list",
+    usageHint: "ENG-482",
+  },
+  { command: "/get-tasks", description: "List the tasks on the priority list" },
+  {
+    command: "/add-task",
+    description: "Add a task to the priority list",
+    usageHint: "high: Fix login | optional description",
+  },
+  {
+    command: "/remove-task",
+    description: "Take a task off the priority list",
+    usageHint: "T-12",
+  },
+  { command: "/eod", description: "List today's Linear tickets by priority" },
+  { command: "/get-help", description: "List these commands" },
+];
+
 /** Slack rejects messages over 40,000 characters. */
 export const SLACK_MESSAGE_MAX_LENGTH = 40_000;
 

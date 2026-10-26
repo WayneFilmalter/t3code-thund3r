@@ -338,7 +338,14 @@ it.effect("adds, lists and removes priorities from slash commands without a subs
       const since = workedOnSince.at(-1)!;
       const local = DateTime.setZone(DateTime.makeUnsafe(since), DateTime.zoneMakeLocal());
       assert.equal(DateTime.formatIso(DateTime.startOf(local, "day")), since, "local midnight");
-      assert.lengthOf(socket.sent, 5);
+
+      command("env-6", "/get-help", "");
+      const help = (yield* Queue.take(answers)).split("\n");
+      assert.equal(help[0], "*Commands*");
+      assert.include(help, "• `/remove-task` Take a task off the priority list, like `T-12`");
+      assert.include(help, "• `/eod` List today's Linear tickets by priority");
+      assert.include(help.at(-1)!, "`eod`, `help` instead.");
+      assert.lengthOf(socket.sent, 6);
     });
   }
 });
