@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   agentRows,
   compactTokens,
+  dailyTokenRing,
   localWeekStart,
   modelKey,
   promptDays,
@@ -163,5 +164,38 @@ describe("toolCallPills", () => {
       total: 2,
       pills: [{ label: "Subagent", count: 2 }],
     });
+  });
+});
+
+describe("dailyTokenRing", () => {
+  it("lays models end to end against the goal, skipping idle ones", () => {
+    const result = dailyTokenRing(
+      [
+        { key: "opus", provider: "claude", todayTokens: 300 },
+        { key: "idle", provider: null, todayTokens: 0 },
+        { key: "gpt", provider: "codex", todayTokens: 200 },
+      ],
+      1_000,
+    );
+    expect(result).toEqual({
+      total: 500,
+      progress: 0.5,
+      segments: [
+        { key: "opus", provider: "claude", start: 0, length: 0.3 },
+        { key: "gpt", provider: "codex", start: 0.3, length: 0.2 },
+      ],
+    });
+  });
+
+  it("fills the ring past the goal and keeps the true progress", () => {
+    const result = dailyTokenRing(
+      [
+        { key: "opus", provider: "claude", todayTokens: 1_500 },
+        { key: "gpt", provider: "codex", todayTokens: 500 },
+      ],
+      1_000,
+    );
+    expect(result.progress).toBe(2);
+    expect(result.segments.map((segment) => segment.length)).toEqual([0.75, 0.25]);
   });
 });

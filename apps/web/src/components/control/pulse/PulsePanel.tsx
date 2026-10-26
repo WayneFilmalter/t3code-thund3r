@@ -24,6 +24,7 @@ import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
 import {
   agentRows,
   compactTokens,
+  dailyTokenRing,
   localDayKey,
   localDaysBack,
   localWeekStart,
@@ -45,6 +46,7 @@ const ACTIVITY_DAYS = 14;
 const MAX_MOVES_SHOWN = 6;
 const MAX_AGENT_ICONS = 5;
 const MAX_TOOL_PILLS = 8;
+const DAILY_TOKEN_GOAL = 1_000_000_000;
 const NO_COLOR = "var(--muted-foreground)";
 /** No provider uses this hue, so a subagent's robot never reads as a thread's. */
 const SUBAGENT_BOT_CLASS = "text-subagent";
@@ -347,6 +349,7 @@ function AgentTable(props: {
         <Note>Counting agents…</Note>
       ) : (
         <>
+          <DailyTokenGoal rows={props.rows} unavailable={props.tokensUnavailable} />
           {props.rows.length === 0 ? (
             <Note>No agents running and no tokens used this week.</Note>
           ) : (
@@ -397,6 +400,70 @@ function AgentTable(props: {
         </>
       )}
     </Section>
+  );
+}
+
+const RING_RADIUS = 15;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+/** Today's tokens toward the daily goal: a ring split into each model's color. */
+function DailyTokenGoal(props: { rows: ReturnType<typeof agentRows>; unavailable: boolean }) {
+  const ring = useMemo(() => dailyTokenRing(props.rows, DAILY_TOKEN_GOAL), [props.rows]);
+  const reached = ring.progress >= 1;
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative size-14 shrink-0">
+        <svg viewBox="0 0 36 36" aria-hidden className="size-full -rotate-90">
+          <circle
+            cx="18"
+            cy="18"
+            r={RING_RADIUS}
+            fill="none"
+            strokeWidth="3.5"
+            className="stroke-muted"
+          />
+          {props.unavailable
+            ? null
+            : ring.segments.map((segment) => (
+                <circle
+                  key={segment.key}
+                  cx="18"
+                  cy="18"
+                  r={RING_RADIUS}
+                  fill="none"
+                  strokeWidth="3.5"
+                  style={{
+                    stroke:
+                      segment.provider === null
+                        ? NO_COLOR
+                        : PROVIDER_PRESENTATION[segment.provider].color,
+                  }}
+                  strokeDasharray={`${segment.length * RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+                  strokeDashoffset={-segment.start * RING_CIRCUMFERENCE}
+                  className="transition-[stroke-dasharray,stroke-dashoffset] duration-500"
+                />
+              ))}
+        </svg>
+        <span className="absolute inset-0 flex items-center justify-center text-2xs font-semibold tabular-nums">
+          {props.unavailable ? "—" : `${Math.floor(ring.progress * 100)}%`}
+        </span>
+      </div>
+      <div className="flex min-w-0 flex-col">
+        <span className="text-lg font-bold leading-none tabular-nums">
+          {props.unavailable ? "—" : compactTokens(ring.total)}
+        </span>
+        <span
+          className={cn(
+            "mt-1 text-2xs",
+            reached && !props.unavailable ? "font-semibold text-success" : "text-muted-foreground",
+          )}
+        >
+          {reached && !props.unavailable
+            ? `Daily goal of ${compactTokens(DAILY_TOKEN_GOAL)} reached`
+            : `of ${compactTokens(DAILY_TOKEN_GOAL)} tokens today`}
+        </span>
+      </div>
+    </div>
   );
 }
 

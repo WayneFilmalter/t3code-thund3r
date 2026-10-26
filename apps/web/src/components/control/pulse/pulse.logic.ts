@@ -154,6 +154,36 @@ export function agentRows(
   );
 }
 
+/**
+ * Today's tokens against a daily goal, one ring segment per model in row
+ * order. Past the goal the ring is full and segments share it by tokens.
+ */
+export function dailyTokenRing(
+  rows: ReadonlyArray<Pick<AgentRow, "key" | "provider" | "todayTokens">>,
+  goal: number,
+): {
+  readonly total: number;
+  readonly progress: number;
+  readonly segments: ReadonlyArray<{
+    readonly key: string;
+    readonly provider: UsageProviderKind | null;
+    readonly start: number;
+    readonly length: number;
+  }>;
+} {
+  const total = rows.reduce((sum, row) => sum + row.todayTokens, 0);
+  const scale = Math.max(goal, total);
+  let start = 0;
+  const segments = [];
+  for (const row of rows) {
+    if (row.todayTokens === 0) continue;
+    const length = row.todayTokens / scale;
+    segments.push({ key: row.key, provider: row.provider, start, length });
+    start += length;
+  }
+  return { total, progress: total / goal, segments };
+}
+
 const TOOL_TYPE_LABELS: Record<string, string> = {
   command_execution: "Shell",
   file_change: "Edit",
