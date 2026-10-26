@@ -21,6 +21,8 @@ describe("load balancing shared project machines", () => {
     cpuCount: 8,
     availableMemoryBytes: 8_000,
     totalMemoryBytes: 16_000,
+    availableDiskBytes: null,
+    totalDiskBytes: null,
   };
 
   it("compares three machines using free capacity and preference", () => {

@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - Effect has no free-space query.
+import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 import type { HostResourcesSnapshot } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
@@ -72,12 +74,22 @@ const make = Effect.fn("makeHostResources")(function* () {
         );
       availableMemoryBytes = darwinAvailableMemory(output) ?? availableMemoryBytes;
     }
+    // The home directory's volume holds the user's work; bavail is what df calls available.
+    const disk = yield* Effect.tryPromise(() => NodeFSP.statfs(NodeOS.homedir())).pipe(
+      Effect.map((stats) => ({
+        available: stats.bavail * stats.bsize,
+        total: stats.blocks * stats.bsize,
+      })),
+      Effect.orElseSucceed(() => null),
+    );
     return {
       sampledAt: DateTime.toEpochMillis(yield* DateTime.now),
       cpuUtilization,
       cpuCount: cpu.count,
       availableMemoryBytes: Math.min(totalMemoryBytes, Math.max(0, availableMemoryBytes)),
       totalMemoryBytes,
+      availableDiskBytes: disk === null ? null : Math.min(disk.total, disk.available),
+      totalDiskBytes: disk?.total ?? null,
     };
   });
 

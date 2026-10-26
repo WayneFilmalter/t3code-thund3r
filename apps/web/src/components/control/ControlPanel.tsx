@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
 import { useEnvironmentSettings } from "~/hooks/useSettings";
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { cn } from "~/lib/utils";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -41,11 +42,41 @@ function useControlWindowOpen(bridge: ControlWindowBridge | undefined): boolean 
   return open;
 }
 
+/** Background tint for the This PC block, following CPU load. */
+function cpuLoadTint(cpuUtilization: number | null): string | undefined {
+  if (cpuUtilization === null) return undefined;
+  if (cpuUtilization >= 0.8) return "bg-destructive/12";
+  if (cpuUtilization >= 0.5) return "bg-warning/12";
+  return "bg-success/8";
+}
+
+function usedOfTotalGb(available: number, total: number): string {
+  return `${((total - available) / BYTES_PER_GB).toFixed(1)} / ${(total / BYTES_PER_GB).toFixed(1)} GB`;
+}
+
+/** The This PC block, with the Refresh btop button as its action. */
+function ThisPcBlock(props: { environmentId: EnvironmentId | null; actions: ReactNode }) {
+  return props.environmentId === null ? (
+    <ControlBlock title="This PC" actions={props.actions}>
+      <p className="text-xs text-muted-foreground">No local server.</p>
+    </ControlBlock>
+  ) : (
+    <HostStatsBlock environmentId={props.environmentId} actions={props.actions} />
+  );
+}
+
 /**
- * CPU and memory for the machine behind an environment. Polls only while
- * mounted, i.e. while the Control tab is showing; the server caches samples.
+ * CPU, memory and disk for the machine behind an environment, tinted by CPU
+ * load. Polls only while mounted, i.e. while the Control tab is showing; the
+ * server caches samples.
  */
-function HostStats({ environmentId }: { environmentId: EnvironmentId }) {
+function HostStatsBlock({
+  environmentId,
+  actions,
+}: {
+  environmentId: EnvironmentId;
+  actions: ReactNode;
+}) {
   const registry = useContext(RegistryContext);
   const result = useAtomValue(serverEnvironment.hostResources({ environmentId, input: {} }));
 
@@ -58,32 +89,53 @@ function HostStats({ environmentId }: { environmentId: EnvironmentId }) {
 
   if (result._tag !== "Success") {
     return (
-      <p className="text-xs text-muted-foreground">
-        {result._tag === "Failure" ? "Stats unavailable." : "Reading stats…"}
-      </p>
+      <ControlBlock title="This PC" actions={actions}>
+        <p className="text-xs text-muted-foreground">
+          {result._tag === "Failure" ? "Stats unavailable." : "Reading stats…"}
+        </p>
+      </ControlBlock>
     );
   }
-  const { cpuUtilization, cpuCount, availableMemoryBytes, totalMemoryBytes } = result.value;
-  const usedGb = (totalMemoryBytes - availableMemoryBytes) / BYTES_PER_GB;
-  const totalGb = totalMemoryBytes / BYTES_PER_GB;
+  const {
+    cpuUtilization,
+    cpuCount,
+    availableMemoryBytes,
+    totalMemoryBytes,
+    availableDiskBytes,
+    totalDiskBytes,
+  } = result.value;
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-      <dt className="text-muted-foreground">CPU</dt>
-      <dd className="tabular-nums">
-        {cpuUtilization === null ? "—" : `${Math.round(cpuUtilization * 100)}%`} · {cpuCount} cores
-      </dd>
-      <dt className="text-muted-foreground">Memory</dt>
-      <dd className="tabular-nums">
-        {usedGb.toFixed(1)} / {totalGb.toFixed(1)} GB
-      </dd>
-    </dl>
+    <ControlBlock title="This PC" actions={actions} className={cpuLoadTint(cpuUtilization)}>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+        <dt className="text-muted-foreground">CPU</dt>
+        <dd className="tabular-nums">
+          {cpuUtilization === null ? "—" : `${Math.round(cpuUtilization * 100)}%`} · {cpuCount}{" "}
+          cores
+        </dd>
+        <dt className="text-muted-foreground">Memory</dt>
+        <dd className="tabular-nums">{usedOfTotalGb(availableMemoryBytes, totalMemoryBytes)}</dd>
+        <dt className="text-muted-foreground">Disk</dt>
+        <dd className="tabular-nums">
+          {availableDiskBytes === null || totalDiskBytes === null
+            ? "—"
+            : usedOfTotalGb(availableDiskBytes, totalDiskBytes)}
+        </dd>
+      </dl>
+    </ControlBlock>
   );
 }
 
 /** One titled block of the Control tab, with its actions on the right of the title. */
-function ControlBlock(props: { title: string; actions?: ReactNode; children: ReactNode }) {
+function ControlBlock(props: {
+  title: string;
+  actions?: ReactNode;
+  className?: string | undefined;
+  children: ReactNode;
+}) {
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border/70 p-3">
+    <section
+      className={cn("flex flex-col gap-2 rounded-lg border border-border/70 p-3", props.className)}
+    >
       <div className="flex min-h-6 items-center justify-between gap-2">
         <h3 className="text-xs font-medium">{props.title}</h3>
         {props.actions ? <div className="flex shrink-0 gap-2">{props.actions}</div> : null}
@@ -238,8 +290,8 @@ export function ControlPanel() {
                 : "The window is closed."}
           </p>
         </ControlBlock>
-        <ControlBlock
-          title="This PC"
+        <ThisPcBlock
+          environmentId={btop.environmentId}
           actions={
             <Button
               size="compact"
@@ -250,13 +302,7 @@ export function ControlPanel() {
               Refresh btop
             </Button>
           }
-        >
-          {btop.environmentId === null ? (
-            <p className="text-xs text-muted-foreground">No local server.</p>
-          ) : (
-            <HostStats environmentId={btop.environmentId} />
-          )}
-        </ControlBlock>
+        />
         {btop.environmentId !== null ? (
           <ControlBlock title="Priorities">
             <PrioritiesAdder environmentId={btop.environmentId} />
