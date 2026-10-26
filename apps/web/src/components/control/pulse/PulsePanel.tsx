@@ -277,12 +277,12 @@ function TicketFlow(props: { data: LinearBoardStatsResult | null; error: string 
           {data.moves.length === 0 ? (
             <Note>No moves since Monday yet.</Note>
           ) : (
-            // Two columns; every row shares its track widths so arrows and counts line up.
-            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+            // Two columns of full-width pills; every pill shares its track widths so arrows and counts line up.
+            <ul className="grid grid-cols-2 gap-x-2 gap-y-1.5">
               {data.moves.slice(0, MAX_MOVES_SHOWN).map((move) => (
                 <li
                   key={`${move.from ?? ""}→${move.to}`}
-                  className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_2rem] items-center gap-x-1.5 text-xs"
+                  className="grid h-6 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_2rem] items-center gap-x-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 text-xs"
                 >
                   {move.from === null ? (
                     <span className="text-muted-foreground">New</span>
