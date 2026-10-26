@@ -13,7 +13,6 @@ import {
   type LinearBoardStatsResult,
   type LinearCommentCreateInput,
   type LinearCommentCreateResult,
-  type LinearTicket,
   type LinearTicketDetail,
   type LinearTicketDetailInput,
   type LinearTicketsGetInput,
@@ -41,7 +40,6 @@ import {
   SEARCH_QUERY,
   TICKETS_QUERY,
   identifierFilter,
-  workedOnFilter,
   mapTicketDetail,
   mapTickets,
   readViewerHandle,
@@ -58,10 +56,6 @@ export class LinearTickets extends Context.Service<
     readonly getTickets: (
       input: LinearTicketsGetInput,
     ) => Effect.Effect<LinearTicketsGetResult, LinearError>;
-    /** The API key owner's tickets updated since `since`, for the Slack EOD. */
-    readonly getWorkedOnTickets: (input: {
-      readonly since: string;
-    }) => Effect.Effect<ReadonlyArray<LinearTicket>, LinearError>;
     /** Up to ten tickets matching free text, or the exact ticket for an identifier. */
     readonly searchTickets: (
       input: LinearTicketsSearchInput,
@@ -157,13 +151,6 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const getWorkedOnTickets = Effect.fn("LinearTickets.getWorkedOnTickets")(function* (input: {
-    readonly since: string;
-  }) {
-    const data = yield* graphql(TICKETS_QUERY, { filter: workedOnFilter(input.since) });
-    return mapTickets(data.issues, readViewerHandle(data.viewer));
-  });
-
   const searchTickets = Effect.fn("LinearTickets.searchTickets")(function* (
     input: LinearTicketsSearchInput,
   ) {
@@ -247,7 +234,6 @@ const make = Effect.gen(function* () {
 
   return LinearTickets.of({
     getTickets,
-    getWorkedOnTickets,
     searchTickets,
     getTicketDetail,
     getBoardStats,

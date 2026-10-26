@@ -6,13 +6,14 @@
  * on them and Thund3rBot answers in their thread. Both change the list in the
  * server's Linear settings, so every open Priorities panel updates at once.
  * `/add-task`, `/remove-task` and `/get-tasks` (or `add-task …` messages)
- * do the same for the list's plain tasks. `/eod` (or `eod`) lists the Linear
- * tickets assigned to the user that changed today, whether listed or not.
+ * do the same for the list's plain tasks. `/eod` (or `eod`) runs the EOD
+ * Auto Agent and answers with its final reply once it finishes.
  * `/get-help` (or `help`) lists every command.
  *
  * @module slack/slackCommands
  */
 import {
+  SLACK_MESSAGE_MAX_LENGTH,
   SLACK_SLASH_COMMANDS,
   type LinearIssuePriority,
   type LinearPriority,
@@ -30,11 +31,15 @@ import {
   parseTaskRequest,
   taskLabel,
 } from "@t3tools/shared/priorityTasks";
+import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 
 import { LinearTickets } from "../linear/LinearTickets.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import { ServerSettingsService } from "../serverSettings.ts";
 import { escapeSlackText } from "./slackFeed.ts";
 
@@ -151,7 +156,7 @@ const ORDERED_PRIORITIES = (Object.keys(PRIORITY_RANK) as Array<LinearIssuePrior
   (left, right) => PRIORITY_RANK[left] - PRIORITY_RANK[right],
 );
 
-/** `ENG-482 - Title`, the line both grouped lists start from. */
+/** `ENG-482 - Title`, linked to the ticket. */
 const groupedTicketLine = (ticket: LinearTicket) =>
   `${ticketLink(ticket)} - ${escapeSlackText(ticket.title)}`;
 
@@ -193,32 +198,88 @@ export const formatPriorityList = (
   ].join("\n");
 };
 
-/** Today's tickets as Slack mrkdwn under `dateLabel`, grouped by priority. */
-export const formatEod = (tickets: ReadonlyArray<LinearTicket>, dateLabel: string): string =>
-  tickets.length === 0
-    ? "No tickets assigned to you were updated today."
-    : [`*EOD* · ${dateLabel}`, ...groupedByPriority(tickets, groupedTicketLine)].join("\n");
+/** `/eod` runs the Auto Agent with this title, matched case-insensitively. */
+export const EOD_AGENT_TITLE = "EOD";
 
-const runEod = Effect.fn("slackCommands.runEod")(function* () {
-  const linearTickets = yield* LinearTickets;
-  // Midnight where the server runs, which is the user's own machine.
-  const midnight = DateTime.startOf(
-    DateTime.setZone(yield* DateTime.now, DateTime.zoneMakeLocal()),
-    "day",
-  );
-  const dateLabel = DateTime.format(midnight, {
-    locale: "en-GB",
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
-  return yield* linearTickets.getWorkedOnTickets({ since: DateTime.formatIso(midnight) }).pipe(
-    Effect.map((tickets) => formatEod(tickets, dateLabel)),
-    // Linear's details already read as sentences, like "Linear did not answer in time."
-    Effect.catch((error) => Effect.succeed(error.detail)),
-  );
-});
+/** Slack takes a slash command's answers for 30 minutes; the agent gets most of that. */
+const EOD_TIMEOUT = Duration.minutes(25);
 
+/** An answer to send now and, for `/eod`, the one that follows when the agent finishes. */
+export interface EodStart {
+  readonly text: string;
+  readonly followUp: Effect.Effect<string> | null;
+}
+
+/**
+ * Runs the EOD Auto Agent as its ▶ button does. The follow-up waits for the
+ * run to settle and reads the agent's final reply.
+ */
+export const startEodAgent = Effect.fn("slackCommands.startEodAgent")(
+  function* () {
+    const scheduledTasks = yield* ScheduledTaskService;
+    const threadManagement = yield* ThreadManagementService;
+    const agent = (yield* scheduledTasks.list()).tasks.find(
+      (task) =>
+        task.kind === "auto_agent" && task.title.toLowerCase() === EOD_AGENT_TITLE.toLowerCase(),
+    );
+    if (agent === undefined) {
+      return {
+        text: `Create an Auto Agent named *${EOD_AGENT_TITLE}* in the Control window. \`/eod\` runs it and answers with its reply.`,
+        followUp: null,
+      } satisfies EodStart;
+    }
+    // A bound thread queues the prompt behind its current run, so its latest run is not this one.
+    if (agent.threadId !== null) {
+      return {
+        text: `The *${EOD_AGENT_TITLE}* Auto Agent sends to one thread. Set it to start a new thread each run.`,
+        followUp: null,
+      } satisfies EodStart;
+    }
+    const { task } = yield* scheduledTasks.runNow({ id: agent.id });
+    const threadId = task.lastRunThreadId;
+    if (task.lastRunStatus !== "succeeded" || threadId == null) {
+      return {
+        text: `The EOD agent could not start${task.lastRunError === null ? "." : `: ${task.lastRunError}`}`,
+        followUp: null,
+      } satisfies EodStart;
+    }
+    const followUp = Effect.gen(function* () {
+      const waited = yield* threadManagement.waitForThread({
+        projectId: task.projectId,
+        threadId,
+        timeoutMs: Duration.toMillis(EOD_TIMEOUT),
+      });
+      if (waited.run === null) return "The EOD agent did not start a turn.";
+      if (waited.timedOut) return "The EOD agent is still working. Its answer will be in T3 Code.";
+      const records = yield* threadManagement.getThreadRecords(
+        threadId,
+        ["messages", "turnItems"],
+        {
+          messageRoles: ["assistant"],
+          messageRunIds: [waited.run.id],
+          turnItemRunIds: [waited.run.id],
+          turnItemTypes: ["assistant_message", "error"],
+        },
+      );
+      const reply = subagentResultForRun(records, waited.run);
+      // Without a message or error item, the text is the helper's placeholder, not the agent's.
+      return reply.messageId === null && reply.turnItemId === null
+        ? "The EOD agent finished without an answer."
+        : reply.text.slice(0, SLACK_MESSAGE_MAX_LENGTH);
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed(`Could not read the EOD agent's answer: ${error.message}`),
+      ),
+    );
+    return { text: "Running the EOD agent. Its answer will follow here.", followUp };
+  },
+  Effect.catch((error) =>
+    Effect.succeed<EodStart>({
+      text: `Could not run the EOD agent: ${error.message}`,
+      followUp: null,
+    }),
+  ),
+);
 const USAGE: Record<string, string> = {
   "/add-priority": "Name the tickets to add, like `ENG-482 #490` or a Linear link.",
   "/remove-priority": "Name the tickets to remove, like `ENG-482`.",
@@ -302,7 +363,6 @@ export const runPriorityCommand = Effect.fn("slackCommands.runPriorityCommand")(
   command: PriorityRequest,
 ) {
   if (TASK_COMMANDS.has(command.command)) return yield* runTaskCommand(command);
-  if (command.command === "/eod") return yield* runEod();
   if (command.command === "/get-help") return formatHelp();
   const settingsService = yield* ServerSettingsService;
   const linearTickets = yield* LinearTickets;

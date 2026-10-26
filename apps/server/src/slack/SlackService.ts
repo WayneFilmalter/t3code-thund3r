@@ -35,8 +35,11 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Socket from "effect/socket/Socket";
 
 import { LinearTickets } from "../linear/LinearTickets.ts";
+import { ThreadManagementService } from "../orchestration-v2/ThreadManagementService.ts";
+import { ScheduledTaskService } from "../scheduledTasks/ScheduledTaskService.ts";
 import * as Settings from "../serverSettings.ts";
 import {
+  type EodStart,
   isSlackTsAfter,
   PRIORITY_CHANNEL_NAME,
   type PriorityRequest,
@@ -44,6 +47,7 @@ import {
   readSlashCommand,
   runPriorityCommand,
   type SlackSlashCommand,
+  startEodAgent,
 } from "./slackCommands.ts";
 import {
   buildPermalink,
@@ -120,6 +124,8 @@ const make = Effect.gen(function* () {
   const makeWebSocket = yield* Socket.WebSocketConstructor;
   const linearTickets = yield* LinearTickets;
   const crypto = yield* Crypto.Crypto;
+  const scheduledTasks = yield* ScheduledTaskService;
+  const threadManagement = yield* ThreadManagementService;
 
   const events = yield* PubSub.unbounded<SlackFeedEvent>();
   const refetchRequests = yield* PubSub.unbounded<void>();
@@ -318,27 +324,42 @@ const make = Effect.gen(function* () {
       if (!muted.has(message.channelId)) yield* publish({ _tag: "upsert", message });
     });
 
-  const runRequest = (request: PriorityRequest) =>
-    runPriorityCommand(request).pipe(
-      Effect.provideService(Settings.ServerSettingsService, settingsService),
-      Effect.provideService(LinearTickets, linearTickets),
-      Effect.provideService(Crypto.Crypto, crypto),
-      Effect.catch((error) => Effect.succeed(`Could not update priorities: ${describe(error)}`)),
-    );
-
-  /** Answers through the command's response URL, so a slow Linear call never holds up the socket. */
-  const answerCommand = (command: SlackSlashCommand) =>
-    runRequest(command).pipe(
-      Effect.flatMap((text) =>
-        httpClient.execute(
-          HttpClientRequest.post(command.responseUrl).pipe(
-            HttpClientRequest.bodyJsonUnsafe({ response_type: "ephemeral", text }),
+  /** The answer to send now, and for `/eod` the agent's reply to send when it finishes. */
+  const runRequest = (request: PriorityRequest): Effect.Effect<EodStart> =>
+    request.command === "/eod"
+      ? startEodAgent().pipe(
+          Effect.provideService(ScheduledTaskService, scheduledTasks),
+          Effect.provideService(ThreadManagementService, threadManagement),
+        )
+      : runPriorityCommand(request).pipe(
+          Effect.provideService(Settings.ServerSettingsService, settingsService),
+          Effect.provideService(LinearTickets, linearTickets),
+          Effect.provideService(Crypto.Crypto, crypto),
+          Effect.catch((error) =>
+            Effect.succeed(`Could not update priorities: ${describe(error)}`),
           ),
-        ),
-      ),
-      Effect.timeout(REQUEST_TIMEOUT),
-      Effect.ignore,
-    );
+          Effect.map((text) => ({ text, followUp: null })),
+        );
+
+  /**
+   * Answers through the command's response URL, so a slow Linear call never
+   * holds up the socket. The URL takes several answers, so an agent's reply
+   * follows the first.
+   */
+  const answerCommand = (command: SlackSlashCommand) =>
+    Effect.gen(function* () {
+      const respond = (text: string) =>
+        httpClient
+          .execute(
+            HttpClientRequest.post(command.responseUrl).pipe(
+              HttpClientRequest.bodyJsonUnsafe({ response_type: "ephemeral", text }),
+            ),
+          )
+          .pipe(Effect.timeout(REQUEST_TIMEOUT), Effect.ignore);
+      const answer = yield* runRequest(command).pipe(Effect.timeout(REQUEST_TIMEOUT));
+      yield* respond(answer.text);
+      if (answer.followUp !== null) yield* respond(yield* answer.followUp);
+    }).pipe(Effect.ignore);
 
   type ChannelRequest = PriorityRequest & { readonly ts: string; readonly channelId: string };
   // One at a time and in order, so the cursor only ever moves forward.
@@ -363,15 +384,24 @@ const make = Effect.gen(function* () {
       const settings = yield* readSettings;
       const cursor = settings.slack.priorityCursor;
       if (cursor.length > 0 && !isSlackTsAfter(request.ts, cursor)) return;
-      const text = yield* runRequest(request);
+      const answer = yield* runRequest(request);
       yield* saveCursor(request.ts);
       const token = settings.slack.botToken || settings.slack.userToken;
-      yield* api(token, "chat.postMessage", {
-        channel: request.channelId,
-        thread_ts: request.ts,
-        text,
-        unfurl_links: "false",
-      });
+      const reply = (text: string) =>
+        api(token, "chat.postMessage", {
+          channel: request.channelId,
+          thread_ts: request.ts,
+          text,
+          unfurl_links: "false",
+        });
+      yield* reply(answer.text);
+      // Off the queue, so the next request does not wait for the agent.
+      if (answer.followUp !== null) {
+        yield* Effect.forkIn(
+          answer.followUp.pipe(Effect.flatMap(reply), Effect.ignore),
+          serviceScope,
+        );
+      }
     }).pipe(Effect.ignore);
 
   /** #priorities by name among the user's conversations; null when they are not in it. */

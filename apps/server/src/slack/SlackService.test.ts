@@ -1,6 +1,17 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import type { LinearTicket, SlackFeedEvent } from "@t3tools/contracts";
+import {
+  MessageId,
+  ProjectId,
+  ProviderInstanceId,
+  RunId,
+  ScheduledTaskId,
+  ThreadId,
+  type LinearTicket,
+  type OrchestrationV2Run,
+  type ScheduledTask,
+  type SlackFeedEvent,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -13,6 +24,8 @@ import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Socket from "effect/socket/Socket";
 
 import * as LinearTickets from "../linear/LinearTickets.ts";
+import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SlackService from "./SlackService.ts";
 
@@ -124,10 +137,7 @@ const ticket = (identifier: string, title: string, priority: LinearTicket["prior
     mentionsViewer: false,
   }) satisfies LinearTicket;
 
-/** Every `since` `/eod` asked Linear for. */
-const workedOnSince: Array<string> = [];
-
-/** Linear knows ENG-1 and ENG-2 only; ENG-3 also changed today. */
+/** Linear knows ENG-1 and ENG-2 only. */
 const fakeLinear = LinearTickets.LinearTickets.of({
   getTickets: ({ identifiers }) => {
     const known = [
@@ -139,18 +149,64 @@ const fakeLinear = LinearTickets.LinearTickets.of({
       missing: identifiers.filter((id) => !known.some((t) => t.identifier === id)),
     });
   },
-  getWorkedOnTickets: ({ since }) => {
-    workedOnSince.push(since);
-    return Effect.succeed([
-      ticket("ENG-1", "Checkout <times out>", "low"),
-      ticket("ENG-3", "Spike", "none"),
-      ticket("ENG-2", "Onboarding", "urgent"),
-    ]);
-  },
   searchTickets: () => Effect.die("unused"),
   getTicketDetail: () => Effect.die("unused"),
   getBoardStats: () => Effect.die("unused"),
   createComment: () => Effect.die("unused"),
+});
+
+/** The Auto Agent `/eod` runs; the title matches whatever its case. */
+const eodAgent: ScheduledTask = {
+  id: ScheduledTaskId.make("task-eod"),
+  title: "eod",
+  prompt: "List the tickets I worked on today",
+  enabled: true,
+  schedule: { type: "interval", everyMs: 86_400_000 },
+  projectId: ProjectId.make("project"),
+  threadId: null,
+  workspaceStrategy: { type: "root" },
+  modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-opus-5-5" },
+  runtimeMode: "full-access",
+  interactionMode: "default",
+  createdBy: "user",
+  creationSource: "web",
+  createdAt: "2026-10-26T00:00:00.000Z",
+  updatedAt: "2026-10-26T00:00:00.000Z",
+  nextRunAt: null,
+  lastRunAt: null,
+  lastRunStatus: "never",
+  lastRunError: null,
+  runCount: 0,
+  kind: "auto_agent",
+};
+const eodThreadId = ThreadId.make("thread-eod");
+const eodRun = { id: RunId.make("run-eod"), status: "completed" } as OrchestrationV2Run;
+
+const fakeScheduledTasks = Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+  list: () => Effect.succeed({ tasks: [{ ...eodAgent, kind: "task", title: "EOD" }, eodAgent] }),
+  runNow: ({ id }) =>
+    Effect.succeed({
+      task: { ...eodAgent, id, lastRunStatus: "succeeded", lastRunThreadId: eodThreadId },
+    }),
+});
+
+/** The run settles at once; its last assistant message is the answer. */
+const fakeThreads = Layer.mock(ThreadManagementService.ThreadManagementService)({
+  waitForThread: ({ threadId }) => Effect.succeed({ threadId, run: eodRun, timedOut: false }),
+  getThreadRecords: (threadId) =>
+    Effect.succeed({
+      messages: [
+        {
+          id: MessageId.make("reply-eod"),
+          threadId,
+          runId: eodRun.id,
+          role: "assistant",
+          text: "*Urgent*\nENG-2 - Onboarding",
+          updatedAt: DateTime.makeUnsafe("2026-10-26T17:00:00.000Z"),
+        },
+      ],
+      turnItems: [],
+    } as never),
 });
 
 const makeLayer = (
@@ -167,6 +223,7 @@ const makeLayer = (
       }),
     ),
     Layer.provide(Layer.succeed(LinearTickets.LinearTickets, fakeLinear)),
+    Layer.provide(Layer.merge(fakeScheduledTasks, fakeThreads)),
     Layer.provide(NodeCrypto.layer),
     Layer.provide(Layer.succeed(HttpClient.HttpClient, fakeSlackApi(posted, commands))),
     Layer.provide(Layer.succeed(Socket.WebSocketConstructor, () => socket.ws)),
@@ -323,27 +380,19 @@ it.effect("adds, lists and removes priorities from slash commands without a subs
       command("env-4", "/add-priority", "");
       assert.include(yield* Queue.take(answers), "Name the tickets to add");
 
-      // Today's tickets, listed or not, urgent first and unprioritized last.
+      // The EOD agent's task, not the plain task of the same name, then its reply.
       command("env-5", "/eod", "");
-      const eod = (yield* Queue.take(answers)).split("\n");
-      assert.match(eod[0]!, /^\*EOD\* · \w+ \d+ \w+$/);
-      assert.deepEqual(eod.slice(1), [
-        "*Urgent*",
-        "<https://linear.app/acme/issue/ENG-2|ENG-2> - Onboarding",
-        "*Low*",
-        "<https://linear.app/acme/issue/ENG-1|ENG-1> - Checkout &lt;times out&gt;",
-        "*No priority*",
-        "<https://linear.app/acme/issue/ENG-3|ENG-3> - Spike",
-      ]);
-      const since = workedOnSince.at(-1)!;
-      const local = DateTime.setZone(DateTime.makeUnsafe(since), DateTime.zoneMakeLocal());
-      assert.equal(DateTime.formatIso(DateTime.startOf(local, "day")), since, "local midnight");
+      assert.equal(
+        yield* Queue.take(answers),
+        "Running the EOD agent. Its answer will follow here.",
+      );
+      assert.equal(yield* Queue.take(answers), "*Urgent*\nENG-2 - Onboarding");
 
       command("env-6", "/get-help", "");
       const help = (yield* Queue.take(answers)).split("\n");
       assert.equal(help[0], "*Commands*");
       assert.include(help, "• `/remove-task` Take a task off the priority list, like `T-12`");
-      assert.include(help, "• `/eod` List today's Linear tickets by priority");
+      assert.include(help, "• `/eod` Run the EOD Auto Agent and post its answer");
       assert.include(help.at(-1)!, "`eod`, `help` instead.");
       assert.lengthOf(socket.sent, 6);
     });

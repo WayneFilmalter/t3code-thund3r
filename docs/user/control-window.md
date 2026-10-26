@@ -28,7 +28,7 @@ Once Slack is connected, anyone in your workspace can look at and change the lis
 - `/get-tasks` lists the tasks, most urgent first, with how long ago each was added.
 - `/add-task high: Fix login | Users can't sign in on Safari` adds a task. The priority (`urgent:`, `high:`, `medium:` or `low:`) is optional and defaults to medium. The text after `|`, or on the lines after the first, is the description.
 - `/remove-task T-12` takes a task off. Just `12` works too.
-- `/eod` lists every Linear ticket assigned to you, the owner of T3 Code's Linear API key, that changed today, on the priority list or not, grouped by priority from Urgent to Low. A teammate's comment on your ticket counts as a change.
+- `/eod` runs your Auto Agent named **EOD** and answers with its final reply when it finishes. Write its prompt to gather the tickets you worked on today and lay them out how you want them posted. Create it in the Auto Agents panel first. If the agent takes longer than 25 minutes, Slack gets a note instead and the answer stays in its thread in T3 Code.
 - `/get-help` lists all of these commands.
 
 Only the person who ran the command sees the answer. Changes show up in the Priorities panel straight away. Slash commands only work while T3 Code's server is running; one sent while it is off fails and is not kept.

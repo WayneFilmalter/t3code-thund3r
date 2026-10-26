@@ -105,7 +105,7 @@ export const SLACK_SLASH_COMMANDS: ReadonlyArray<{
     description: "Take a task off the priority list",
     usageHint: "T-12",
   },
-  { command: "/eod", description: "List today's Linear tickets by priority" },
+  { command: "/eod", description: "Run the EOD Auto Agent and post its answer" },
   { command: "/get-help", description: "List these commands" },
 ];
 
