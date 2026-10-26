@@ -10,6 +10,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 
 import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
+import { useEscapeBack } from "../useEscapeBack";
 import { CommentBox, TicketActions, TicketPriorityBadge, TicketStateChip } from "./TicketParts";
 
 /**
@@ -42,9 +43,10 @@ export function PriorityDetail(props: {
   useEffect(() => {
     if (latestSeen !== undefined) onSeen(latestSeen);
   }, [latestSeen, onSeen]);
+  const escapeBack = useEscapeBack(props.onBack);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div {...escapeBack} className="flex h-full min-h-0 flex-col outline-none">
       <WorkflowsSubheader>
         <Button type="button" variant="ghost" size="xs" onClick={props.onBack}>
           <ArrowLeftIcon />
