@@ -245,7 +245,7 @@ function SlackFeed({ environmentId }: { environmentId: EnvironmentId }) {
 function FeedCard(props: { source: FeedSource; children: ReactNode }) {
   const tone = FEED_TONES[props.source];
   return (
-    <li className={cn("relative overflow-hidden rounded-lg border", tone.card)}>
+    <li className={cn("relative shrink-0 overflow-hidden rounded-lg border", tone.card)}>
       <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px]", tone.strip)} />
       {props.children}
     </li>
