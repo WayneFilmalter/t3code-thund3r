@@ -64,8 +64,8 @@ export function PriorityCard(props: {
               {ticket.identifier}
             </span>
             <TicketStateChip ticket={ticket} />
-            <TicketBranchIcon ticket={ticket} />
             <TicketPriorityBadge ticket={ticket} />
+            <TicketBranchIcon ticket={ticket} />
           </span>
         </button>
         {props.unread ? (

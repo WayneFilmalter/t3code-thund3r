@@ -83,9 +83,9 @@ export function PriorityDetail(props: {
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
             <TicketStateChip ticket={ticket} />
-            <TicketBranchIcon ticket={ticket} />
             <TicketPriorityBadge ticket={ticket} />
             {full?.assigneeName ? <span>· {full.assigneeName}</span> : null}
+            <TicketBranchIcon ticket={ticket} />
             <span className="ml-auto">
               <TicketLinks ticket={ticket} />
             </span>
