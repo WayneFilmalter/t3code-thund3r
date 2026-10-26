@@ -1,5 +1,8 @@
 import {
+  LINEAR_ISSUE_STATUSES,
   LinearError,
+  type LinearBoardMove,
+  type LinearBoardStatusCount,
   type LinearPullRequestState,
   type LinearStateType,
   type LinearTicket,
@@ -67,6 +70,139 @@ export const DETAIL_QUERY = `query PriorityTicket($id: String!) {
 export const COMMENT_MUTATION = `mutation PriorityComment($input: CommentCreateInput!) {
   commentCreate(input: $input) { success comment { id } }
 }`;
+
+/** The API key owner's tickets, for the Pulse panel's board counts and moves. */
+const ASSIGNED_TO_VIEWER = { assignee: { isMe: { eq: true } } };
+
+export const BOARD_PAGE_SIZE = 250;
+
+export const BOARD_COUNTS_QUERY = `query PulseBoardCounts($filter: IssueFilter!, $after: String) {
+  issues(first: ${BOARD_PAGE_SIZE}, after: $after, filter: $filter) {
+    nodes { state { name color } }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Fifty issues with fifty history entries each stays under Linear's complexity limit. */
+export const BOARD_MOVES_PAGE_SIZE = 50;
+
+export const BOARD_MOVES_QUERY = `query PulseBoardMoves($filter: IssueFilter!, $after: String) {
+  issues(first: ${BOARD_MOVES_PAGE_SIZE}, after: $after, filter: $filter) {
+    nodes {
+      createdAt
+      state { name color }
+      history(first: 50) {
+        nodes { createdAt fromState { name color } toState { name color } }
+      }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+export function boardCountsFilter(): Record<string, unknown> {
+  return {
+    and: [
+      ASSIGNED_TO_VIEWER,
+      { state: { name: { in: LINEAR_ISSUE_STATUSES.map((status) => status.linearState) } } },
+    ],
+  };
+}
+
+export function boardMovesFilter(since: string): Record<string, unknown> {
+  return { and: [ASSIGNED_TO_VIEWER, { updatedAt: { gte: since } }] };
+}
+
+/** One page of an `issues` connection: its nodes and the cursor for the next, if any. */
+export function readIssuesPage(connection: unknown): {
+  readonly nodes: ReadonlyArray<Record<string, unknown>>;
+  readonly nextCursor: string | null;
+} {
+  const pageInfo = isRecord(connection) && isRecord(connection.pageInfo) ? connection.pageInfo : {};
+  return {
+    nodes: readNodes(connection),
+    nextCursor: pageInfo.hasNextPage === true ? readString(pageInfo.endCursor) : null,
+  };
+}
+
+const readState = (value: unknown): { name: string; color: string | null } | null => {
+  if (!isRecord(value)) return null;
+  const name = readString(value.name);
+  return name === null ? null : { name, color: readString(value.color) };
+};
+
+/** Tickets per board status, in panel order. State names match case-insensitively. */
+export function mapBoardCounts(
+  nodes: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<LinearBoardStatusCount> {
+  const byName = new Map<string, { count: number; color: string | null }>();
+  for (const node of nodes) {
+    const state = readState(node.state);
+    if (state === null) continue;
+    const key = state.name.toLowerCase();
+    const entry = byName.get(key) ?? { count: 0, color: state.color };
+    entry.count += 1;
+    byName.set(key, entry);
+  }
+  return LINEAR_ISSUE_STATUSES.map((status) => {
+    const entry = byName.get(status.linearState.toLowerCase());
+    return { status: status.id, count: entry?.count ?? 0, color: entry?.color ?? null };
+  });
+}
+
+/**
+ * State changes since `since`, grouped by from and to, most moved first.
+ * An issue created since then counts as a move from nothing into the state
+ * it was created in: the first change's from state, or its current state
+ * when it has not moved.
+ */
+export function mapBoardMoves(
+  nodes: ReadonlyArray<Record<string, unknown>>,
+  since: string,
+): ReadonlyArray<LinearBoardMove> {
+  const sinceMs = Date.parse(since);
+  const after = (value: unknown) => {
+    const text = readString(value);
+    return text !== null && Date.parse(text) >= sinceMs;
+  };
+  const moves = new Map<string, LinearBoardMove & { count: number }>();
+  const add = (
+    from: { name: string; color: string | null } | null,
+    to: { name: string; color: string | null },
+  ) => {
+    const key = `${from?.name ?? ""}\u0000${to.name}`;
+    const move = moves.get(key) ?? {
+      from: from?.name ?? null,
+      to: to.name,
+      fromColor: from?.color ?? null,
+      toColor: to.color,
+      count: 0,
+    };
+    move.count += 1;
+    moves.set(key, move);
+  };
+  for (const issue of nodes) {
+    const changes = readNodes(issue.history)
+      .map((entry) => ({
+        createdAt: readString(entry.createdAt) ?? "",
+        from: readState(entry.fromState),
+        to: readState(entry.toState),
+      }))
+      .filter((change) => change.to !== null)
+      .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+    const first = changes[0];
+    // Linear sometimes records creation as a change from no state; that entry counts below.
+    if (after(issue.createdAt) && first?.from !== null) {
+      const created = first?.from ?? readState(issue.state);
+      if (created !== null) add(null, created);
+    }
+    for (const change of changes) {
+      if (change.to !== null && after(change.createdAt)) add(change.from, change.to);
+    }
+  }
+  return [...moves.values()].toSorted(
+    (left, right) => right.count - left.count || left.to.localeCompare(right.to),
+  );
+}
 
 /**
  * The `issues` filter for a set of `ENG-482` identifiers: one clause per team

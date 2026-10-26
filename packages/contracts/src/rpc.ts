@@ -5,6 +5,8 @@ import {
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
+  LinearBoardStatsInput,
+  LinearBoardStatsResult,
   LinearCommentCreateInput,
   LinearCommentCreateResult,
   LinearError,
@@ -348,6 +350,7 @@ import {
   ServerUpsertKeybindingInput,
   ServerUpsertKeybindingResult,
 } from "./server.ts";
+import { ActivityStatsError, ActivityStatsInput, ActivityStatsResult } from "./activityStats.ts";
 import {
   HostResourcesSnapshot,
   ResourceTelemetryHistory,
@@ -537,6 +540,7 @@ export const WS_METHODS = {
   serverGetTraceDiagnostics: "server.getTraceDiagnostics",
   serverGetProcessDiagnostics: "server.getProcessDiagnostics",
   serverGetHostResources: "server.getHostResources",
+  serverGetActivityStats: "server.getActivityStats",
   serverGetProcessResourceHistory: "server.getProcessResourceHistory",
   serverGetResourceTelemetryHistory: "server.getResourceTelemetryHistory",
   serverRetryResourceTelemetry: "server.retryResourceTelemetry",
@@ -546,6 +550,7 @@ export const WS_METHODS = {
   linearTicketsSearch: "linear.tickets.search",
   linearTicketDetail: "linear.ticket.detail",
   linearCommentCreate: "linear.comment.create",
+  linearBoardStats: "linear.board.stats",
   notesList: "notes.list",
   notesSubscribe: "notes.subscribe",
   notesCreate: "notes.create",
@@ -927,6 +932,12 @@ const WsServerGetHostResourcesRpc = Rpc.make(WS_METHODS.serverGetHostResources, 
   error: EnvironmentAuthorizationError,
 });
 
+const WsServerGetActivityStatsRpc = Rpc.make(WS_METHODS.serverGetActivityStats, {
+  payload: ActivityStatsInput,
+  success: ActivityStatsResult,
+  error: Schema.Union([ActivityStatsError, EnvironmentAuthorizationError]),
+});
+
 const WsServerGetProcessResourceHistoryRpc = Rpc.make(WS_METHODS.serverGetProcessResourceHistory, {
   payload: ServerProcessResourceHistoryInput,
   success: ServerProcessResourceHistoryResult,
@@ -981,6 +992,12 @@ const WsLinearTicketDetailRpc = Rpc.make(WS_METHODS.linearTicketDetail, {
 const WsLinearCommentCreateRpc = Rpc.make(WS_METHODS.linearCommentCreate, {
   payload: LinearCommentCreateInput,
   success: LinearCommentCreateResult,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
+const WsLinearBoardStatsRpc = Rpc.make(WS_METHODS.linearBoardStats, {
+  payload: LinearBoardStatsInput,
+  success: LinearBoardStatsResult,
   error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
 });
 
@@ -1063,6 +1080,7 @@ export const LinearWsRpcGroup = RpcGroup.make(
   WsLinearTicketsSearchRpc,
   WsLinearTicketDetailRpc,
   WsLinearCommentCreateRpc,
+  WsLinearBoardStatsRpc,
 );
 
 /**
@@ -2098,6 +2116,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetTraceDiagnosticsRpc,
   WsServerGetProcessDiagnosticsRpc,
   WsServerGetHostResourcesRpc,
+  WsServerGetActivityStatsRpc,
   WsServerGetProcessResourceHistoryRpc,
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,

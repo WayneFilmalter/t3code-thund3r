@@ -304,7 +304,8 @@ function ownedContribution(
   };
 }
 
-function bucketTokens(bucket: UsageBucket): number {
+/** Every token a bucket counts, the way the Usage page totals them. */
+export function bucketTokens(bucket: Pick<UsageBucket, "totals">): number {
   // reasoningTokens is a subset of outputTokens and must not be added again.
   return (
     bucket.totals.uncachedInputTokens +

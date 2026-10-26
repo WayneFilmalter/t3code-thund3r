@@ -164,6 +164,7 @@ import {
 } from "./orchestration-v2/WireProjection.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
+import * as ActivityStats from "./orchestration-v2/ActivityStats.ts";
 import * as OrchestrationEventStore from "./persistence/OrchestrationEventStore.ts";
 import { userFacingDispatchErrorMessage } from "./orchestration-v2/UserFacingErrors.ts";
 import * as ProviderRegistry from "./provider/ProviderRegistry.ts";
@@ -566,6 +567,7 @@ const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.linearTicketsSearch,
   WS_METHODS.linearTicketDetail,
   WS_METHODS.linearCommentCreate,
+  WS_METHODS.linearBoardStats,
 );
 const ServerSlackRpcGroup =
   SlackWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
@@ -594,6 +596,7 @@ const layerLinearRpc = ServerLinearRpcGroup.toLayer(
       [WS_METHODS.linearTicketsSearch]: (input) => linearTickets.searchTickets(input),
       [WS_METHODS.linearTicketDetail]: (input) => linearTickets.getTicketDetail(input),
       [WS_METHODS.linearCommentCreate]: (input) => linearTickets.createComment(input),
+      [WS_METHODS.linearBoardStats]: (input) => linearTickets.getBoardStats(input),
     });
   }),
 );
@@ -1390,6 +1393,7 @@ const layerWsRpc = (
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
       const hostResources = yield* HostResources.HostResources;
+      const activityStats = yield* ActivityStats.ActivityStats;
       const processResourceMonitor = yield* ProcessResourceMonitor.ProcessResourceMonitor;
       const resourceTelemetry = yield* ResourceTelemetry.ResourceTelemetry;
       const relayClient = yield* RelayClient.RelayClient;
@@ -2489,6 +2493,7 @@ const layerWsRpc = (
           }),
         [WS_METHODS.serverGetProcessDiagnostics]: (_input) => processDiagnostics.read,
         [WS_METHODS.serverGetHostResources]: (_input) => hostResources.read,
+        [WS_METHODS.serverGetActivityStats]: (input) => activityStats.read(input),
         [WS_METHODS.serverGetProcessResourceHistory]: (input) =>
           processResourceMonitor.readHistory(input),
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>

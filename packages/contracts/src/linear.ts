@@ -162,3 +162,38 @@ export type LinearCommentCreateInput = typeof LinearCommentCreateInput.Type;
 
 export const LinearCommentCreateResult = Schema.Struct({ commentId: Schema.String });
 export type LinearCommentCreateResult = typeof LinearCommentCreateResult.Type;
+
+/**
+ * The Control window's Pulse panel: how many of the API key owner's tickets
+ * sit in each board status, and how tickets moved between states since a
+ * point in time (the client's local Monday). Counts are tickets, not points.
+ */
+export const LinearBoardStatsInput = Schema.Struct({ since: Schema.String });
+export type LinearBoardStatsInput = typeof LinearBoardStatsInput.Type;
+
+export const LinearBoardStatusCount = Schema.Struct({
+  status: LinearIssueStatus,
+  count: Schema.Number,
+  /** The workflow state's colour in Linear, or null when no ticket is in it. */
+  color: Schema.NullOr(Schema.String),
+});
+export type LinearBoardStatusCount = typeof LinearBoardStatusCount.Type;
+
+export const LinearBoardMove = Schema.Struct({
+  /** Linear state name the tickets left, or null when they were created into `to`. */
+  from: Schema.NullOr(Schema.String),
+  to: Schema.String,
+  fromColor: Schema.NullOr(Schema.String),
+  toColor: Schema.NullOr(Schema.String),
+  count: Schema.Number,
+});
+export type LinearBoardMove = typeof LinearBoardMove.Type;
+
+export const LinearBoardStatsResult = Schema.Struct({
+  /** One entry per board status, in `LINEAR_ISSUE_STATUSES` order. */
+  statuses: Schema.Array(LinearBoardStatusCount),
+  /** Most moved first. */
+  moves: Schema.Array(LinearBoardMove),
+  fetchedAt: Schema.String,
+});
+export type LinearBoardStatsResult = typeof LinearBoardStatsResult.Type;

@@ -1084,6 +1084,13 @@ export function createServerEnvironmentAtoms<R, E>(
       execute: (input: EnvironmentRpcInput<typeof WS_METHODS.serverGetHostResources>) =>
         request(WS_METHODS.serverGetHostResources, input).pipe(Effect.timeout("5 seconds")),
     }),
+    /** Running agents by model and prompts per day; the Pulse panel refreshes it on an interval. */
+    activityStats: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:activity-stats",
+      tag: WS_METHODS.serverGetActivityStats,
+      staleTimeMs: 5_000,
+      idleTtlMs: 60_000,
+    }),
     processResourceHistory: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:server:process-resource-history",
       tag: WS_METHODS.serverGetProcessResourceHistory,

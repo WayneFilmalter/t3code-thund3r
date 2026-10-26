@@ -39,6 +39,13 @@ export const linearEnvironment = {
     staleTimeMs: 15_000,
     idleTtlMs: 60_000,
   }),
+  /** The Pulse panel's board counts and moves; the panel refreshes them on its own interval. */
+  boardStats: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: "environment-data:linear:board-stats",
+    tag: WS_METHODS.linearBoardStats,
+    staleTimeMs: 30_000,
+    idleTtlMs: 5 * 60_000,
+  }),
   /** A one-off read for paste resolution and the Done check, which need the current state. */
   resolveTickets: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: "look up Linear tickets",

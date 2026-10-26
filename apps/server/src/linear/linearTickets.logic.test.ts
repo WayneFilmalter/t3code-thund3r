@@ -3,6 +3,9 @@ import { assert, describe, it } from "vite-plus/test";
 
 import {
   identifierFilter,
+  mapBoardCounts,
+  mapBoardMoves,
+  readIssuesPage,
   latestOthersCommentAt,
   mapTicket,
   mapTicketDetail,
@@ -229,5 +232,108 @@ describe("readGraphqlData", () => {
     });
     assert.strictEqual(error?.kind, "invalid-response");
     assert.include(error?.detail, "Entity not found");
+  });
+});
+
+describe("board stats", () => {
+  const since = "2026-10-26T04:00:00.000Z";
+  const state = (name: string, color = "#111111") => ({ name, color });
+
+  it("counts tickets per board status in panel order, matching names loosely", () => {
+    const statuses = mapBoardCounts([
+      { state: state("In Review", "#0f783c") },
+      { state: state("in review") },
+      { state: state("Backlog", "#bec2c8") },
+      { state: state("Done") },
+      { state: null },
+    ]);
+    assert.deepStrictEqual(
+      statuses.map((entry) => entry.status),
+      ["qa", "testflight", "in-review", "in-progress", "todo", "backlog"],
+    );
+    assert.deepStrictEqual(statuses[2], { status: "in-review", count: 2, color: "#0f783c" });
+    assert.deepStrictEqual(statuses[5], { status: "backlog", count: 1, color: "#bec2c8" });
+    assert.deepStrictEqual(statuses[0], { status: "qa", count: 0, color: null });
+  });
+
+  it("groups state changes since the cutoff, most moved first", () => {
+    const change = (createdAt: string, from: string | null, to: string | null) => ({
+      createdAt,
+      fromState: from === null ? null : state(from),
+      toState: to === null ? null : state(to),
+    });
+    const moves = mapBoardMoves(
+      [
+        {
+          createdAt: "2026-09-01T00:00:00.000Z",
+          state: state("Todo"),
+          history: {
+            nodes: [
+              change("2026-10-27T10:00:00.000Z", "In Progress", "Todo"),
+              change("2026-10-20T10:00:00.000Z", "Todo", "In Progress"),
+              change("2026-10-27T11:00:00.000Z", null, null),
+            ],
+          },
+        },
+        {
+          createdAt: "2026-09-01T00:00:00.000Z",
+          state: state("Todo"),
+          history: { nodes: [change("2026-10-26T09:00:00.000Z", "In Progress", "Todo")] },
+        },
+        {
+          createdAt: "2026-09-02T00:00:00.000Z",
+          state: state("Done"),
+          history: { nodes: [change("2026-10-28T09:00:00.000Z", "In Review", "Done")] },
+        },
+      ],
+      since,
+    );
+    assert.deepStrictEqual(
+      moves.map((move) => [move.from, move.to, move.count]),
+      [
+        ["In Progress", "Todo", 2],
+        ["In Review", "Done", 1],
+      ],
+    );
+  });
+
+  it("counts a ticket created since the cutoff as entering its first state", () => {
+    const moves = mapBoardMoves(
+      [
+        {
+          createdAt: "2026-10-27T08:00:00.000Z",
+          state: state("In Progress"),
+          history: {
+            nodes: [
+              {
+                createdAt: "2026-10-27T09:00:00.000Z",
+                fromState: state("Backlog"),
+                toState: state("In Progress"),
+              },
+            ],
+          },
+        },
+        { createdAt: "2026-10-27T08:00:00.000Z", state: state("Backlog"), history: { nodes: [] } },
+      ],
+      since,
+    );
+    assert.deepStrictEqual(
+      moves.map((move) => [move.from, move.to, move.count]),
+      [
+        [null, "Backlog", 2],
+        ["Backlog", "In Progress", 1],
+      ],
+    );
+  });
+
+  it("reads the next page cursor only while Linear has more", () => {
+    assert.deepStrictEqual(
+      readIssuesPage({ nodes: [{}], pageInfo: { hasNextPage: true, endCursor: "abc" } }),
+      { nodes: [{}], nextCursor: "abc" },
+    );
+    assert.strictEqual(
+      readIssuesPage({ nodes: [], pageInfo: { hasNextPage: false, endCursor: "abc" } }).nextCursor,
+      null,
+    );
   });
 });

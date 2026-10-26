@@ -9,6 +9,8 @@
 import {
   LINEAR_IDENTIFIER_PATTERN,
   LinearError,
+  type LinearBoardStatsInput,
+  type LinearBoardStatsResult,
   type LinearCommentCreateInput,
   type LinearCommentCreateResult,
   type LinearTicketDetail,
@@ -19,13 +21,21 @@ import {
   type LinearTicketsSearchResult,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as Settings from "../serverSettings.ts";
 import {
+  BOARD_COUNTS_QUERY,
+  BOARD_MOVES_QUERY,
   COMMENT_MUTATION,
+  boardCountsFilter,
+  boardMovesFilter,
+  mapBoardCounts,
+  mapBoardMoves,
+  readIssuesPage,
   DETAIL_QUERY,
   SEARCH_QUERY,
   TICKETS_QUERY,
@@ -53,12 +63,19 @@ export class LinearTickets extends Context.Service<
     readonly getTicketDetail: (
       input: LinearTicketDetailInput,
     ) => Effect.Effect<LinearTicketDetail, LinearError>;
+    /** The API key owner's tickets per board status, and their state changes since `since`. */
+    readonly getBoardStats: (
+      input: LinearBoardStatsInput,
+    ) => Effect.Effect<LinearBoardStatsResult, LinearError>;
     /** Posts a comment as the API key's owner. */
     readonly createComment: (
       input: LinearCommentCreateInput,
     ) => Effect.Effect<LinearCommentCreateResult, LinearError>;
   }
 >()("t3/linear/LinearTickets") {}
+
+/** Enough for a personal board; a runaway backlog stops counting rather than paging forever. */
+const MAX_BOARD_PAGES = 4;
 
 const describeError = (error: unknown): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
@@ -181,7 +198,44 @@ const make = Effect.gen(function* () {
     return { commentId };
   });
 
-  return LinearTickets.of({ getTickets, searchTickets, getTicketDetail, createComment });
+  const allIssues = (query: string, filter: Record<string, unknown>) =>
+    Effect.gen(function* () {
+      const nodes: Array<Record<string, unknown>> = [];
+      let after: string | null = null;
+      for (let page = 0; page < MAX_BOARD_PAGES; page += 1) {
+        const data = yield* graphql(query, { filter, after });
+        const result = readIssuesPage(data.issues);
+        nodes.push(...result.nodes);
+        after = result.nextCursor;
+        if (after === null) break;
+      }
+      return nodes;
+    });
+
+  const getBoardStats = Effect.fn("LinearTickets.getBoardStats")(function* (
+    input: LinearBoardStatsInput,
+  ) {
+    const [counted, moved] = yield* Effect.all(
+      [
+        allIssues(BOARD_COUNTS_QUERY, boardCountsFilter()),
+        allIssues(BOARD_MOVES_QUERY, boardMovesFilter(input.since)),
+      ],
+      { concurrency: 2 },
+    );
+    return {
+      statuses: mapBoardCounts(counted),
+      moves: mapBoardMoves(moved, input.since),
+      fetchedAt: DateTime.formatIso(yield* DateTime.now),
+    };
+  });
+
+  return LinearTickets.of({
+    getTickets,
+    searchTickets,
+    getTicketDetail,
+    getBoardStats,
+    createComment,
+  });
 });
 
 export const layer = Layer.effect(LinearTickets, make);

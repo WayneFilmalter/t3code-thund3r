@@ -104,6 +104,7 @@ export const RPC_REQUIRED_SCOPES = {
   // Load-balancing new threads reads host load; that is part of operating
   // threads, not of inspecting diagnostics.
   [WS_METHODS.serverGetHostResources]: AuthOrchestrationReadScope,
+  [WS_METHODS.serverGetActivityStats]: AuthOrchestrationReadScope,
   [WS_METHODS.serverGetProcessResourceHistory]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverGetResourceTelemetryHistory]: AuthDiagnosticsReadScope,
   [WS_METHODS.serverRetryResourceTelemetry]: AuthDiagnosticsReadScope,
@@ -126,6 +127,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.linearTicketsGet]: AuthOrchestrationReadScope,
   [WS_METHODS.linearTicketsSearch]: AuthOrchestrationReadScope,
   [WS_METHODS.linearTicketDetail]: AuthOrchestrationReadScope,
+  [WS_METHODS.linearBoardStats]: AuthOrchestrationReadScope,
   [WS_METHODS.notesList]: AuthOrchestrationReadScope,
   [WS_METHODS.notesSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.slackSubscribe]: AuthOrchestrationReadScope,
