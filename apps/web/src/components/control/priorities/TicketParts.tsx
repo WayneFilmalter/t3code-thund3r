@@ -1,6 +1,6 @@
 import type { EnvironmentId, LinearTicket } from "@t3tools/contracts";
 import { GitBranch, Link } from "lucide";
-import { CircleCheckIcon, MessageSquarePlusIcon, SendIcon } from "lucide-react";
+import { CircleCheckIcon, SendIcon } from "lucide-react";
 import { type KeyboardEvent, type ReactElement, useState } from "react";
 
 import { useOpenLink } from "~/browser/useOpenLink";
@@ -85,17 +85,23 @@ function ActionButton(props: {
   );
 }
 
-/** Opens the comment box; pressed while it is open. */
+/** A plain "Comment" text button that opens the comment box; pressed while it is open. */
 export function CommentToggle(props: { allowed: boolean; open: boolean; onToggle: () => void }) {
   return (
-    <ActionButton
-      label={props.allowed ? "Comment" : "This connection cannot comment"}
+    <Button
+      type="button"
+      size="xs"
+      variant="ghost-muted"
+      aria-pressed={props.open}
       disabled={!props.allowed}
-      pressed={props.open}
-      onClick={props.onToggle}
+      title={props.allowed ? undefined : "This connection cannot comment"}
+      onClick={(event) => {
+        event.stopPropagation();
+        props.onToggle();
+      }}
     >
-      <MessageSquarePlusIcon />
-    </ActionButton>
+      Comment
+    </Button>
   );
 }
 
