@@ -3,6 +3,7 @@ import {
   ClaudeSettings,
   CodexSettings,
   LinearSettings,
+  SlackSettings,
   type ServerSettings,
   UsageLimitSourceConfig,
   secretSettingsFields,
@@ -33,6 +34,7 @@ const providerSecretFields = new Map([
 ]);
 const usageLimitSecretFields = secretSettingsFields(UsageLimitSourceConfig);
 const linearSecretFields = secretSettingsFields(LinearSettings);
+const slackSecretFields = secretSettingsFields(SlackSettings);
 const encode = (value: string) => Buffer.from(value, "utf8").toString("base64url");
 
 export interface SettingsSecret {
@@ -154,5 +156,11 @@ export function mapSettingsSecrets(
     () => "linear-api-key",
   ) as ServerSettings["linear"];
 
-  return { ...settings, providerInstances, sourceControlHosts, usageLimitSources, linear };
+  const slack = mapFields(
+    settings.slack,
+    slackSecretFields,
+    (field) => `slack-${field === "appToken" ? "app" : "user"}-token`,
+  ) as ServerSettings["slack"];
+
+  return { ...settings, providerInstances, sourceControlHosts, usageLimitSources, linear, slack };
 }

@@ -732,6 +732,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["linear issues tickets api key team key mcp right panel"],
   },
   {
+    id: "slack",
+    title: "Slack",
+    to: "/settings/integrations",
+    searchTerms: ["slack messages feed dm reply token socket mode control window"],
+  },
+  {
     id: "browser-profiles",
     title: "Browser profiles",
     to: "/settings/integrations",

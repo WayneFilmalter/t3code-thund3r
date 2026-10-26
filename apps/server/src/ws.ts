@@ -99,6 +99,8 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
+  RpcScopeAuthorization,
+  SlackWsRpcGroup,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -236,6 +238,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as SourceControlDiscovery from "./sourceControl/SourceControlDiscovery.ts";
 import * as LinearIssues from "./linear/LinearIssues.ts";
 import * as NotesService from "./notes/NotesService.ts";
+import * as SlackService from "./slack/SlackService.ts";
 import * as OtlpEndpointCheck from "./observability/OtlpEndpointCheck.ts";
 import * as SourceControlRepositoryService from "./sourceControl/SourceControlRepositoryService.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
@@ -551,6 +554,25 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+// Slack's methods get their own handler layer; see SlackWsRpcGroup for why.
+const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
+  WS_METHODS.slackSubscribe,
+  WS_METHODS.slackRefetch,
+  WS_METHODS.slackReply,
+);
+const ServerSlackRpcGroup =
+  SlackWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
+
+const layerSlackRpc = ServerSlackRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const slack = yield* SlackService.SlackService;
+    return ServerSlackRpcGroup.of({
+      [WS_METHODS.slackSubscribe]: (_input) => slack.subscribe(),
+      [WS_METHODS.slackRefetch]: (_input) => slack.refetch().pipe(Effect.as({})),
+      [WS_METHODS.slackReply]: (input) => slack.reply(input),
+    });
+  }),
+);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1206,7 +1228,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerCoreRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1836,7 +1858,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerCoreRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -3184,6 +3206,7 @@ export const layer = Layer.unwrap(
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const notesService = yield* NotesService.NotesService;
+    const slackService = yield* SlackService.SlackService;
     const sql = yield* SqlClient.SqlClient;
     return HttpRouter.add(
       "GET",
@@ -3232,12 +3255,15 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            layerWsRpc(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-              serverBrowser,
+            Layer.merge(
+              layerWsRpc(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+                serverBrowser,
+              ),
+              layerSlackRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
@@ -3254,6 +3280,8 @@ export const layer = Layer.unwrap(
               Layer.provide(LinearIssues.layer),
               // One instance per server: its change signal feeds every client and the MCP tools.
               Layer.provide(Layer.succeed(NotesService.NotesService, notesService)),
+              // One instance per server, so every client shares one Slack connection.
+              Layer.provide(Layer.succeed(SlackService.SlackService, slackService)),
               // Shared like the pull request service, so concurrent generations single-flight.
               Layer.provide(
                 Layer.succeed(

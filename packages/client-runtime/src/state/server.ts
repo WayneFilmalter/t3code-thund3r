@@ -48,14 +48,16 @@ import {
 } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
+import { applySlackFeedEvent, initialSlackFeedState } from "./slackFeed.ts";
 import {
   applyServerConfigProjection,
   type ServerConfigProjection,
   withoutEnvironmentThemes,
 } from "./serverConfigProjection.ts";
 
-// Exported server state includes this type in its inferred public return type.
+// Exported server state includes these types in its inferred public return type.
 export type { ServerConfigProjection } from "./serverConfigProjection.ts";
+export type { SlackFeedState } from "./slackFeed.ts";
 
 export type ServerUpdateStage = "downloading" | "installing" | "resuming";
 
@@ -1104,6 +1106,14 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:notes:live",
       tag: WS_METHODS.notesSubscribe,
     }),
+    /** Live Slack feed. Subscribing keeps the server's Slack connection open. */
+    slackFeed: createEnvironmentSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:slack:feed",
+      subscribe: (_input: null) =>
+        subscribe(WS_METHODS.slackSubscribe, {}).pipe(
+          Stream.scan(initialSlackFeedState, applySlackFeedEvent),
+        ),
+    }),
     // A cold transcript scan is measured in seconds, so keep the result around
     // long enough that switching windows or re-rendering does not rescan.
     // Slow sources answer from cache first: that summary stays on screen, with
@@ -1304,6 +1314,14 @@ export function createServerEnvironmentAtoms<R, E>(
     signalProcess: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
+    }),
+    slackRefetch: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:slack:refetch",
+      tag: WS_METHODS.slackRefetch,
+    }),
+    slackReply: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:slack:reply",
+      tag: WS_METHODS.slackReply,
     }),
     createNote: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:notes:create",

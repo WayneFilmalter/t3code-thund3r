@@ -1883,6 +1883,30 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
   );
 
+  it.effect("keeps both Slack tokens in the secret store under separate names", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const store = yield* ServerSecretStore.ServerSecretStore;
+      const saved = yield* service.updateSettings({
+        slack: { userToken: "xoxp-secret", appToken: "xapp-secret" },
+      });
+      assert.equal(saved.slack.userToken, "xoxp-secret");
+      assert.equal(saved.slack.appToken, "xapp-secret");
+      assert.isTrue(Option.isSome(yield* store.get("slack-user-token")));
+      assert.isTrue(Option.isSome(yield* store.get("slack-app-token")));
+      const onDisk = yield* fs.readFileString(config.settingsPath);
+      assert.notInclude(onDisk, "xoxp-secret");
+      assert.notInclude(onDisk, "xapp-secret");
+
+      const removed = yield* service.updateSettings({ slack: { appToken: "" } });
+      assert.equal(removed.slack.userToken, "xoxp-secret");
+      assert.equal(removed.slack.appToken, "");
+      assert.isTrue(Option.isNone(yield* store.get("slack-app-token")));
+    }).pipe(Effect.provide(layerServerSettingsWithSecrets())),
+  );
+
   it.effect("materializes provider secrets for terminal environment resolution", () =>
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsModule.ServerSettingsService;

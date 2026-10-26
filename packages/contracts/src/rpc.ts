@@ -21,6 +21,15 @@ import {
   NoteUpdateInput,
 } from "./notes.ts";
 import {
+  SlackError,
+  SlackFeedEvent,
+  SlackFeedSubscribeInput,
+  SlackRefetchInput,
+  SlackRefetchResult,
+  SlackReplyInput,
+  SlackReplyResult,
+} from "./slack.ts";
+import {
   McpAppCallToolInput,
   McpAppCallToolResult,
   McpAppReadResourceInput,
@@ -529,6 +538,9 @@ export const WS_METHODS = {
   notesCategoryCreate: "notes.categoryCreate",
   notesCategoryUpdate: "notes.categoryUpdate",
   notesCategoryDelete: "notes.categoryDelete",
+  slackSubscribe: "slack.subscribe",
+  slackRefetch: "slack.refetch",
+  slackReply: "slack.reply",
   serverSignalProcess: "server.signalProcess",
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
@@ -981,6 +993,41 @@ const WsNotesCategoryDeleteRpc = Rpc.make(WS_METHODS.notesCategoryDelete, {
   success: NoteCategoryDeleteResult,
   error: Schema.Union([NotesError, EnvironmentAuthorizationError]),
 });
+
+/** Streams the Slack feed: a snapshot on subscribe and after each refetch, then deltas. */
+const WsSlackSubscribeRpc = Rpc.make(WS_METHODS.slackSubscribe, {
+  payload: SlackFeedSubscribeInput,
+  success: SlackFeedEvent,
+  error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+  stream: true,
+});
+
+/** Reconnects to Slack and fetches the feed window again. */
+const WsSlackRefetchRpc = Rpc.make(WS_METHODS.slackRefetch, {
+  payload: SlackRefetchInput,
+  success: SlackRefetchResult,
+  error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+});
+
+/** Posts to Slack as the user. */
+const WsSlackReplyRpc = Rpc.make(WS_METHODS.slackReply, {
+  payload: SlackReplyInput,
+  success: SlackReplyResult,
+  error: Schema.Union([SlackError, EnvironmentAuthorizationError]),
+});
+
+/**
+ * Its own group so the server implements it as a separate handler layer.
+ * Type-checking one handler object grows with the square of its methods, and
+ * the main group sits at TypeScript's per-statement limit: past it the
+ * server's layer requirements silently widen to `any`. New features with
+ * several methods should follow this shape.
+ */
+export const SlackWsRpcGroup = RpcGroup.make(
+  WsSlackSubscribeRpc,
+  WsSlackRefetchRpc,
+  WsSlackReplyRpc,
+);
 
 const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
   payload: UsageSummaryInput,
@@ -2161,4 +2208,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,
   WsOrchestrationV2SubscribeThreadRpc,
-).middleware(RpcScopeAuthorization);
+)
+  .merge(SlackWsRpcGroup)
+  .middleware(RpcScopeAuthorization);

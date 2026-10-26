@@ -106,6 +106,25 @@ describe("command permissions", () => {
     ),
   );
 
+  it.effect("requires the destination operate grant to post or refetch on Slack", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        for (const tag of [WS_METHODS.slackReply, WS_METHODS.slackRefetch]) {
+          const slack = createCommandPermissions(runtime, tag);
+          registry.set(sessions(env), AsyncResult.success(grant(false)));
+          expect(registry.get(slack.permissionAtom(env))).toBe(false);
+          expect((yield* slack.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(slack.permissionAtom(env))).toBe(true);
+          yield* slack.authorize(registry, env);
+        }
+      }),
+    ),
+  );
+
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {

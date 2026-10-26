@@ -1,11 +1,18 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import type { DesktopBridge, EnvironmentId } from "@t3tools/contracts";
-import { useContext, useEffect, useState } from "react";
+import { RefreshCwIcon } from "lucide-react";
+import { type ReactNode, useContext, useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { toastManager } from "~/components/ui/toast";
+import { useEnvironmentSettings } from "~/hooks/useSettings";
+import { useNowMinute } from "~/hooks/useNowMinute";
+import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
+import { useAtomCommand } from "~/state/use-atom-command";
+import { formatRelativeTimeLabel } from "~/timestampFormat";
 
+import { SlackSettings } from "../settings/SlackSettings";
 import { WorkflowsSubheader } from "../workflows/WorkflowsSubheader";
 import { useBtopSession } from "./btopSession";
 
@@ -71,7 +78,85 @@ function HostStats({ environmentId }: { environmentId: EnvironmentId }) {
   );
 }
 
-/** The Control tab: opens and closes the desktop Control window and restarts its btop panel. */
+/** One titled block of the Control tab, with its actions on the right of the title. */
+function ControlBlock(props: { title: string; actions?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border border-border/70 p-3">
+      <div className="flex min-h-6 items-center justify-between gap-2">
+        <h3 className="text-xs font-medium">{props.title}</h3>
+        {props.actions ? <div className="flex shrink-0 gap-2">{props.actions}</div> : null}
+      </div>
+      {props.children}
+    </section>
+  );
+}
+
+/**
+ * Slack's connection and the feed's Refetch. Reading the feed here keeps the
+ * server's Slack connection open while the tab shows, which is what makes the
+ * status line live.
+ */
+function SlackBlock({ environmentId }: { environmentId: EnvironmentId }) {
+  const slack = useEnvironmentSettings(environmentId, (settings) => settings.slack);
+  const configured = slack.userToken.length > 0 && slack.appToken.length > 0;
+  const feed = useEnvironmentQuery(
+    configured ? serverEnvironment.slackFeed({ environmentId, input: null }) : null,
+  );
+  const canRefetch = useAtomValue(serverEnvironment.slackRefetch.permissionAtom(environmentId));
+  const refetch = useAtomCommand(serverEnvironment.slackRefetch, { label: "refetch Slack" });
+  useNowMinute();
+  const status = feed.data?.status ?? null;
+
+  const statusLine =
+    status === null
+      ? "Connecting…"
+      : status.state === "live"
+        ? [
+            "Live",
+            status.selfName && status.teamName ? `${status.selfName} @ ${status.teamName}` : null,
+            status.fetchedAt ? `fetched ${formatRelativeTimeLabel(status.fetchedAt)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : status.state === "error"
+          ? (status.detail ?? "Slack is unreachable.")
+          : status.state === "connecting"
+            ? "Connecting…"
+            : "Not connected.";
+
+  return (
+    <ControlBlock
+      title="Slack"
+      actions={
+        configured ? (
+          <Button
+            size="compact"
+            variant="outline"
+            disabled={!canRefetch || status?.state === "connecting"}
+            onClick={() => void refetch({ environmentId, input: {} })}
+          >
+            <RefreshCwIcon />
+            Refetch
+          </Button>
+        ) : null
+      }
+    >
+      {configured ? (
+        <p
+          className={
+            status?.state === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"
+          }
+        >
+          {statusLine}
+        </p>
+      ) : (
+        <SlackSettings environmentId={environmentId} />
+      )}
+    </ControlBlock>
+  );
+}
+
+/** The Control tab: the desktop Control window, this PC's stats and btop, and the Slack feed. */
 export function ControlPanel() {
   const bridge = window.desktopBridge?.controlWindow;
   const open = useControlWindowOpen(bridge);
@@ -107,28 +192,40 @@ export function ControlPanel() {
           Control
         </span>
       </WorkflowsSubheader>
-      <div className="flex flex-col gap-2 p-3">
-        <div className="flex gap-2">
-          <Button
-            size="compact"
-            disabled={!bridge || open}
-            onClick={() => bridge && run(bridge.open, "Unable to open the control window")}
-          >
-            Open window
-          </Button>
-          <Button
-            size="compact"
-            variant="outline"
-            disabled={!bridge || !open}
-            onClick={() => bridge && run(bridge.close, "Unable to close the control window")}
-          >
-            Close window
-          </Button>
-        </div>
-        {!bridge && <p className="text-xs text-muted-foreground">Requires the desktop app.</p>}
-        <section className="mt-2 flex flex-col gap-2 rounded-lg border border-border/70 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-xs font-medium">This PC</h3>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+        <ControlBlock
+          title="Control window"
+          actions={
+            <>
+              <Button
+                size="compact"
+                disabled={!bridge || open}
+                onClick={() => bridge && run(bridge.open, "Unable to open the control window")}
+              >
+                Open window
+              </Button>
+              <Button
+                size="compact"
+                variant="outline"
+                disabled={!bridge || !open}
+                onClick={() => bridge && run(bridge.close, "Unable to close the control window")}
+              >
+                Close window
+              </Button>
+            </>
+          }
+        >
+          <p className="text-xs text-muted-foreground">
+            {!bridge
+              ? "Requires the desktop app."
+              : open
+                ? "The window is open."
+                : "The window is closed."}
+          </p>
+        </ControlBlock>
+        <ControlBlock
+          title="This PC"
+          actions={
             <Button
               size="compact"
               variant="outline"
@@ -137,13 +234,15 @@ export function ControlPanel() {
             >
               Refresh btop
             </Button>
-          </div>
+          }
+        >
           {btop.environmentId === null ? (
             <p className="text-xs text-muted-foreground">No local server.</p>
           ) : (
             <HostStats environmentId={btop.environmentId} />
           )}
-        </section>
+        </ControlBlock>
+        {btop.environmentId !== null ? <SlackBlock environmentId={btop.environmentId} /> : null}
       </div>
     </div>
   );

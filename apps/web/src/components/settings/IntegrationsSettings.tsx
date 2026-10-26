@@ -119,6 +119,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { LinearSettings } from "./LinearSettings";
+import { SlackSettings } from "./SlackSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
 import type { ImportOutcome } from "./browserImportWizard.logic";
@@ -1548,8 +1549,26 @@ export function IntegrationsSettingsPanel() {
         )}
       </SettingsSection>
       <LinearIntegrationSettings />
+      <SlackIntegrationSettings />
       <DeviceIntegrationSettings />
     </SettingsPageContainer>
+  );
+}
+
+/** Server-scoped like Linear: the Control window's feed reads the primary environment. */
+function SlackIntegrationSettings() {
+  const primaryEnvironment = usePrimaryEnvironment();
+  return (
+    <SettingsSection {...searchableSetting("slack")}>
+      {primaryEnvironment == null ? (
+        <p className="text-xs text-muted-foreground">Connect to an environment to set up Slack.</p>
+      ) : (
+        <SlackSettings
+          key={primaryEnvironment.environmentId}
+          environmentId={primaryEnvironment.environmentId}
+        />
+      )}
+    </SettingsSection>
   );
 }
 

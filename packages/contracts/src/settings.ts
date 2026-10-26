@@ -837,6 +837,18 @@ export const LinearSettings = Schema.Struct({
 });
 export type LinearSettings = typeof LinearSettings.Type;
 
+/**
+ * Slack access for the Control window's feed. Both tokens come from a Slack
+ * app the user installs in their own workspace: the user token (`xoxp-`)
+ * reads messages and posts replies as them, the app-level token (`xapp-`)
+ * opens the Socket Mode stream that delivers new messages live.
+ */
+export const SlackSettings = Schema.Struct({
+  userToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  appToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+});
+export type SlackSettings = typeof SlackSettings.Type;
+
 /** A GitHub host name, lowercased on decode so `GitHub.com` and `github.com` are one entry. */
 export const GitHubHost = TrimmedNonEmptyString.pipe(
   Schema.decodeTo(Schema.String, SchemaTransformation.toLowerCase()),
@@ -1341,6 +1353,9 @@ export const ServerSettings = Schema.Struct({
   linear: LinearSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(LinearSettings)({}))),
   ),
+  slack: SlackSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(SlackSettings)({}))),
+  ),
   /** Allows this server to read the Cursor CLI's macOS Keychain login for account usage. */
   cursorKeychainUsageEnabled: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(false)),
@@ -1651,6 +1666,13 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       apiKey: Schema.optionalKey(TrimmedString),
       teamKey: Schema.optionalKey(TrimmedString),
+    }),
+  ),
+  /** Either token alone; an empty token removes the stored one. */
+  slack: Schema.optionalKey(
+    Schema.Struct({
+      userToken: Schema.optionalKey(TrimmedString),
+      appToken: Schema.optionalKey(TrimmedString),
     }),
   ),
   cursorKeychainUsageEnabled: Schema.optionalKey(Schema.Boolean),
