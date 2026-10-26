@@ -6,7 +6,8 @@
  * on them and Thund3rBot answers in their thread. Both change the list in the
  * server's Linear settings, so every open Priorities panel updates at once.
  * `/add-task`, `/remove-task` and `/get-tasks` (or `add-task …` messages)
- * do the same for the list's plain tasks.
+ * do the same for the list's plain tasks. `/eod` (or `eod`) lists the Linear
+ * tickets assigned to the user that changed today, whether listed or not.
  *
  * @module slack/slackCommands
  */
@@ -17,7 +18,7 @@ import type {
   PriorityTask,
 } from "@t3tools/contracts";
 import {
-  orderByPriority,
+  PRIORITY_RANK,
   parsePriorityPaste,
   priorityAdditions,
 } from "@t3tools/shared/linearPriorities";
@@ -63,6 +64,7 @@ const MESSAGE_VERBS: Record<string, string> = {
   "add-task": "/add-task",
   "remove-task": "/remove-task",
   "get-tasks": "/get-tasks",
+  eod: "/eod",
 };
 
 /**
@@ -121,10 +123,36 @@ const ticketLine = (ticket: LinearTicket) =>
     .filter((part) => part !== null)
     .join(" · ");
 
+const PRIORITY_HEADERS: Record<LinearIssuePriority, string> = {
+  urgent: "Urgent",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  none: "No priority",
+};
+
+const ORDERED_PRIORITIES = (Object.keys(PRIORITY_RANK) as Array<LinearIssuePriority>).sort(
+  (left, right) => PRIORITY_RANK[left] - PRIORITY_RANK[right],
+);
+
+/** `ENG-482 - Title`, the line both grouped lists start from. */
+const groupedTicketLine = (ticket: LinearTicket) =>
+  `${ticketLink(ticket)} - ${escapeSlackText(ticket.title)}`;
+
+/** A bold header per priority, urgent to none, each over its tickets in the order given. */
+const groupedByPriority = (
+  tickets: ReadonlyArray<LinearTicket>,
+  line: (ticket: LinearTicket) => string,
+): ReadonlyArray<string> =>
+  ORDERED_PRIORITIES.flatMap((priority) => {
+    const group = tickets.filter((ticket) => ticket.priority === priority);
+    return group.length === 0 ? [] : [`*${PRIORITY_HEADERS[priority]}*`, ...group.map(line)];
+  });
+
 const sentence = (label: string, identifiers: ReadonlyArray<string>) =>
   identifiers.length === 0 ? [] : [`${label} ${identifiers.join(", ")}.`];
 
-/** The list as Slack mrkdwn, most urgent first. Without Linear it still names every ticket. */
+/** The list as Slack mrkdwn, grouped by priority. Without Linear it still names every ticket. */
 export const formatPriorityList = (
   identifiers: ReadonlyArray<string>,
   tickets: ReadonlyArray<LinearTicket> | null,
@@ -137,15 +165,43 @@ export const formatPriorityList = (
     return [header, ...identifiers.map((id) => `• ${id}`), "_Could not reach Linear._"].join("\n");
   }
   const known = new Map(tickets.map((ticket) => [ticket.identifier, ticket]));
-  const lines = orderByPriority(
-    identifiers.map((identifier) => ({ identifier })),
-    known,
-  ).map(({ identifier }) => {
-    const ticket = known.get(identifier);
-    return ticket === undefined ? `• ${identifier} _not found in Linear_` : ticketLine(ticket);
-  });
-  return [header, ...lines].join("\n");
+  const found = identifiers.flatMap((identifier) => known.get(identifier) ?? []);
+  const missing = identifiers.filter((identifier) => !known.has(identifier));
+  return [
+    header,
+    ...groupedByPriority(
+      found,
+      (ticket) => `${groupedTicketLine(ticket)} · _${escapeSlackText(ticket.stateName)}_`,
+    ),
+    ...(missing.length === 0 ? [] : ["*Not found in Linear*", ...missing]),
+  ].join("\n");
 };
+
+/** Today's tickets as Slack mrkdwn under `dateLabel`, grouped by priority. */
+export const formatEod = (tickets: ReadonlyArray<LinearTicket>, dateLabel: string): string =>
+  tickets.length === 0
+    ? "No tickets assigned to you were updated today."
+    : [`*EOD* · ${dateLabel}`, ...groupedByPriority(tickets, groupedTicketLine)].join("\n");
+
+const runEod = Effect.fn("slackCommands.runEod")(function* () {
+  const linearTickets = yield* LinearTickets;
+  // Midnight where the server runs, which is the user's own machine.
+  const midnight = DateTime.startOf(
+    DateTime.setZone(yield* DateTime.now, DateTime.zoneMakeLocal()),
+    "day",
+  );
+  const dateLabel = DateTime.format(midnight, {
+    locale: "en-GB",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  return yield* linearTickets.getWorkedOnTickets({ since: DateTime.formatIso(midnight) }).pipe(
+    Effect.map((tickets) => formatEod(tickets, dateLabel)),
+    // Linear's details already read as sentences, like "Linear did not answer in time."
+    Effect.catch((error) => Effect.succeed(error.detail)),
+  );
+});
 
 const USAGE: Record<string, string> = {
   "/add-priority": "Name the tickets to add, like `ENG-482 #490` or a Linear link.",
@@ -230,6 +286,7 @@ export const runPriorityCommand = Effect.fn("slackCommands.runPriorityCommand")(
   command: PriorityRequest,
 ) {
   if (TASK_COMMANDS.has(command.command)) return yield* runTaskCommand(command);
+  if (command.command === "/eod") return yield* runEod();
   const settingsService = yield* ServerSettingsService;
   const linearTickets = yield* LinearTickets;
   const settings = yield* settingsService.getSettings;

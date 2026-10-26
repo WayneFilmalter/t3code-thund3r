@@ -22,16 +22,17 @@ Not everything has a Linear ticket. Add a task from the **Tasks** block in the C
 
 Once Slack is connected, anyone in your workspace can look at and change the list with slash commands:
 
-- `/priorities` lists the tickets, most urgent first.
+- `/priorities` lists the tickets grouped under their Linear priority, from Urgent to Low.
 - `/add-priority ENG-482 #490` adds tickets. It reads ticket numbers, `#482`, bare numbers and Linear links, just like pasting into the Control tab.
 - `/remove-priority ENG-482` takes tickets off.
 - `/get-tasks` lists the tasks, most urgent first, with how long ago each was added.
 - `/add-task high: Fix login | Users can't sign in on Safari` adds a task. The priority (`urgent:`, `high:`, `medium:` or `low:`) is optional and defaults to medium. The text after `|`, or on the lines after the first, is the description.
 - `/remove-task T-12` takes a task off. Just `12` works too.
+- `/eod` lists every Linear ticket assigned to you, the owner of T3 Code's Linear API key, that changed today, on the priority list or not, grouped by priority from Urgent to Low. A teammate's comment on your ticket counts as a change.
 
 Only the person who ran the command sees the answer. Changes show up in the Priorities panel straight away. Slash commands only work while T3 Code's server is running; one sent while it is off fails and is not kept.
 
-Requests posted as messages in a `#priorities` channel are never lost. Start a message with `add`, `remove` or `list`, such as `add ENG-482 #490`, or with `add-task`, `remove-task` or `get-tasks` for tasks. Other messages in the channel are ignored. Thund3rBot answers in the message's thread. If T3 Code was off, it handles everything posted since it last ran as soon as it starts again, and answers each one then.
+Requests posted as messages in a `#priorities` channel are never lost. Start a message with `add`, `remove` or `list`, such as `add ENG-482 #490`, or with `add-task`, `remove-task` or `get-tasks` for tasks, or just `eod`. Other messages in the channel are ignored. Thund3rBot answers in the message's thread. If T3 Code was off, it handles everything posted since it last ran as soon as it starts again, and answers each one then.
 
 For `#priorities` to work:
 

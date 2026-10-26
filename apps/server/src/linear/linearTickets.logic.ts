@@ -106,6 +106,11 @@ export function boardMovesFilter(since: string): Record<string, unknown> {
   return { updatedAt: { gte: since } };
 }
 
+/** The API key owner's tickets touched since `since`, by them or anyone else. */
+export function workedOnFilter(since: string): Record<string, unknown> {
+  return { assignee: { isMe: { eq: true } }, updatedAt: { gte: since } };
+}
+
 /** One page of an `issues` connection: its nodes and the cursor for the next, if any. */
 export function readIssuesPage(connection: unknown): {
   readonly nodes: ReadonlyArray<Record<string, unknown>>;

@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import type { LinearTicket, SlackFeedEvent } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
@@ -123,7 +124,10 @@ const ticket = (identifier: string, title: string, priority: LinearTicket["prior
     mentionsViewer: false,
   }) satisfies LinearTicket;
 
-/** Linear knows ENG-1 and ENG-2 only. */
+/** Every `since` `/eod` asked Linear for. */
+const workedOnSince: Array<string> = [];
+
+/** Linear knows ENG-1 and ENG-2 only; ENG-3 also changed today. */
 const fakeLinear = LinearTickets.LinearTickets.of({
   getTickets: ({ identifiers }) => {
     const known = [
@@ -134,6 +138,14 @@ const fakeLinear = LinearTickets.LinearTickets.of({
       tickets: known.filter((t) => identifiers.includes(t.identifier)),
       missing: identifiers.filter((id) => !known.some((t) => t.identifier === id)),
     });
+  },
+  getWorkedOnTickets: ({ since }) => {
+    workedOnSince.push(since);
+    return Effect.succeed([
+      ticket("ENG-1", "Checkout <times out>", "low"),
+      ticket("ENG-3", "Spike", "none"),
+      ticket("ENG-2", "Onboarding", "urgent"),
+    ]);
   },
   searchTickets: () => Effect.die("unused"),
   getTicketDetail: () => Effect.die("unused"),
@@ -293,9 +305,16 @@ it.effect("adds, lists and removes priorities from slash commands without a subs
       assert.deepEqual(yield* priorities, ["ENG-1", "ENG-2"]);
 
       command("env-2", "/priorities", "");
-      const listed = (yield* Queue.take(answers)).split("\n");
-      assert.deepEqual(listed.slice(0, 2), ["*Priorities* (2)", listed[1]!]);
-      assert.include(listed[1]!, "ENG-2", "most urgent first");
+      assert.equal(
+        yield* Queue.take(answers),
+        [
+          "*Priorities* (2)",
+          "*Urgent*",
+          "<https://linear.app/acme/issue/ENG-2|ENG-2> - Onboarding · _Todo_",
+          "*Low*",
+          "<https://linear.app/acme/issue/ENG-1|ENG-1> - Checkout &lt;times out&gt; · _Todo_",
+        ].join("\n"),
+      );
 
       command("env-3", "/remove-priority", "eng-1 ENG-9");
       assert.equal(yield* Queue.take(answers), "Removed ENG-1.\nNot on the list: ENG-9.");
@@ -303,7 +322,23 @@ it.effect("adds, lists and removes priorities from slash commands without a subs
 
       command("env-4", "/add-priority", "");
       assert.include(yield* Queue.take(answers), "Name the tickets to add");
-      assert.lengthOf(socket.sent, 4);
+
+      // Today's tickets, listed or not, urgent first and unprioritized last.
+      command("env-5", "/eod", "");
+      const eod = (yield* Queue.take(answers)).split("\n");
+      assert.match(eod[0]!, /^\*EOD\* · \w+ \d+ \w+$/);
+      assert.deepEqual(eod.slice(1), [
+        "*Urgent*",
+        "<https://linear.app/acme/issue/ENG-2|ENG-2> - Onboarding",
+        "*Low*",
+        "<https://linear.app/acme/issue/ENG-1|ENG-1> - Checkout &lt;times out&gt;",
+        "*No priority*",
+        "<https://linear.app/acme/issue/ENG-3|ENG-3> - Spike",
+      ]);
+      const since = workedOnSince.at(-1)!;
+      const local = DateTime.setZone(DateTime.makeUnsafe(since), DateTime.zoneMakeLocal());
+      assert.equal(DateTime.formatIso(DateTime.startOf(local, "day")), since, "local midnight");
+      assert.lengthOf(socket.sent, 5);
     });
   }
 });
