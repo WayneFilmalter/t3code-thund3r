@@ -1,8 +1,9 @@
 /**
- * SlackService — the Control window's Slack feed. One server-lifetime
- * instance owns the only Slack connection: it is opened when the first client
- * subscribes and closed shortly after the last one leaves, so nothing talks
- * to Slack while nobody is watching.
+ * SlackService — the Control window's Slack feed and the priority slash
+ * commands. One server-lifetime instance owns the only Slack connection and
+ * keeps it open while Slack is connected, so `/add-priority` works when no
+ * Control window is open. Slack spreads events across an app's sockets, so a
+ * second connection would split the feed; there is only ever this one.
  *
  * A connection opens a Socket Mode websocket with the app-level token, then
  * fills the feed window through `search.messages` with the user token while
@@ -26,13 +27,14 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
-import * as RcRef from "effect/RcRef";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/http";
 import * as Socket from "effect/socket/Socket";
 
+import { LinearTickets } from "../linear/LinearTickets.ts";
 import * as Settings from "../serverSettings.ts";
+import { readSlashCommand, runPriorityCommand, type SlackSlashCommand } from "./slackCommands.ts";
 import {
   buildPermalink,
   escapeSlackText,
@@ -54,8 +56,6 @@ const REQUEST_TIMEOUT = "20 seconds";
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES = 5;
 export const FEED_LIMIT = SEARCH_PAGE_SIZE * SEARCH_MAX_PAGES;
-/** Long enough that closing and reopening the Control window keeps the connection. */
-const IDLE_CONNECTION_TTL = "30 seconds";
 const RETRY_BASE_MS = 2_000;
 const RETRY_MAX_MS = 60_000;
 /** Slack errors a retry cannot fix: the tokens are wrong or lack a scope. */
@@ -73,9 +73,9 @@ const REJECTED_ERRORS = new Set([
 export class SlackService extends Context.Service<
   SlackService,
   {
-    /** A snapshot now and after every refetch, then one event per change. Keeps the connection open. */
+    /** A snapshot now and after every refetch, then one event per change. */
     readonly subscribe: () => Stream.Stream<SlackFeedEvent, SlackError>;
-    /** Reconnects and fetches the window again; a no-op while nobody is subscribed. */
+    /** Reconnects and fetches the window again. */
     readonly refetch: () => Effect.Effect<void>;
     /** Posts as the user; resolves to the new message's ts. */
     readonly reply: (input: SlackReplyInput) => Effect.Effect<{ readonly ts: string }, SlackError>;
@@ -102,9 +102,11 @@ const describe = (error: unknown) =>
   error instanceof Error && error.message.length > 0 ? error.message : String(error);
 
 const make = Effect.gen(function* () {
+  const serviceScope = yield* Effect.scope;
   const settingsService = yield* Settings.ServerSettingsService;
   const httpClient = yield* HttpClient.HttpClient;
   const makeWebSocket = yield* Socket.WebSocketConstructor;
+  const linearTickets = yield* LinearTickets;
 
   const events = yield* PubSub.unbounded<SlackFeedEvent>();
   const refetchRequests = yield* PubSub.unbounded<void>();
@@ -303,6 +305,23 @@ const make = Effect.gen(function* () {
       if (!muted.has(message.channelId)) yield* publish({ _tag: "upsert", message });
     });
 
+  /** Answers through the command's response URL, so a slow Linear call never holds up the socket. */
+  const answerCommand = (command: SlackSlashCommand) =>
+    runPriorityCommand(command).pipe(
+      Effect.provideService(Settings.ServerSettingsService, settingsService),
+      Effect.provideService(LinearTickets, linearTickets),
+      Effect.catch((error) => Effect.succeed(`Could not update priorities: ${describe(error)}`)),
+      Effect.flatMap((text) =>
+        httpClient.execute(
+          HttpClientRequest.post(command.responseUrl).pipe(
+            HttpClientRequest.bodyJsonUnsafe({ response_type: "ephemeral", text }),
+          ),
+        ),
+      ),
+      Effect.timeout(REQUEST_TIMEOUT),
+      Effect.ignore,
+    );
+
   /**
    * One Socket Mode connection: open it, backfill while its events buffer,
    * then apply events until Slack asks for a reconnect. Succeeds on that
@@ -376,6 +395,11 @@ const make = Effect.gen(function* () {
             if (envelope.type === "disconnect") return;
             if (envelope.type === "events_api" && isRecord(envelope.payload)) {
               yield* applyEvent(userToken, self, envelope.payload.event);
+            }
+            if (envelope.type === "slash_commands") {
+              const command = readSlashCommand(envelope.payload);
+              // Outlives a reconnect: Slack still takes the answer after the socket moves.
+              if (command !== null) yield* Effect.forkIn(answerCommand(command), serviceScope);
             }
           }
         }
@@ -451,28 +475,26 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const connection = yield* RcRef.make({
-    acquire: Effect.gen(function* () {
-      // Before forking, so a subscriber's first snapshot never shows a stale
-      // "live" or a channel muted while nobody was watching.
-      if (status.state !== "unconfigured")
-        status = { ...status, state: "connecting", detail: null };
-      const settings = yield* settingsService.getSettings.pipe(Effect.orDie);
-      muted = new Set(Object.keys(settings.slack.mutedChannels));
-      yield* Effect.forkScoped(followMutes);
-      yield* restarts.pipe(
-        Stream.switchMap(() => Stream.fromEffect(supervise)),
-        Stream.runDrain,
-        Effect.forkScoped,
-      );
-    }),
-    idleTimeToLive: IDLE_CONNECTION_TTL,
-  });
+  // Started once settings are loaded, and held for the server's lifetime.
+  yield* Effect.gen(function* () {
+    yield* settingsService.ready.pipe(Effect.ignore);
+    const settings = yield* settingsService.getSettings.pipe(Effect.orDie);
+    muted = new Set(Object.keys(settings.slack.mutedChannels));
+    yield* Effect.all(
+      [
+        followMutes,
+        restarts.pipe(
+          Stream.switchMap(() => Stream.fromEffect(supervise)),
+          Stream.runDrain,
+        ),
+      ],
+      { concurrency: "unbounded", discard: true },
+    );
+  }).pipe(Effect.forkScoped);
 
   const subscribe = () =>
     Stream.unwrap(
       Effect.gen(function* () {
-        yield* RcRef.get(connection);
         // Subscribe before the snapshot; a delta it already contains applies twice harmlessly.
         const subscription = yield* PubSub.subscribe(events);
         return Stream.concat(Stream.fromEffect(snapshot), Stream.fromSubscription(subscription));

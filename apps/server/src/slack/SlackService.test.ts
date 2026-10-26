@@ -1,16 +1,16 @@
 import { assert, it } from "@effect/vitest";
-import type { SlackFeedEvent } from "@t3tools/contracts";
+import type { LinearTicket, SlackFeedEvent } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
-import * as TestClock from "effect/testing/TestClock";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientResponse from "effect/http/HttpClientResponse";
 import * as Socket from "effect/socket/Socket";
 
+import * as LinearTickets from "../linear/LinearTickets.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SlackService from "./SlackService.ts";
 
@@ -37,9 +37,18 @@ const makeFakeSocket = () => {
   return { ws, sent, closed, deliver };
 };
 
-/** Slack's Web API, answering each method the service calls. */
-const fakeSlackApi = (posted: Array<URLSearchParams>) =>
+/** Slack's Web API, answering each method the service calls. Command answers go to `answers`. */
+const fakeSlackApi = (
+  posted: Array<URLSearchParams>,
+  commands?: { answers: Queue.Queue<string>; connected: Deferred.Deferred<void> },
+) =>
   HttpClient.make((request) => {
+    if (request.url.startsWith(RESPONSE_URL)) {
+      const body =
+        request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "";
+      if (commands !== undefined) Queue.offerUnsafe(commands.answers, JSON.parse(body).text);
+      return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("ok")));
+    }
     const method = new URL(request.url).pathname.split("/").pop();
     const params = new URLSearchParams(
       request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "",
@@ -61,6 +70,8 @@ const fakeSlackApi = (posted: Array<URLSearchParams>) =>
         case "apps.connections.open":
           return { ok: true, url: "wss://socket.slack.test" };
         case "search.messages":
+          // The socket is reading by now, so delivered frames are not lost.
+          if (commands !== undefined) Deferred.doneUnsafe(commands.connected, Effect.void);
           return {
             ok: true,
             messages: {
@@ -78,18 +89,59 @@ const fakeSlackApi = (posted: Array<URLSearchParams>) =>
     return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
   });
 
+const RESPONSE_URL = "https://hooks.slack.test/commands/1";
+
+const ticket = (identifier: string, title: string, priority: LinearTicket["priority"]) =>
+  ({
+    id: identifier,
+    identifier,
+    title,
+    url: `https://linear.app/acme/issue/${identifier}`,
+    priority,
+    estimate: null,
+    stateName: "Todo",
+    branchName: null,
+    stateType: "unstarted",
+    stateColor: "#000000",
+    pullRequestUrl: null,
+    pullRequestState: null,
+    latestOthersCommentAt: null,
+    mentionsViewer: false,
+  }) satisfies LinearTicket;
+
+/** Linear knows ENG-1 and ENG-2 only. */
+const fakeLinear = LinearTickets.LinearTickets.of({
+  getTickets: ({ identifiers }) => {
+    const known = [
+      ticket("ENG-1", "Checkout <times out>", "low"),
+      ticket("ENG-2", "Onboarding", "urgent"),
+    ];
+    return Effect.succeed({
+      tickets: known.filter((t) => identifiers.includes(t.identifier)),
+      missing: identifiers.filter((id) => !known.some((t) => t.identifier === id)),
+    });
+  },
+  searchTickets: () => Effect.die("unused"),
+  getTicketDetail: () => Effect.die("unused"),
+  getBoardStats: () => Effect.die("unused"),
+  createComment: () => Effect.die("unused"),
+});
+
 const makeLayer = (
   socket: ReturnType<typeof makeFakeSocket>,
   posted: Array<URLSearchParams>,
   mutedChannels: Record<string, string> = {},
+  commands?: Parameters<typeof fakeSlackApi>[1],
 ) =>
   SlackService.layer.pipe(
-    Layer.provide(
+    Layer.provideMerge(
       ServerSettings.ServerSettingsService.layerTest({
+        linear: { teamKey: "ENG" },
         slack: { userToken: "xoxp-test", appToken: "xapp-test", mutedChannels },
       }),
     ),
-    Layer.provide(Layer.succeed(HttpClient.HttpClient, fakeSlackApi(posted))),
+    Layer.provide(Layer.succeed(LinearTickets.LinearTickets, fakeLinear)),
+    Layer.provide(Layer.succeed(HttpClient.HttpClient, fakeSlackApi(posted, commands))),
     Layer.provide(Layer.succeed(Socket.WebSocketConstructor, () => socket.ws)),
   );
 
@@ -101,7 +153,7 @@ const takeUntil = (queue: Queue.Queue<SlackFeedEvent>, done: (event: SlackFeedEv
     }
   });
 
-it.effect("backfills, applies live events with acks, and closes the socket when unwatched", () => {
+it.effect("backfills, applies live events with acks, and replies as the user", () => {
   const socket = makeFakeSocket();
   const posted: Array<URLSearchParams> = [];
   return Effect.gen(function* () {
@@ -152,8 +204,6 @@ it.effect("backfills, applies live events with acks, and closes the socket when 
     assert.equal(posted[0]?.get("text"), "a &lt; b");
 
     yield* Fiber.interrupt(watcher);
-    yield* TestClock.adjust("31 seconds");
-    yield* Deferred.await(socket.closed);
   }).pipe(Effect.provide(makeLayer(socket, posted)));
 });
 
@@ -187,4 +237,58 @@ it.effect("keeps muted channels out of snapshots and live updates", () => {
     // Muted or not, Slack still gets its acknowledgement.
     assert.lengthOf(socket.sent, 2);
   }).pipe(Effect.provide(makeLayer(socket, [], { C1: "#general" })));
+});
+
+it.effect("adds, lists and removes priorities from slash commands without a subscriber", () => {
+  const socket = makeFakeSocket();
+  return Effect.gen(function* () {
+    const answers = yield* Queue.unbounded<string>();
+    const connected = Deferred.makeUnsafe<void>();
+    yield* run(answers, connected).pipe(
+      Effect.provide(makeLayer(socket, [], {}, { answers, connected })),
+    );
+  });
+
+  function run(answers: Queue.Queue<string>, connected: Deferred.Deferred<void>) {
+    return Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const command = (envelopeId: string, name: string, text: string) =>
+        socket.deliver({
+          envelope_id: envelopeId,
+          type: "slash_commands",
+          payload: { command: name, text, response_url: RESPONSE_URL },
+        });
+      const priorities = settings.getSettings.pipe(
+        Effect.map((current) => Object.keys(current.linear.priorities)),
+      );
+
+      // Nobody subscribes: the connection opens on its own.
+      yield* Deferred.await(connected);
+
+      command("env-1", "/add-priority", "#1 ENG-2 and ENG-404");
+      assert.equal(
+        yield* Queue.take(answers),
+        [
+          "Added to the priority list:",
+          "• <https://linear.app/acme/issue/ENG-1|ENG-1> Checkout &lt;times out&gt; · _Todo_ · Low",
+          "• <https://linear.app/acme/issue/ENG-2|ENG-2> Onboarding · _Todo_ · Urgent",
+          "Linear has no ENG-404.",
+        ].join("\n"),
+      );
+      assert.deepEqual(yield* priorities, ["ENG-1", "ENG-2"]);
+
+      command("env-2", "/priorities", "");
+      const listed = (yield* Queue.take(answers)).split("\n");
+      assert.deepEqual(listed.slice(0, 2), ["*Priorities* (2)", listed[1]!]);
+      assert.include(listed[1]!, "ENG-2", "most urgent first");
+
+      command("env-3", "/remove-priority", "eng-1 ENG-9");
+      assert.equal(yield* Queue.take(answers), "Removed ENG-1.\nNot on the list: ENG-9.");
+      assert.deepEqual(yield* priorities, ["ENG-2"]);
+
+      command("env-4", "/add-priority", "");
+      assert.include(yield* Queue.take(answers), "Name the tickets to add");
+      assert.lengthOf(socket.sent, 4);
+    });
+  }
 });

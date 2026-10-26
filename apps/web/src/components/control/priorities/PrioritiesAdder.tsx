@@ -1,4 +1,5 @@
 import type { EnvironmentId, LinearTicket, LinearTicketsGetResult } from "@t3tools/contracts";
+import { parsePriorityPaste } from "@t3tools/shared/linearPriorities";
 import { CheckIcon, PlusIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -23,7 +24,6 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { TicketStateChip } from "./TicketParts";
-import { parsePriorityPaste } from "./priorities.logic";
 import { usePriorityList } from "./prioritiesStore";
 
 const SEARCH_DEBOUNCE_MS = 250;
@@ -49,7 +49,7 @@ export function PrioritiesAdder({ environmentId }: { environmentId: EnvironmentI
     environmentId,
     (settings) => settings.linear.apiKey.length > 0,
   );
-  const list = usePriorityList();
+  const list = usePriorityList(environmentId);
   const listed = useMemo(
     () => new Set(list.entries.map((entry) => entry.identifier)),
     [list.entries],

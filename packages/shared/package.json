@@ -7,6 +7,10 @@
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"
     },
+    "./linearPriorities": {
+      "types": "./src/linearPriorities.ts",
+      "import": "./src/linearPriorities.ts"
+    },
     "./authScopeOptions": {
       "types": "./src/authScopeOptions.ts",
       "import": "./src/authScopeOptions.ts"

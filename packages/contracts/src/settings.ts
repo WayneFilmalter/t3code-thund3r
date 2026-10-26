@@ -831,9 +831,24 @@ export type UsageLimitSourceConfig = typeof UsageLimitSourceConfig.Type;
  * API key sent as a bearer token to Linear's hosted MCP server; it is redacted
  * before reaching a client. The team key picks which team's issues to list.
  */
+/** One ticket on the Control window's priority list. Linear owns everything else about it. */
+export const LinearPriority = Schema.Struct({
+  addedAt: Schema.String,
+  /** The newest comment by someone else when the ticket was last looked at. */
+  seenCommentsAt: Schema.NullOr(Schema.String),
+});
+export type LinearPriority = typeof LinearPriority.Type;
+
 export const LinearSettings = Schema.Struct({
   apiKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
   teamKey: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
+  /**
+   * The Priorities list, by ticket identifier, in the order added. Kept on the
+   * server so every client and Slack's `/add-priority` share one list.
+   */
+  priorities: Schema.Record(Schema.String, LinearPriority).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type LinearSettings = typeof LinearSettings.Type;
 
@@ -1665,11 +1680,15 @@ export const ServerSettingsPatch = Schema.Struct({
   usageLimitSources: Schema.optionalKey(
     Schema.Record(UsageLimitSourceId, Schema.NullOr(UsageLimitSourceConfig)),
   ),
-  /** Either field alone; an empty `apiKey` removes the stored key. */
+  /**
+   * Either field alone; an empty `apiKey` removes the stored key. Priorities
+   * merge per entry, like `usageLimitSources`: `null` removes a ticket.
+   */
   linear: Schema.optionalKey(
     Schema.Struct({
       apiKey: Schema.optionalKey(TrimmedString),
       teamKey: Schema.optionalKey(TrimmedString),
+      priorities: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(LinearPriority))),
     }),
   ),
   /**

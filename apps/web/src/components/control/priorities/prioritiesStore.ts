@@ -1,48 +1,83 @@
-import type { LinearTicket } from "@t3tools/contracts";
-import { useCallback } from "react";
+import { type EnvironmentId, LinearPriority, type LinearTicket } from "@t3tools/contracts";
+import { priorityAdditions } from "@t3tools/shared/linearPriorities";
+import { useAtomValue } from "@effect/atom-react";
+import * as Schema from "effect/Schema";
+import { useCallback, useEffect, useMemo } from "react";
 
-import { useLocalStorage } from "~/hooks/useLocalStorage";
+import { getLocalStorageItem, removeLocalStorageItem } from "~/hooks/useLocalStorage";
+import { serverEnvironment } from "~/state/server";
+import { useAtomCommand } from "~/state/use-atom-command";
 
-import { PriorityEntries, type PriorityEntry, appendPriorities } from "./priorities.logic";
+export interface PriorityEntry extends LinearPriority {
+  readonly identifier: string;
+}
 
-const PRIORITIES_STORAGE_KEY = "t3code:control:priorities:v1";
-const EMPTY: ReadonlyArray<PriorityEntry> = [];
+/** Where the list lived before it moved to the server; read once, then cleared. */
+const LEGACY_STORAGE_KEY = "t3code:control:priorities:v1";
+const LegacyEntries = Schema.Array(
+  Schema.Struct({ identifier: Schema.String, ...LinearPriority.fields }),
+);
+const EMPTY: Readonly<Record<string, LinearPriority>> = {};
 
 /**
- * The priority list, kept in this browser's localStorage. The hook follows
- * writes from other windows, so tickets added in the main window's Control tab
- * appear in the Control window straight away.
+ * The priority list, kept in the server's settings so every window and
+ * device, and Slack's `/add-priority`, share it. Changes arrive through the
+ * settings stream, so an add anywhere shows up everywhere straight away.
  */
-export function usePriorityList() {
-  const [entries, setEntries] = useLocalStorage(PRIORITIES_STORAGE_KEY, EMPTY, PriorityEntries);
+export function usePriorityList(environmentId: EnvironmentId) {
+  const settings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const loaded = settings !== null;
+  const priorities = settings?.linear.priorities ?? EMPTY;
+  const entries = useMemo(
+    (): ReadonlyArray<PriorityEntry> =>
+      Object.entries(priorities).map(([identifier, priority]) => ({ identifier, ...priority })),
+    [priorities],
+  );
+
+  const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
+    label: "update priorities",
+  });
+  const patch = useCallback(
+    (next: Record<string, LinearPriority | null>) =>
+      updateSettings({ environmentId, input: { patch: { linear: { priorities: next } } } }),
+    [environmentId, updateSettings],
+  );
+
+  useEffect(() => {
+    if (!loaded) return;
+    const legacy = getLocalStorageItem(LEGACY_STORAGE_KEY, LegacyEntries);
+    if (legacy === null) return;
+    const additions = Object.fromEntries(
+      legacy
+        .filter((entry) => !(entry.identifier in priorities))
+        .map(({ identifier, ...priority }) => [identifier, priority]),
+    );
+    if (Object.keys(additions).length === 0) {
+      removeLocalStorageItem(LEGACY_STORAGE_KEY);
+      return;
+    }
+    void patch(additions).then((result) => {
+      if (result._tag === "Success") removeLocalStorageItem(LEGACY_STORAGE_KEY);
+    });
+  }, [loaded, patch, priorities]);
 
   const add = useCallback(
-    (tickets: ReadonlyArray<Pick<LinearTicket, "identifier" | "latestOthersCommentAt">>) =>
-      setEntries((current) => appendPriorities(current, tickets, new Date().toISOString())),
-    [setEntries],
+    (tickets: ReadonlyArray<Pick<LinearTicket, "identifier" | "latestOthersCommentAt">>) => {
+      const additions = priorityAdditions(priorities, tickets, new Date().toISOString());
+      if (Object.keys(additions).length > 0) void patch(additions);
+    },
+    [patch, priorities],
   );
 
-  const remove = useCallback(
-    (identifier: string) =>
-      setEntries((current) => current.filter((entry) => entry.identifier !== identifier)),
-    [setEntries],
-  );
+  const remove = useCallback((identifier: string) => void patch({ [identifier]: null }), [patch]);
 
   const markSeen = useCallback(
-    (identifier: string, latestOthersCommentAt: string | null) =>
-      setEntries((current) =>
-        current.some(
-          (entry) =>
-            entry.identifier === identifier && entry.seenCommentsAt !== latestOthersCommentAt,
-        )
-          ? current.map((entry) =>
-              entry.identifier === identifier
-                ? { ...entry, seenCommentsAt: latestOthersCommentAt }
-                : entry,
-            )
-          : current,
-      ),
-    [setEntries],
+    (identifier: string, latestOthersCommentAt: string | null) => {
+      const current = priorities[identifier];
+      if (current === undefined || current.seenCommentsAt === latestOthersCommentAt) return;
+      void patch({ [identifier]: { ...current, seenCommentsAt: latestOthersCommentAt } });
+    },
+    [patch, priorities],
   );
 
   return { entries, add, remove, markSeen };

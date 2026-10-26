@@ -280,6 +280,21 @@ function applySlackSettingsPatch(
   };
 }
 
+/** Key and team replace; priorities merge per entry so two quick adds cannot drop each other. */
+function applyLinearSettingsPatch(
+  current: ServerSettings["linear"],
+  patch: NonNullable<ServerSettingsPatch["linear"]>,
+): ServerSettings["linear"] {
+  const { priorities, ...fields } = patch;
+  return {
+    ...current,
+    ...fields,
+    ...(priorities !== undefined
+      ? { priorities: mergeSettingsEntries(current.priorities, priorities) }
+      : {}),
+  };
+}
+
 function mergeSettingsEntries<Value>(
   current: Readonly<Record<string, Value>>,
   patch: Readonly<Record<string, Value | null>>,
@@ -430,6 +445,7 @@ export function applyServerSettingsPatch(
     worktreeCleanup: worktreeCleanupPatch,
     // Merged per entry below; its `null` removals must not reach deepMerge.
     usageLimitSources: usageLimitSourcesPatch,
+    linear: linearPatch,
     slack: slackPatch,
     sourceControlHosts: sourceControlHostsPatch,
     usagePriceOverrides: usagePriceOverridesPatch,
@@ -619,6 +635,9 @@ export function applyServerSettingsPatch(
             usageLimitSourcesPatch,
           ),
         }
+      : {}),
+    ...(linearPatch !== undefined
+      ? { linear: applyLinearSettingsPatch(current.linear, linearPatch) }
       : {}),
     ...(slackPatch !== undefined
       ? { slack: applySlackSettingsPatch(current.slack, slackPatch) }

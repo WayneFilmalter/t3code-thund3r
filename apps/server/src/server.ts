@@ -42,6 +42,7 @@ import * as PullRequestFilesViewed from "./persistence/PullRequestFilesViewed.ts
 import * as PullRequestReviewGuides from "./persistence/PullRequestReviewGuides.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
 import * as NotesService from "./notes/NotesService.ts";
+import * as LinearTickets from "./linear/LinearTickets.ts";
 import * as SlackService from "./slack/SlackService.ts";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as ServerLifecycleEvents from "./serverLifecycleEvents.ts";
@@ -734,7 +735,9 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(
     Layer.mergeAll(
       NotesService.layer,
-      SlackService.layer.pipe(Layer.provide(NodeSocket.layerWebSocketConstructor)),
+      SlackService.layer.pipe(
+        Layer.provide(Layer.merge(NodeSocket.layerWebSocketConstructor, LinearTickets.layer)),
+      ),
     ),
   ),
   // Both transports consume the same service instance, so caches single-flight across clients

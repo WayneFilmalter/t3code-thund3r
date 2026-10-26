@@ -1,5 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { type EnvironmentId, LinearError, type LinearTicket } from "@t3tools/contracts";
+import { orderByPriority } from "@t3tools/shared/linearPriorities";
 import * as Schema from "effect/Schema";
 import { RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -22,7 +23,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
 import { MissingPriorityCard, PendingPriorityCard, PriorityCard } from "./PriorityCard";
 import { PriorityDetail } from "./PriorityDetail";
-import { hasUnreadComments, isTicketDone, orderByPriority } from "./priorities.logic";
+import { hasUnreadComments, isTicketDone } from "./priorities.logic";
 import { usePriorityList } from "./prioritiesStore";
 
 const isLinearError = Schema.is(LinearError);
@@ -50,7 +51,7 @@ function PanelMessage({ children }: { children: string }) {
 }
 
 function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
-  const list = usePriorityList();
+  const list = usePriorityList(environmentId);
   const identifiers = useMemo(() => list.entries.map((entry) => entry.identifier), [list.entries]);
   const query = useEnvironmentQuery(
     identifiers.length === 0
