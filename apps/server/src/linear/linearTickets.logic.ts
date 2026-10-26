@@ -62,6 +62,8 @@ export const COMMENT_MUTATION = `mutation PriorityComment($input: CommentCreateI
 /**
  * The `issues` filter for a set of `ENG-482` identifiers: one clause per team
  * key, matching that team's issue numbers, so any number of teams is one request.
+ * Each clause is an explicit `and`: Linear ignores an `or` whose branches are
+ * bare multi-field filters and returns every issue instead.
  */
 export function identifierFilter(identifiers: ReadonlyArray<string>): Record<string, unknown> {
   const numbersByTeam = new Map<string, number[]>();
@@ -75,8 +77,7 @@ export function identifierFilter(identifiers: ReadonlyArray<string>): Record<str
   }
   return {
     or: [...numbersByTeam].map(([team, numbers]) => ({
-      team: { key: { eq: team } },
-      number: { in: numbers },
+      and: [{ team: { key: { eq: team } } }, { number: { in: numbers } }],
     })),
   };
 }

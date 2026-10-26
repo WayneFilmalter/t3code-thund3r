@@ -47,8 +47,8 @@ describe("identifierFilter", () => {
   it("groups issue numbers by team key into one filter", () => {
     assert.deepStrictEqual(identifierFilter(["ENG-1", "OPS-7", "ENG-22"]), {
       or: [
-        { team: { key: { eq: "ENG" } }, number: { in: [1, 22] } },
-        { team: { key: { eq: "OPS" } }, number: { in: [7] } },
+        { and: [{ team: { key: { eq: "ENG" } } }, { number: { in: [1, 22] } }] },
+        { and: [{ team: { key: { eq: "OPS" } } }, { number: { in: [7] } }] },
       ],
     });
   });
