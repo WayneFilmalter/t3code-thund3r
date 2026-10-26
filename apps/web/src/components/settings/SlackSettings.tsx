@@ -21,7 +21,7 @@ const NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
  */
 const SLACK_APP_MANIFEST = JSON.stringify(
   {
-    display_information: { name: "T3 Code" },
+    display_information: { name: "Thund3rCode" },
     features: {
       // Slack only accepts slash commands and the `commands` scope on an app with a bot user.
       bot_user: { display_name: "Thund3rBot", always_online: false },
