@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { hasUnreadComments, isTicketDone } from "./priorities.logic";
+import { hasUnreadComments, isTicketDone, matchesSearch } from "./priorities.logic";
 
 describe("hasUnreadComments", () => {
   const at = (iso: string | null) => ({ latestOthersCommentAt: iso });
@@ -20,5 +20,21 @@ describe("isTicketDone", () => {
     expect(isTicketDone({ stateName: "Shipped", stateType: "completed" })).toBe(true);
     expect(isTicketDone({ stateName: "In Review", stateType: "started" })).toBe(false);
     expect(isTicketDone({ stateName: "Canceled", stateType: "canceled" })).toBe(false);
+  });
+});
+
+describe("matchesSearch", () => {
+  const fields = ["ENG-482", "Fix login redirect", "In Progress"];
+  it("needs every word somewhere, in any order and case", () => {
+    expect(matchesSearch(fields, "")).toBe(true);
+    expect(matchesSearch(fields, "  ")).toBe(true);
+    expect(matchesSearch(fields, "login 482")).toBe(true);
+    expect(matchesSearch(fields, "eng-482")).toBe(true);
+    expect(matchesSearch(fields, "PROGRESS redirect")).toBe(true);
+    expect(matchesSearch(fields, "login signup")).toBe(false);
+  });
+
+  it("skips missing fields", () => {
+    expect(matchesSearch(["T-3", null, undefined], "t-3")).toBe(true);
   });
 });

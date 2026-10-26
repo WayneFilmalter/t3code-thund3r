@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { type EnvironmentId, LinearError, type LinearTicket } from "@t3tools/contracts";
 import { orderPriorityItems, taskLabel } from "@t3tools/shared/priorityTasks";
 import * as Schema from "effect/Schema";
-import { RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon, SearchIcon, XIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -24,7 +24,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
 import { MissingPriorityCard, PendingPriorityCard, PriorityCard } from "./PriorityCard";
 import { PriorityDetail } from "./PriorityDetail";
-import { hasUnreadComments, isTicketDone } from "./priorities.logic";
+import { hasUnreadComments, isTicketDone, matchesSearch } from "./priorities.logic";
 import { type TaskEntry, usePriorityList, usePriorityTasks } from "./prioritiesStore";
 import { TaskCard } from "./TaskCard";
 
@@ -85,6 +85,7 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
     return () => window.clearInterval(interval);
   }, [identifiers.length, refresh]);
 
+  const [search, setSearch] = useState("");
   const [openIdentifier, setOpenIdentifier] = useState<string | null>(null);
   const [commentingIdentifier, setCommentingIdentifier] = useState<string | null>(null);
   const [checkingIdentifier, setCheckingIdentifier] = useState<string | null>(null);
@@ -197,6 +198,15 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
   }
 
   const count = list.entries.length + taskList.tasks.length;
+  const filtering = search.trim() !== "";
+  const items = orderPriorityItems(list.entries, taskList.tasks, known).filter((item) => {
+    if (item.kind === "task") {
+      const { task } = item;
+      return matchesSearch([taskLabel(task.number), task.title, task.body], search);
+    }
+    const ticket = known.get(item.entry.identifier);
+    return matchesSearch([item.entry.identifier, ticket?.title, ticket?.stateName], search);
+  });
   const linearNotice =
     list.entries.length === 0
       ? null
@@ -216,14 +226,41 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <WorkflowsSubheader>
-        <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-foreground">
-          Priorities
+        {/* Reads as the panel's title until typed into; then it filters the list. */}
+        <label className="flex min-w-0 flex-1 items-center gap-1.5 px-1">
+          <SearchIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            type="search"
+            value={search}
+            placeholder="Priorities"
+            aria-label="Filter priorities"
+            spellCheck={false}
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && search !== "") {
+                event.preventDefault();
+                setSearch("");
+              }
+            }}
+            className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-foreground outline-none placeholder:text-foreground [&::-webkit-search-cancel-button]:appearance-none"
+          />
           {count > 0 ? (
-            <span className="ml-1.5 text-xs font-normal tabular-nums text-muted-foreground">
-              {count}
+            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {filtering ? `${items.length} of ${count}` : count}
             </span>
           ) : null}
-        </span>
+        </label>
+        {filtering ? (
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost-muted"
+            aria-label="Clear filter"
+            onClick={() => setSearch("")}
+          >
+            <XIcon />
+          </Button>
+        ) : null}
         {query.error !== null && known.size > 0 ? (
           <span className="min-w-0 truncate text-xs text-destructive">{query.error}</span>
         ) : null}
@@ -245,7 +282,12 @@ function Priorities({ environmentId }: { environmentId: EnvironmentId }) {
           {linearNotice !== null ? (
             <li className="px-1 text-xs text-muted-foreground">{linearNotice}</li>
           ) : null}
-          {orderPriorityItems(list.entries, taskList.tasks, known).map((item) => {
+          {filtering && items.length === 0 ? (
+            <li className="px-1 text-xs text-muted-foreground">
+              Nothing matches “{search.trim()}”.
+            </li>
+          ) : null}
+          {items.map((item) => {
             if (item.kind === "task") {
               return (
                 <TaskCard
