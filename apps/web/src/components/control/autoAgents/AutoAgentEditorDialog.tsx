@@ -49,8 +49,10 @@ import {
   sortProviderInstanceEntries,
 } from "~/providerInstances";
 import { useProjects } from "~/state/entities";
+import { useEnvironmentQuery } from "~/state/query";
 import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "~/state/server";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { vcsEnvironment } from "~/state/vcs";
 
 import { ProviderModelPicker } from "../../chat/ProviderModelPicker";
 import { WorktreeBaseBranchPicker } from "../../WorktreeBaseBranchPicker";
@@ -72,9 +74,15 @@ const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
 
 const WORKSPACE_LABELS: Record<WorkspaceMode, string> = {
-  worktree: "Create a new worktree",
   root: "Use the project checkout",
+  worktree: "Create a new worktree",
   existing_worktree: "Use a specific checkout",
+};
+
+const WORKSPACE_SUMMARIES: Record<WorkspaceMode, string> = {
+  worktree: "new worktree",
+  root: "project checkout",
+  existing_worktree: "specific checkout",
 };
 
 interface Draft {
@@ -123,8 +131,10 @@ function draftFromAgent(agent: ScheduledTask | null, projectId: string): Draft {
     intervalMinutes:
       schedule?.type === "interval" ? String(Math.max(1, schedule.everyMs / MINUTE_MS)) : "60",
     projectId: agent?.projectId ?? projectId,
-    workspaceMode: workspace?.type ?? "worktree",
-    baseRef: workspace?.type === "worktree" ? workspace.baseRef : "main",
+    // Most Auto Agents just work in the project; a worktree is opt-in.
+    workspaceMode: workspace?.type ?? "root",
+    // Empty follows the repository's default branch.
+    baseRef: workspace?.type === "worktree" ? workspace.baseRef : "",
     startFromOrigin: workspace?.type === "worktree" ? (workspace.startFromOrigin ?? false) : true,
     worktreePath: workspace?.type === "existing_worktree" ? workspace.worktreePath : "",
     modelKey: agent ? `${agent.modelSelection.instanceId}:${agent.modelSelection.model}` : "",
@@ -234,6 +244,22 @@ export function AutoAgentEditorDialog(props: {
     [settings, providers, activeInstanceId, activeModel],
   );
 
+  // Until a base branch is picked, a worktree starts from the repository's
+  // default branch (refs list the current branch, then the default, first).
+  const refs = useEnvironmentQuery(
+    draft.workspaceMode === "worktree" && !draft.baseRef && project
+      ? vcsEnvironment.listRefs({
+          environmentId,
+          input: { cwd: project.workspaceRoot, query: "", limit: 10 },
+        })
+      : null,
+  );
+  const defaultBranch =
+    refs.data?.refs.find((branch) => branch.isDefault && !branch.isRemote) ??
+    refs.data?.refs.find((branch) => branch.isDefault) ??
+    refs.data?.refs.find((branch) => branch.current);
+  const baseRef = draft.baseRef.trim() || defaultBranch?.name || "";
+
   const delayMs = draftDelayMs(draft);
   const schedule = draftSchedule(draft);
   const problem = !draft.title.trim()
@@ -252,7 +278,9 @@ export function AutoAgentEditorDialog(props: {
                 : "Pick a time and at least one day."
               : draft.workspaceMode === "existing_worktree" && !draft.worktreePath.trim()
                 ? "Enter the checkout path under More options."
-                : null;
+                : draft.workspaceMode === "worktree" && !baseRef
+                  ? "Pick the worktree's base branch under More options."
+                  : null;
 
   const save = async () => {
     if (problem !== null || saving || selection === null || schedule === null || !project) return;
@@ -270,7 +298,7 @@ export function AutoAgentEditorDialog(props: {
           ? { type: "existing_worktree", worktreePath: draft.worktreePath.trim() }
           : {
               type: "worktree",
-              baseRef: draft.baseRef.trim() || "main",
+              baseRef,
               startFromOrigin: draft.startFromOrigin,
             };
     const input: ScheduledTaskUpsertInput = {
@@ -360,6 +388,11 @@ export function AutoAgentEditorDialog(props: {
               <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
                 <ChevronRightIcon className={cn(moreOpen && "rotate-90")} />
                 More options
+                <span className="truncate text-xs font-normal text-muted-foreground">
+                  {[project?.title, WORKSPACE_SUMMARIES[draft.workspaceMode]]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
               </CollapsibleTrigger>
               <CollapsiblePanel>
                 <div className="space-y-4 pt-3">
@@ -413,7 +446,7 @@ export function AutoAgentEditorDialog(props: {
                         id="auto-agent-base-ref"
                         environmentId={environmentId}
                         cwd={project?.workspaceRoot ?? null}
-                        value={draft.baseRef}
+                        value={baseRef}
                         onValueChange={(baseRef) => update({ baseRef })}
                         startFromOrigin={draft.startFromOrigin}
                         onStartFromOriginChange={(startFromOrigin) => update({ startFromOrigin })}

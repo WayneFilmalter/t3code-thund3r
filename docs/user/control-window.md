@@ -48,7 +48,7 @@ The bottom middle panel holds Auto Agents: prompts you run over and over, such a
 - **Timer** runs it when you press **▶**, straight away or after a delay you choose, such as 2 hours. Pick a preset or enter your own hours and minutes.
 - **Schedule** also runs it at a time on the days you pick, or every so many minutes. **▶** still runs it on its timer in between.
 
-The project, model and checkout are filled in for you; change them under **More options**.
+The project and model are filled in for you, and runs work in the project's own checkout. Under **More options** you can change them, or have each run start in a fresh worktree, from the repository's default branch unless you pick another.
 
 The dropdown beside **▶** starts at the saved delay; pick another one for just the next run. Each run starts a new thread in the Auto Agent's project, so you can watch it or step in as usual; click the Auto Agent to open its latest thread in the main window.
 
