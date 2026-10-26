@@ -19,6 +19,15 @@ import { LinearCopyButton } from "../../linear/LinearCopyButton";
 import { PRIORITY_LABELS } from "../../linear/linearPanel.logic";
 import { PRIORITY_BADGE_VARIANTS } from "../../linear/linearTones";
 
+/** The ticket number as a bordered chip, the first thing on a ticket so it is easy to find. */
+export function TicketIdentifierChip({ identifier }: { identifier: string }) {
+  return (
+    <span className="inline-flex h-6 w-fit shrink-0 items-center rounded-md border border-foreground/30 bg-background/70 px-2 text-xs font-semibold tracking-wide tabular-nums text-foreground">
+      {identifier}
+    </span>
+  );
+}
+
 /** The workflow state in Linear's own colour: a dot and the name on a faint wash of it. */
 export function TicketStateChip({
   ticket,

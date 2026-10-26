@@ -15,6 +15,7 @@ import {
   CommentBox,
   DoneButton,
   TicketBranchIcon,
+  TicketIdentifierChip,
   TicketLinks,
   TicketPriorityBadge,
   TicketStateChip,
@@ -76,9 +77,12 @@ export function PriorityDetail(props: {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-2 border-b border-border/60 px-4 pt-3 pb-2">
           <div className="flex items-start gap-2">
-            <h2 className="min-w-0 flex-1 text-base leading-snug font-semibold text-foreground">
-              {ticket.title}
-            </h2>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <TicketIdentifierChip identifier={ticket.identifier} />
+              <h2 className="text-base leading-snug font-semibold text-foreground">
+                {ticket.title}
+              </h2>
+            </div>
             <DoneButton checking={props.checkingDone} onDone={props.onDone} />
           </div>
           <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

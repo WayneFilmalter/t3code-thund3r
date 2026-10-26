@@ -10,6 +10,7 @@ import {
   CommentToggle,
   DoneButton,
   TicketBranchIcon,
+  TicketIdentifierChip,
   TicketLinks,
   TicketPriorityBadge,
   TicketStateChip,
@@ -56,13 +57,11 @@ export function PriorityCard(props: {
           onClick={props.onOpen}
           className="flex min-w-0 flex-1 cursor-pointer flex-col gap-1.5 pt-0.5 text-left"
         >
+          <TicketIdentifierChip identifier={ticket.identifier} />
           <span className="line-clamp-2 text-sm leading-snug font-medium text-foreground">
             {ticket.title}
           </span>
           <span className="flex flex-wrap items-center gap-1.5">
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {ticket.identifier}
-            </span>
             <TicketStateChip ticket={ticket} />
             <TicketPriorityBadge ticket={ticket} />
             <TicketBranchIcon ticket={ticket} />
