@@ -2,6 +2,7 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import { ScheduledTaskUpsertInput } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -19,6 +20,8 @@ import * as ScheduledTaskService from "./ScheduledTaskService.ts";
 const decodeUpsertInput = Schema.decodeUnknownEffect(ScheduledTaskUpsertInput);
 
 const NOW = Date.parse("2026-10-26T12:00:00.000Z");
+/** An instant `offsetMs` after the test's frozen start, as the server stores it. */
+const at = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(NOW + offsetMs));
 
 const taskInput = (overrides: Record<string, unknown> = {}) =>
   decodeUpsertInput({
@@ -88,15 +91,15 @@ it.effect("an on-demand task never schedules itself and records its run's thread
   ),
 );
 
-it.effect("a timer runs an on-demand task once, then leaves it unscheduled", () =>
+it.effect("a timer runs an on-demand Auto Agent once, then clears itself", () =>
   withService(({ service, launched, launches }) =>
     Effect.gen(function* () {
-      const created = yield* service.upsert(yield* taskInput());
-      const runAt = new Date(NOW + 60_000).toISOString();
-      const armed = yield* service.scheduleRun({ id: created.task.id, runAt });
-      assert.equal(armed.task.nextRunAt, runAt);
+      const created = yield* service.upsert(yield* taskInput({ kind: "auto_agent" }));
+      const armed = yield* service.setTimer({ id: created.task.id, runAt: at(60_000) });
+      assert.equal(armed.task.timerAt, at(60_000));
+      assert.isNull(armed.task.nextRunAt);
 
-      // Past the timer and the poller's first tick.
+      // Past the timer and the poller's next tick.
       yield* TestClock.adjust("70 seconds");
       yield* Deferred.await(launched);
       // The run is recorded after the launch returns; wait for the list to say so.
@@ -106,8 +109,8 @@ it.effect("a timer runs an on-demand task once, then leaves it unscheduled", () 
         Stream.take(1),
         Stream.runCollect,
       );
-      assert.equal(task?.runCount, 1);
       assert.equal(task?.lastRunThreadId, "thread-1");
+      assert.isNull(task?.timerAt);
       assert.isNull(task?.nextRunAt);
       yield* TestClock.adjust("2 minutes");
       assert.equal(yield* Ref.get(launches), 1);
@@ -115,49 +118,78 @@ it.effect("a timer runs an on-demand task once, then leaves it unscheduled", () 
   ),
 );
 
-it.effect("cancelling a timer disarms it and a paused or webhook task cannot be armed", () =>
+it.effect("a timer sits beside a schedule, and cancelling it leaves the schedule alone", () =>
   withService(({ service, launches }) =>
     Effect.gen(function* () {
-      const created = yield* service.upsert(yield* taskInput());
-      yield* service.scheduleRun({
-        id: created.task.id,
-        runAt: new Date(NOW + 60_000).toISOString(),
-      });
-      const cancelled = yield* service.scheduleRun({ id: created.task.id, runAt: null });
-      assert.isNull(cancelled.task.nextRunAt);
-      yield* TestClock.adjust("2 minutes");
-      assert.equal(yield* Ref.get(launches), 0);
+      const created = yield* service.upsert(
+        yield* taskInput({
+          kind: "auto_agent",
+          schedule: { type: "interval", everyMs: 3_600_000 },
+        }),
+      );
+      const scheduled = created.task.nextRunAt;
+      assert.isNotNull(scheduled);
 
-      yield* service.setEnabled({ id: created.task.id, enabled: false });
-      const paused = yield* service
-        .scheduleRun({ id: created.task.id, runAt: new Date(NOW + 300_000).toISOString() })
+      const armed = yield* service.setTimer({ id: created.task.id, runAt: at(600_000) });
+      assert.equal(armed.task.nextRunAt, scheduled);
+      const cancelled = yield* service.setTimer({ id: created.task.id, runAt: null });
+      assert.isNull(cancelled.task.timerAt);
+      assert.equal(cancelled.task.nextRunAt, scheduled);
+
+      const listed = (yield* service.list()).tasks[0];
+      assert.isNull(listed?.timerAt);
+      assert.equal(listed?.nextRunAt, scheduled);
+      yield* TestClock.adjust("15 minutes");
+      assert.equal(yield* Ref.get(launches), 0);
+    }),
+  ),
+);
+
+it.effect("keeps an Auto Agent's kind and saved delay, and its kind across edits", () =>
+  withService(({ service }) =>
+    Effect.gen(function* () {
+      const input = yield* taskInput({ kind: "auto_agent", startDelayMs: 7_200_000 });
+      const created = yield* service.upsert(input);
+      assert.equal(created.task.kind, "auto_agent");
+      assert.equal(created.task.startDelayMs, 7_200_000);
+
+      // An edit that omits both keeps the stored kind and delay.
+      const { kind: _kind, startDelayMs: _delay, ...edit } = input;
+      const edited = yield* service.upsert({ ...edit, id: created.task.id, title: "Renamed" });
+      assert.equal(edited.task.kind, "auto_agent");
+      assert.equal(edited.task.startDelayMs, 7_200_000);
+
+      const plain = yield* service.upsert(yield* taskInput({ title: "Plain task" }));
+      assert.equal(plain.task.kind, "task");
+      const listed = new Map((yield* service.list()).tasks.map((task) => [task.title, task]));
+      assert.equal(listed.get("Renamed")?.kind, "auto_agent");
+      assert.equal(listed.get("Renamed")?.startDelayMs, 7_200_000);
+      assert.equal(listed.get("Plain task")?.kind, "task");
+    }),
+  ),
+);
+
+it.effect("pausing disarms a timer, and a paused or webhook task cannot be armed", () =>
+  withService(({ service }) =>
+    Effect.gen(function* () {
+      const created = yield* service.upsert(yield* taskInput({ kind: "auto_agent" }));
+      yield* service.setTimer({ id: created.task.id, runAt: at(60_000) });
+      const paused = yield* service.setEnabled({ id: created.task.id, enabled: false });
+      assert.isNull(paused.task.timerAt);
+      assert.isNull((yield* service.list()).tasks[0]?.timerAt);
+
+      const refused = yield* service
+        .setTimer({ id: created.task.id, runAt: at(300_000) })
         .pipe(Effect.flip);
-      assert.equal(paused.message, "Resume the task to set a timer.");
+      assert.equal(refused.message, "Resume the task to set a timer.");
 
       const webhook = yield* service.upsert(
         yield* taskInput({ title: "On push", schedule: { type: "webhook", signature: null } }),
       );
       const rejected = yield* service
-        .scheduleRun({ id: webhook.task.id, runAt: new Date(NOW + 60_000).toISOString() })
+        .setTimer({ id: webhook.task.id, runAt: at(60_000) })
         .pipe(Effect.flip);
       assert.equal(rejected.message, "Webhook tasks run when their URL receives a request.");
-    }),
-  ),
-);
-
-it.effect("cancelling a timer on a timed task puts it back on its schedule", () =>
-  withService(({ service }) =>
-    Effect.gen(function* () {
-      const created = yield* service.upsert(
-        yield* taskInput({ schedule: { type: "interval", everyMs: 3_600_000 } }),
-      );
-      const scheduled = created.task.nextRunAt;
-      yield* service.scheduleRun({
-        id: created.task.id,
-        runAt: new Date(NOW + 60_000).toISOString(),
-      });
-      const reset = yield* service.scheduleRun({ id: created.task.id, runAt: null });
-      assert.equal(reset.task.nextRunAt, scheduled);
     }),
   ),
 );

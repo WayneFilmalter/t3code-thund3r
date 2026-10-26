@@ -383,7 +383,7 @@ import {
   ScheduledTaskGetWebhookDeliveryInput,
   ScheduledTaskGetWebhookDeliveryResult,
   ScheduledTaskRunNowResult,
-  ScheduledTaskScheduleRunInput,
+  ScheduledTaskSetTimerInput,
   ScheduledTaskSetEnabledInput,
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
@@ -577,7 +577,7 @@ export const WS_METHODS = {
   scheduledTasksSetEnabled: "scheduledTasks.setEnabled",
   scheduledTasksDelete: "scheduledTasks.delete",
   scheduledTasksRunNow: "scheduledTasks.runNow",
-  scheduledTasksScheduleRun: "scheduledTasks.scheduleRun",
+  scheduledTasksSetTimer: "scheduledTasks.setTimer",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
@@ -2011,14 +2011,14 @@ const WsScheduledTasksRunNowRpc = Rpc.make(WS_METHODS.scheduledTasksRunNow, {
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
 });
 
-const WsScheduledTasksScheduleRunRpc = Rpc.make(WS_METHODS.scheduledTasksScheduleRun, {
-  payload: ScheduledTaskScheduleRunInput,
+const WsScheduledTasksSetTimerRpc = Rpc.make(WS_METHODS.scheduledTasksSetTimer, {
+  payload: ScheduledTaskSetTimerInput,
   success: ScheduledTaskMutationResult,
   error: Schema.Union([ScheduledTaskError, EnvironmentAuthorizationError]),
 });
 
 /** Its own group for the reason on `SlackWsRpcGroup`. */
-export const ScheduledTaskTimerWsRpcGroup = RpcGroup.make(WsScheduledTasksScheduleRunRpc);
+export const ScheduledTaskTimerWsRpcGroup = RpcGroup.make(WsScheduledTasksSetTimerRpc);
 
 const WsScheduledTasksRotateWebhookTokenRpc = Rpc.make(
   WS_METHODS.scheduledTasksRotateWebhookToken,

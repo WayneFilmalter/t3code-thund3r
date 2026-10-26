@@ -18,7 +18,7 @@ import {
   type ScheduledTaskListResult,
   type ScheduledTaskMutationResult,
   type ScheduledTaskRunNowInput,
-  type ScheduledTaskScheduleRunInput,
+  type ScheduledTaskSetTimerInput,
   type ScheduledTaskRunNowResult,
   type ScheduledTaskSetEnabledInput,
   type ScheduledTaskUpsertInput,
@@ -197,6 +197,9 @@ interface ScheduledTaskRow {
   readonly last_run_error: string | null;
   readonly run_count: number;
   readonly last_run_thread_id: string | null;
+  readonly kind: string;
+  readonly start_delay_ms: number | null;
+  readonly timer_at: string | null;
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
 }
@@ -238,8 +241,8 @@ export class ScheduledTaskService extends Context.Service<
       input: ScheduledTaskRunNowInput,
     ) => Effect.Effect<ScheduledTaskRunNowResult, ScheduledTaskError>;
     /** Arms a one-off run at a time (a timer), or with null puts the task back on its schedule. */
-    readonly scheduleRun: (
-      input: ScheduledTaskScheduleRunInput,
+    readonly setTimer: (
+      input: ScheduledTaskSetTimerInput,
     ) => Effect.Effect<ScheduledTaskMutationResult, ScheduledTaskError>;
     /** Issues a new URL token for a webhook task; the old URL stops working at once. */
     readonly rotateWebhookToken: (
@@ -289,6 +292,15 @@ function nextRunAt(
   } catch {
     return null;
   }
+}
+
+/** True when `value` is a parseable instant at or before `now`. */
+function isDue(value: string | null | undefined, now: DateTime.DateTime): boolean {
+  if (value == null) return false;
+  const parsed = DateTime.make(value);
+  return (
+    Option.isSome(parsed) && DateTime.toEpochMillis(parsed.value) <= DateTime.toEpochMillis(now)
+  );
 }
 
 function errorMessage(error: unknown): string {
@@ -344,6 +356,9 @@ const decodeRow = (row: ScheduledTaskRow, origin: WebhookOrigin | null = null) =
       lastRunError: row.last_run_error,
       runCount: row.run_count,
       lastRunThreadId: row.last_run_thread_id,
+      kind: row.kind,
+      startDelayMs: row.start_delay_ms,
+      timerAt: row.timer_at,
       ...(webhook === undefined ? {} : { webhook }),
     });
   }).pipe(
@@ -365,9 +380,10 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* sql<ScheduledTaskRow>`
     SELECT * FROM scheduled_tasks
-    WHERE enabled = 1 AND next_run_at IS NOT NULL
-      AND next_run_at <= ${iso(now)} AND last_run_status <> 'running'
-    ORDER BY next_run_at ASC, task_id ASC
+    WHERE enabled = 1 AND last_run_status <> 'running'
+      AND ((next_run_at IS NOT NULL AND next_run_at <= ${iso(now)})
+        OR (timer_at IS NOT NULL AND timer_at <= ${iso(now)}))
+    ORDER BY MIN(COALESCE(next_run_at, timer_at), COALESCE(timer_at, next_run_at)) ASC, task_id ASC
   `;
   const tasks: ScheduledTask[] = [];
   for (const row of rows) {
@@ -377,7 +393,9 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
       // next_run_at is a freeform string at the schema level; a stored value
       // that cannot parse as a DateTime would defect the poll below, so the
       // row is skipped here like any other corrupt row.
-      if (task.nextRunAt === null || Option.isSome(DateTime.make(task.nextRunAt))) {
+      const parses = (value: string | null | undefined) =>
+        value == null || Option.isSome(DateTime.make(value));
+      if (parses(task.nextRunAt) && parses(task.timerAt)) {
         tasks.push(task);
       } else {
         yield* Effect.logWarning("Skipping schedule task row with invalid next_run_at", {
@@ -443,6 +461,9 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         last_run_thread_id,
+        kind,
+        start_delay_ms,
+        timer_at,
         webhook_token,
         webhook_secret
       FROM scheduled_tasks
@@ -479,6 +500,9 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         last_run_thread_id,
+        kind,
+        start_delay_ms,
+        timer_at,
         webhook_token,
         webhook_secret
       FROM scheduled_tasks
@@ -559,6 +583,8 @@ export const layer = Layer.effect(
           last_run_status,
           last_run_error,
           run_count,
+          kind,
+          start_delay_ms,
           webhook_token,
           webhook_secret
         )
@@ -583,6 +609,8 @@ export const layer = Layer.effect(
           ${task.lastRunStatus},
           ${task.lastRunError},
           ${task.runCount},
+          ${task.kind ?? "task"},
+          ${task.startDelayMs ?? null},
           ${webhook.token},
           ${webhook.secret}
         WHERE ${requireExisting ? 0 : 1} = 1
@@ -602,6 +630,14 @@ export const layer = Layer.effect(
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
           next_run_at = excluded.next_run_at,
+          -- kind is fixed at creation. A timer cannot outlive a pause or a
+          -- switch to a webhook trigger, neither of which a timer may fire.
+          start_delay_ms = excluded.start_delay_ms,
+          timer_at = CASE
+            WHEN excluded.enabled = 0 OR json_extract(excluded.schedule_json, '$.type') = 'webhook'
+              THEN NULL
+            ELSE scheduled_tasks.timer_at
+          END,
           -- Only rotate changes a live token, so a save racing a rotation
           -- cannot bring the old URL back.
           webhook_token = CASE
@@ -676,6 +712,8 @@ export const layer = Layer.effect(
             last_run_status = ${input.status},
             last_run_error = ${input.error},
             last_run_thread_id = COALESCE(${input.threadId}, last_run_thread_id),
+            -- A timer that was due when this run started has now fired.
+            timer_at = CASE WHEN timer_at <= ${input.startedAtIso} THEN NULL ELSE timer_at END,
             run_count = run_count + 1
         WHERE task_id = ${input.id}
           AND last_run_status = 'running'
@@ -705,6 +743,7 @@ export const layer = Layer.effect(
           SET last_run_status = 'failed',
               last_run_error = ${message},
               next_run_at = ${nextRunAt(source, now)},
+              timer_at = CASE WHEN timer_at <= last_run_at THEN NULL ELSE timer_at END,
               updated_at = ${iso(now)},
               run_count = run_count + 1
           WHERE task_id = ${task.id} AND last_run_status = 'running'
@@ -758,15 +797,13 @@ export const layer = Layer.effect(
           }
           return task;
         }
-        // A next_run_at corrupted between the poll read and this re-read must
-        // not defect the poll; an unparseable value is treated as not due.
-        const parsedNextRunAt =
-          active.nextRunAt === null ? Option.none() : DateTime.make(active.nextRunAt);
+        // A poll fires a task whose schedule or timer is still due. A value
+        // corrupted between the poll read and this re-read must not defect the
+        // poll; an unparseable value is treated as not due.
         if (
           trigger === "scheduled" &&
           (!active.enabled ||
-            Option.isNone(parsedNextRunAt) ||
-            DateTime.toEpochMillis(parsedNextRunAt.value) > DateTime.toEpochMillis(startedAt))
+            !(isDue(active.nextRunAt, startedAt) || isDue(active.timerAt, startedAt)))
         ) {
           return active;
         }
@@ -923,14 +960,14 @@ export const layer = Layer.effect(
       const tasks = yield* listDueTasks(now).pipe(
         Effect.mapError((cause) => taskError("Could not list schedule tasks.", { cause })),
       );
-      const due = tasks.flatMap((task) =>
-        task.nextRunAt === null ? [] : [{ task, dueAt: DateTime.makeUnsafe(task.nextRunAt) }],
-      );
       yield* Effect.forEach(
-        due,
-        ({ task, dueAt }) =>
+        tasks,
+        (task) =>
           Effect.suspend(() =>
-            isMissedFixedTimeRun(task.schedule, dueAt, now)
+            // A timer always fires; only a schedule slot can be missed.
+            !isDue(task.timerAt, now) &&
+            task.nextRunAt !== null &&
+            isMissedFixedTimeRun(task.schedule, DateTime.makeUnsafe(task.nextRunAt), now)
               ? rescheduleMissedRun(task, now)
               : runTask(task, "scheduled"),
           ).pipe(
@@ -965,6 +1002,7 @@ export const layer = Layer.effect(
                 SET last_run_status = 'failed',
                     last_run_error = 'Run was interrupted by a server restart.',
                     next_run_at = ${nextRunAt(decoded.success, now)},
+                    timer_at = CASE WHEN timer_at <= last_run_at THEN NULL ELSE timer_at END,
                     updated_at = ${iso(now)},
                     run_count = run_count + 1
                 WHERE task_id IS ${row.task_id} AND last_run_status = 'running'
@@ -982,6 +1020,7 @@ export const layer = Layer.effect(
               UPDATE scheduled_tasks
               SET last_run_status = 'failed',
                   last_run_error = 'Run was interrupted by a server restart.',
+                  timer_at = CASE WHEN timer_at <= last_run_at THEN NULL ELSE timer_at END,
                   updated_at = ${iso(now)},
                   run_count = run_count + 1
               WHERE task_id IS ${row.task_id} AND last_run_status = 'running'
@@ -1123,6 +1162,12 @@ export const layer = Layer.effect(
           lastRunError: existingTask?.lastRunError ?? null,
           runCount: existingTask?.runCount ?? 0,
           lastRunThreadId: existingTask?.lastRunThreadId ?? null,
+          kind: existingTask?.kind ?? input.kind ?? "task",
+          startDelayMs:
+            input.startDelayMs === undefined
+              ? (existingTask?.startDelayMs ?? null)
+              : input.startDelayMs,
+          timerAt: existingTask?.timerAt ?? null,
         };
         yield* saveTask(task, input.requireExisting === true, webhook);
         yield* notifyChanged;
@@ -1141,6 +1186,7 @@ export const layer = Layer.effect(
           UPDATE scheduled_tasks
           SET enabled = ${input.enabled ? 1 : 0},
               next_run_at = ${next},
+              timer_at = CASE WHEN ${input.enabled ? 1 : 0} = 1 THEN timer_at ELSE NULL END,
               updated_at = ${iso(now)}
           WHERE task_id = ${input.id}
           RETURNING task_id
@@ -1154,7 +1200,13 @@ export const layer = Layer.effect(
         }
         yield* notifyChanged;
         return {
-          task: { ...existing, enabled: input.enabled, nextRunAt: next, updatedAt: iso(now) },
+          task: {
+            ...existing,
+            enabled: input.enabled,
+            nextRunAt: next,
+            timerAt: input.enabled ? (existing.timerAt ?? null) : null,
+            updatedAt: iso(now),
+          },
         };
       });
 
@@ -1195,7 +1247,7 @@ export const layer = Layer.effect(
         return { task: next };
       });
 
-    const scheduleRun: ScheduledTaskService["Service"]["scheduleRun"] = (input) =>
+    const setTimer: ScheduledTaskService["Service"]["setTimer"] = (input) =>
       Effect.gen(function* () {
         const task = yield* loadTask(input.id);
         if (task.schedule.type === "webhook") {
@@ -1207,11 +1259,16 @@ export const layer = Layer.effect(
         if (input.runAt !== null && !task.enabled) {
           return yield* taskError("Resume the task to set a timer.", { taskId: input.id });
         }
+        // Stored in the same UTC form as next_run_at, so SQL compares them as text.
+        const runAt = input.runAt === null ? null : DateTime.make(input.runAt);
+        if (runAt !== null && Option.isNone(runAt)) {
+          return yield* taskError("The timer's time is not a valid date.", { taskId: input.id });
+        }
+        const timerAt = runAt === null ? null : iso(runAt.value);
         const now = yield* localNow;
-        const next = input.runAt ?? nextRunAt(task, now);
         const updated = yield* sql<{ task_id: string }>`
           UPDATE scheduled_tasks
-          SET next_run_at = ${next},
+          SET timer_at = ${timerAt},
               updated_at = ${iso(now)}
           WHERE task_id = ${input.id} AND created_at = ${task.createdAt}
           RETURNING task_id
@@ -1224,7 +1281,7 @@ export const layer = Layer.effect(
           return yield* taskError("Schedule task was deleted or replaced.", { taskId: input.id });
         }
         yield* notifyChanged;
-        return { task: { ...task, nextRunAt: next, updatedAt: iso(now) } };
+        return { task: { ...task, timerAt, updatedAt: iso(now) } };
       });
 
     const rotateWebhookToken: ScheduledTaskService["Service"]["rotateWebhookToken"] = (input) =>
@@ -1724,7 +1781,7 @@ export const layer = Layer.effect(
       setEnabled,
       delete: deleteTask,
       runNow,
-      scheduleRun,
+      setTimer,
       rotateWebhookToken,
       listWebhookDeliveries,
       getWebhookDelivery,

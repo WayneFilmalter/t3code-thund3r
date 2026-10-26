@@ -1146,8 +1146,10 @@ function EnvironmentTasks({
   const tasks = useEnvironmentQuery(
     serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
   );
+  // Auto Agents belong to the desktop Control window, not this list.
   const visibleTasks = tasks.data?.tasks.filter(
-    (task) => projectIds === null || projectIds.includes(task.projectId),
+    (task) =>
+      task.kind !== "auto_agent" && (projectIds === null || projectIds.includes(task.projectId)),
   );
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),

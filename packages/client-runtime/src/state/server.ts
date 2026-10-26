@@ -1391,9 +1391,9 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:run-now",
       tag: WS_METHODS.scheduledTasksRunNow,
     }),
-    scheduleScheduledTaskRun: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:server:scheduled-task:schedule-run",
-      tag: WS_METHODS.scheduledTasksScheduleRun,
+    setScheduledTaskTimer: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:scheduled-task:set-timer",
+      tag: WS_METHODS.scheduledTasksSetTimer,
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),

@@ -4,7 +4,7 @@ import { BtopPanel } from "../components/control/BtopPanel";
 import { PrioritiesPanel } from "../components/control/priorities/PrioritiesPanel";
 import { PulsePanel } from "../components/control/pulse/PulsePanel";
 import { SlackFeedPanel } from "../components/control/SlackFeedPanel";
-import { WorkflowsPanel } from "../components/control/workflows/WorkflowsPanel";
+import { AutoAgentsPanel } from "../components/control/autoAgents/AutoAgentsPanel";
 
 export const Route = createFileRoute("/control-window")({
   component: ControlWindowGrid,
@@ -26,7 +26,7 @@ function ControlWindowGrid() {
         <SlackFeedPanel />
       </section>
       <section className="min-h-0 min-w-0 overflow-hidden bg-background">
-        <WorkflowsPanel />
+        <AutoAgentsPanel />
       </section>
       <section className="min-h-0 min-w-0 overflow-hidden bg-background">
         <PulsePanel />

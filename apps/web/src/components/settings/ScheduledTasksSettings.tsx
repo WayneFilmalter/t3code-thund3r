@@ -103,9 +103,9 @@ import {
 } from "./settingsLayout";
 
 /** JS day-of-week (0 = Sunday) rendered Monday-first, matching how people read a week. */
-const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
-const WEEKDAY_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+export const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0] as const;
+export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+export const WEEKDAY_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
 
 const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
   worktree: "Create a new worktree",
@@ -339,8 +339,11 @@ function ScheduledTaskEnvironmentSection({
         })
       : null,
   );
-  const tasks = tasksQuery.data?.tasks.filter((task) =>
-    matchesScheduledTaskScope(scope, environment.environmentId, task.projectId),
+  // Auto Agents live in the Control window, not in this list.
+  const tasks = tasksQuery.data?.tasks.filter(
+    (task) =>
+      task.kind !== "auto_agent" &&
+      matchesScheduledTaskScope(scope, environment.environmentId, task.projectId),
   );
   const linkedTask = tasks?.find((task) => task.id === taskId);
   const openedLink = useRef(false);
@@ -771,16 +774,13 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
   );
 }
 
-/** Creates or edits one task. New tasks start with `initialScheduleMode`, "At a time" by default. */
-export function ScheduledTaskEditorDialog({
+function ScheduledTaskEditorDialog({
   initialEnvironmentId,
   task,
-  initialScheduleMode,
   onClose,
 }: {
   readonly initialEnvironmentId: EnvironmentId;
   readonly task: ScheduledTask | null;
-  readonly initialScheduleMode?: ScheduleMode;
   readonly onClose: () => void;
 }) {
   const { scope, connectedEnvironments } = useSettingsScope();
@@ -811,13 +811,7 @@ export function ScheduledTaskEditorDialog({
     label: "scheduled task upsert",
   });
   const [draft, setDraft] = useState<DraftState>(() =>
-    task
-      ? taskToDraft(task)
-      : {
-          ...EMPTY_DRAFT,
-          projectId: projects[0]?.id ?? "",
-          scheduleMode: initialScheduleMode ?? EMPTY_DRAFT.scheduleMode,
-        },
+    task ? taskToDraft(task) : { ...EMPTY_DRAFT, projectId: projects[0]?.id ?? "" },
   );
   const [saving, setSaving] = useState(false);
   const submissionPending = useRef(false);
@@ -1349,8 +1343,7 @@ export function ScheduledTaskEditorDialog({
                 </div>
               ) : draft.scheduleMode === "manual" ? (
                 <p className="text-xs text-muted-foreground">
-                  Runs only when you start it, now or on a timer, from the Control window or Run
-                  now.
+                  Runs only when you start it with Run now.
                 </p>
               ) : (
                 <div className="flex items-center gap-2">

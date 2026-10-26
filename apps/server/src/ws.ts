@@ -569,7 +569,7 @@ const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.linearTicketDetail,
   WS_METHODS.linearCommentCreate,
   WS_METHODS.linearBoardStats,
-  WS_METHODS.scheduledTasksScheduleRun,
+  WS_METHODS.scheduledTasksSetTimer,
 );
 const ServerSlackRpcGroup =
   SlackWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
@@ -610,9 +610,9 @@ const layerScheduledTaskTimerRpc = ServerScheduledTaskTimerRpcGroup.toLayer(
   Effect.gen(function* () {
     const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
     return ServerScheduledTaskTimerRpcGroup.of({
-      [WS_METHODS.scheduledTasksScheduleRun]: (input) =>
+      [WS_METHODS.scheduledTasksSetTimer]: (input) =>
         Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
-          Effect.andThen(scheduledTasks.scheduleRun(input)),
+          Effect.andThen(scheduledTasks.setTimer(input)),
         ),
     });
   }),

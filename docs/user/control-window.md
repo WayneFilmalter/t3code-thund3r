@@ -1,6 +1,6 @@
 # Control window
 
-The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets and tasks, your Slack messages, workflows you can start with one press, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, places to add priorities and tasks, and the state of the Slack connection.
+The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets and tasks, your Slack messages, Auto Agents you can start with one press, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, places to add priorities and tasks, and the state of the Slack connection.
 
 The window is desktop-only. On the web the Control tab still shows the Priorities, Tasks and Slack blocks, so you can add tickets and tasks and connect Slack from anywhere.
 
@@ -40,15 +40,20 @@ For `#priorities` to work:
 
 If you connected Slack before these features existed, copy the app manifest again, paste it over the old one under **App Manifest** on your Slack app's page, then reinstall the app to your workspace so it gets the new permissions.
 
-## Workflows
+## Auto Agents
 
-The bottom middle panel holds prompts you run over and over, such as "triage ten backlog tickets". Press **New**, give the workflow a title and a prompt, and save. The project, model, checkout and permissions are filled in for you; change them in the same dialog if you need to.
+The bottom middle panel holds Auto Agents: prompts you run over and over, such as "triage ten backlog tickets". Press **New**, give one a name and a prompt, and pick when it runs:
 
-Press the big **▶** on a workflow to run it. Each run starts a new thread in the workflow's project, so you can watch it or step in as usual; click the workflow to open its latest thread in the main window. The dropdown beside **▶** picks when: **Now**, or a timer of 5 minutes up to 8 hours that counts from the moment you press **▶**.
+- **Timer** runs it when you press **▶**, straight away or after a delay you choose, such as 2 hours. Pick a preset or enter your own hours and minutes.
+- **Schedule** also runs it at a time on the days you pick, or every so many minutes. **▶** still runs it on its timer in between.
 
-While it works, the workflow shows how long it has been running and a line of what the agent is doing or saying, and **▶** becomes **■**, which stops the agent. A set timer shows when the workflow will run, and **✕** cancels it. Each workflow also shows when it last ran and how that run ended.
+The project, model and checkout are filled in for you; change them under **More options**.
 
-Workflows are scheduled tasks that only run when you start them, so they also appear under **Settings → Scheduled tasks** as **On demand**. Give one a schedule there to run it at a set time or interval as well; scheduled tasks also appear in this panel. **⋯** on a workflow edits, pauses or deletes it. A paused workflow can still run now, but not on a timer.
+The dropdown beside **▶** starts at the saved delay; pick another one for just the next run. Each run starts a new thread in the Auto Agent's project, so you can watch it or step in as usual; click the Auto Agent to open its latest thread in the main window.
+
+While it works, the Auto Agent shows how long it has been running and a line of what the agent is doing or saying, and **▶** becomes **■**, which stops the agent. A running timer shows how long is left, and **✕** cancels it without touching any schedule. Each Auto Agent also shows when it last ran and how that run ended. **⋯** edits, pauses or deletes it; a paused Auto Agent can still run now, but not on a timer or schedule.
+
+Auto Agents live only here, not in **Settings → Scheduled tasks**. They run on the server T3 Code is connected to, so a timer or schedule fires even while the Control window is closed.
 
 ## Slack feed
 

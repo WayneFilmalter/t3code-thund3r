@@ -182,6 +182,16 @@ export const ScheduledTaskWebhookEndpoint = Schema.Struct({
 });
 export type ScheduledTaskWebhookEndpoint = typeof ScheduledTaskWebhookEndpoint.Type;
 
+/**
+ * `auto_agent` tasks belong to the desktop Control window's Auto Agents panel
+ * and stay out of the scheduled-task lists. Omitted means `task`.
+ */
+export const ScheduledTaskKind = Schema.Literals(["task", "auto_agent"]);
+export type ScheduledTaskKind = typeof ScheduledTaskKind.Type;
+
+/** A saved start delay: how long after ▶ an Auto Agent runs. */
+const ScheduledTaskStartDelayMs = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+
 export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
@@ -205,6 +215,10 @@ export const ScheduledTask = Schema.Struct({
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   /** The thread the last successful run sent its prompt to. Omitted by older servers. */
   lastRunThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  kind: Schema.optional(ScheduledTaskKind),
+  startDelayMs: Schema.optional(Schema.NullOr(ScheduledTaskStartDelayMs)),
+  /** A one-off run armed with a timer, separate from the schedule's `nextRunAt`. */
+  timerAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
 });
 export type ScheduledTask = typeof ScheduledTask.Type;
@@ -237,6 +251,9 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   createdBy: Schema.optional(OrchestrationV2Actor),
   creationSource: Schema.optional(OrchestrationV2CreationSource),
+  /** Set when the task is created; later saves keep the stored kind. */
+  kind: Schema.optional(ScheduledTaskKind),
+  startDelayMs: Schema.optional(Schema.NullOr(ScheduledTaskStartDelayMs)),
 });
 export type ScheduledTaskUpsertInput = typeof ScheduledTaskUpsertInput.Type;
 
@@ -258,14 +275,14 @@ export const ScheduledTaskRunNowInput = Schema.Struct({
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
 
 /**
- * Arms a one-off run at `runAt`, a timer. Null disarms it and goes back to the
- * schedule's own next slot, which an on-demand task does not have.
+ * Arms a one-off run at `runAt`, a timer, alongside any schedule. Null
+ * disarms it; the schedule's own next run is never touched.
  */
-export const ScheduledTaskScheduleRunInput = Schema.Struct({
+export const ScheduledTaskSetTimerInput = Schema.Struct({
   id: ScheduledTaskId,
   runAt: Schema.NullOr(IsoDateTime),
 });
-export type ScheduledTaskScheduleRunInput = typeof ScheduledTaskScheduleRunInput.Type;
+export type ScheduledTaskSetTimerInput = typeof ScheduledTaskSetTimerInput.Type;
 
 export const ScheduledTaskRotateWebhookTokenInput = Schema.Struct({
   id: ScheduledTaskId,

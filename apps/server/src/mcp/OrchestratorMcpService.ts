@@ -1624,9 +1624,12 @@ const make = Effect.gen(function* () {
         yield* assertLiveCallerForOtherProject(scope, parent, projectId);
         const project = yield* requireProject(projectId);
         // Binding means "wake this thread", which only a thread caller in that project has.
+        // Auto Agents are started by the user, so each run gets its own thread by default.
         const bindToCurrentThread =
           input.bindToCurrentThread ??
-          (parent !== undefined && parent.thread.projectId === projectId);
+          (input.kind !== "auto_agent" &&
+            parent !== undefined &&
+            parent.thread.projectId === projectId);
         if (
           bindToCurrentThread &&
           (parent === undefined || parent.thread.projectId !== projectId)
@@ -1656,6 +1659,7 @@ const make = Effect.gen(function* () {
           interactionMode: limits.interactionMode,
           createdBy: "agent",
           creationSource: "mcp",
+          ...(input.kind === undefined ? {} : { kind: input.kind }),
           // Scope the idempotency key by provider session so two callers
           // reusing the same clientRequestId cannot collide on one task row.
           ...(input.clientRequestId === undefined

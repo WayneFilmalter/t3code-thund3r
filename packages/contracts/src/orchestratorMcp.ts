@@ -18,6 +18,7 @@ import {
   TurnItemId,
 } from "./baseSchemas.ts";
 import {
+  ScheduledTaskKind,
   ScheduledTaskRunStatus,
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
@@ -548,6 +549,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
     Schema.Boolean.annotate({
       description:
         "True (default) posts each run into this thread; false creates a fresh top-level thread per run.",
+    }),
+  ),
+  kind: Schema.optional(
+    ScheduledTaskKind.annotate({
+      description:
+        "'auto_agent' puts the task in the desktop Control window's Auto Agents panel, where the user starts it by hand or on a timer, instead of the scheduled-task list. Auto Agents launch a fresh thread per run unless bindToCurrentThread is true.",
     }),
   ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),

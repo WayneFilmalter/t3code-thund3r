@@ -40,22 +40,19 @@ import { threadEnvironment } from "~/state/threads";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 
-import {
-  relativeLabel,
-  scheduleLabel,
-  ScheduledTaskEditorDialog,
-} from "../../settings/ScheduledTasksSettings";
-import { SettingsScopeProvider } from "../../settings/SettingsScopeContext";
+import { scheduleLabel } from "../../settings/ScheduledTasksSettings";
 import { WorkflowsSubheader } from "../../workflows/WorkflowsSubheader";
+import { AutoAgentEditorDialog } from "./AutoAgentEditorDialog";
 import {
-  compareWorkflows,
-  deriveWorkflowStatus,
+  type AutoAgentStatus,
+  compareAutoAgents,
+  delayOptions,
+  deriveAutoAgentStatus,
+  formatCountdown,
+  formatDelay,
   formatElapsed,
-  START_DELAYS,
-  type StartDelay,
-  type WorkflowStatus,
-  workflowSummary,
-} from "./workflowsPanel.logic";
+  runSummary,
+} from "./autoAgentsPanel.logic";
 
 const NO_SHELLS = new Map<string, EnvironmentThreadShell>();
 
@@ -100,12 +97,12 @@ function reportFailure(title: string, result: AtomCommandResult<unknown, unknown
 }
 
 /**
- * Panel 3 of the Control window: saved prompts to run whenever you like. Each
- * is a scheduled task, so it runs on the server, starts a new thread per run,
- * and also shows in Settings → Scheduled tasks. Webhook tasks are left out;
- * they only run when their URL is called.
+ * Panel 3 of the Control window: Auto Agents, saved prompts to run when you
+ * like, now or on a timer, or on a schedule. They are scheduled tasks of kind
+ * `auto_agent`, so they run on the server and start a new thread per run, but
+ * only this panel lists them.
  */
-export function WorkflowsPanel() {
+export function AutoAgentsPanel() {
   const environmentId = usePrimaryEnvironmentId();
   const [editor, setEditor] = useState<{ task: ScheduledTask | null } | null>(null);
   const canEdit = useAtomValue(serverEnvironment.upsertScheduledTask.permissionAtom(environmentId));
@@ -114,7 +111,7 @@ export function WorkflowsPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <WorkflowsSubheader>
         <span className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-foreground">
-          Workflows
+          Auto Agents
         </span>
         <Button
           type="button"
@@ -130,28 +127,25 @@ export function WorkflowsPanel() {
       {environmentId === null ? (
         <p className="p-3 text-xs text-muted-foreground">No local server.</p>
       ) : (
-        <WorkflowList
+        <AutoAgentList
           environmentId={environmentId}
           onEdit={(task) => setEditor({ task })}
           onCreate={() => setEditor({ task: null })}
         />
       )}
       {editor !== null && environmentId !== null ? (
-        <SettingsScopeProvider search={{}} onChange={() => {}} singleEnvironment>
-          <ScheduledTaskEditorDialog
-            key={editor.task?.id ?? "new"}
-            initialEnvironmentId={environmentId}
-            task={editor.task}
-            initialScheduleMode="manual"
-            onClose={() => setEditor(null)}
-          />
-        </SettingsScopeProvider>
+        <AutoAgentEditorDialog
+          key={editor.task?.id ?? "new"}
+          environmentId={environmentId}
+          agent={editor.task}
+          onClose={() => setEditor(null)}
+        />
       ) : null}
     </div>
   );
 }
 
-function WorkflowList(props: {
+function AutoAgentList(props: {
   environmentId: EnvironmentId;
   onEdit: (task: ScheduledTask) => void;
   onCreate: () => void;
@@ -161,7 +155,7 @@ function WorkflowList(props: {
     serverEnvironment.scheduledTasksLive({ environmentId, input: {} }),
   );
   const runnable = useMemo(
-    () => (tasks.data?.tasks ?? []).filter((task) => task.schedule.type !== "webhook"),
+    () => (tasks.data?.tasks ?? []).filter((task) => task.kind === "auto_agent"),
     [tasks.data],
   );
   const hasRuns = runnable.some((task) => task.lastRunThreadId != null);
@@ -181,30 +175,33 @@ function WorkflowList(props: {
         .map((task) => {
           const shell =
             task.lastRunThreadId == null ? null : (shellsById.get(task.lastRunThreadId) ?? null);
-          return { task, shell, status: deriveWorkflowStatus(task, shell) };
+          return { task, shell, status: deriveAutoAgentStatus(task, shell) };
         })
-        .sort(compareWorkflows),
+        .sort(compareAutoAgents),
     [runnable, shellsById],
   );
 
   // Timers and "last ran" move on with the shared minute clock; running times by the second.
-  useNowMinute();
-  const now = useNowSecond(entries.some((entry) => entry.status.active));
+  const minute = useNowMinute();
+  const now = Math.max(
+    useNowSecond(entries.some((entry) => entry.status.active)),
+    Date.parse(`${minute}:00Z`),
+  );
 
   if (tasks.data === null) {
     return (
-      <p className="p-3 text-xs text-muted-foreground">{tasks.error ?? "Loading workflows…"}</p>
+      <p className="p-3 text-xs text-muted-foreground">{tasks.error ?? "Loading Auto Agents…"}</p>
     );
   }
   if (entries.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center">
         <p className="text-sm text-muted-foreground">
-          Save a prompt here and run it whenever you like, now or on a timer.
+          Save a prompt and run it when you like: now, after a timer, or on a schedule.
         </p>
         <Button size="sm" variant="outline" onClick={props.onCreate}>
           <PlusIcon />
-          New workflow
+          New Auto Agent
         </Button>
       </div>
     );
@@ -212,7 +209,7 @@ function WorkflowList(props: {
   return (
     <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
       {entries.map(({ task, status }) => (
-        <WorkflowItem
+        <AutoAgentItem
           key={task.id}
           environmentId={environmentId}
           task={task}
@@ -232,13 +229,13 @@ function WorkflowList(props: {
 function useRunSummary(
   environmentId: EnvironmentId,
   task: ScheduledTask,
-  status: WorkflowStatus,
+  status: AutoAgentStatus,
 ): string | null {
   const threadId = task.lastRunThreadId ?? null;
   // While dispatching, the recorded thread is still the previous run's.
   const live = status.active && status.state !== "dispatching" && threadId !== null;
   const items = useThreadVisibleTurnItems(live ? { environmentId, threadId } : null);
-  const current = useMemo(() => workflowSummary(items.map((row) => row.item)), [items]);
+  const current = useMemo(() => runSummary(items.map((row) => row.item)), [items]);
   const [kept, setKept] = useState<{ threadId: string; text: string } | null>(null);
   // Remembered during render, React's pattern for state that follows a changing value.
   if (
@@ -254,7 +251,18 @@ function useRunSummary(
     : null;
 }
 
-function statusLine(status: WorkflowStatus, now: number): { text: string; tone: string } | null {
+/** `9:00` later today, `Tue 9:00` on another day. */
+function formatNextRun(iso: string, now: number): string {
+  const at = new Date(iso);
+  const sameDay = at.toDateString() === new Date(now).toDateString();
+  return at.toLocaleString(undefined, {
+    ...(sameDay ? {} : { weekday: "short" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function statusLine(status: AutoAgentStatus, now: number): { text: string; tone: string } | null {
   const elapsed = (to: number) =>
     status.startedAt === null ? "" : ` · ${formatElapsed(to - Date.parse(status.startedAt))}`;
   const finished = status.finishedAt === null ? now : Date.parse(status.finishedAt);
@@ -276,10 +284,10 @@ function statusLine(status: WorkflowStatus, now: number): { text: string; tone: 
   }
 }
 
-function WorkflowItem(props: {
+function AutoAgentItem(props: {
   environmentId: EnvironmentId;
   task: ScheduledTask;
-  status: WorkflowStatus;
+  status: AutoAgentStatus;
   now: number;
   onEdit: () => void;
 }) {
@@ -288,21 +296,25 @@ function WorkflowItem(props: {
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
   const runNow = useAtomCommand(serverEnvironment.runScheduledTaskNow, {
-    label: "workflow run now",
+    label: "auto agent run now",
   });
-  const scheduleRun = useAtomCommand(serverEnvironment.scheduleScheduledTaskRun, {
-    label: "workflow timer",
+  const setTimer = useAtomCommand(serverEnvironment.setScheduledTaskTimer, {
+    label: "auto agent timer",
   });
   const setEnabled = useAtomCommand(serverEnvironment.setScheduledTaskEnabled, {
-    label: "workflow pause",
+    label: "auto agent pause",
   });
   const remove = useAtomCommand(serverEnvironment.deleteScheduledTask, {
-    label: "workflow delete",
+    label: "auto agent delete",
   });
   const interrupt = useAtomCommand(threadEnvironment.interruptTurn, {
-    label: "workflow stop",
+    label: "auto agent stop",
   });
-  const [delay, setDelay] = useState<StartDelay>("now");
+  // Starts at the saved delay; picking another only changes the next press.
+  const savedDelay = task.startDelayMs ?? 0;
+  const [picked, setPicked] = useState<number | null>(null);
+  // A paused Auto Agent cannot hold a timer, so it can only run now.
+  const delay = picked ?? (task.enabled ? savedDelay : 0);
   const [busy, setBusy] = useState(false);
   const summary = useRunSummary(environmentId, task, status);
 
@@ -310,7 +322,6 @@ function WorkflowItem(props: {
   const threadId = task.lastRunThreadId ?? null;
   const openThread = window.desktopBridge?.controlWindow?.openThread;
   const mode = status.active ? "stop" : status.timerAt !== null ? "cancel" : "start";
-  const chosen = START_DELAYS.find((option) => option.value === delay) ?? START_DELAYS[0];
 
   const act = async (run: () => Promise<AtomCommandResult<unknown, unknown>>, failure: string) => {
     if (busy) return;
@@ -327,45 +338,40 @@ function WorkflowItem(props: {
       if (threadId === null) return;
       void act(
         () => interrupt({ environmentId, input: { threadId } }),
-        "Could not stop the workflow",
+        "Could not stop the Auto Agent",
       );
     } else if (mode === "cancel") {
       void act(
-        () => scheduleRun({ environmentId, input: { id, runAt: null } }),
+        () => setTimer({ environmentId, input: { id, runAt: null } }),
         "Could not cancel the timer",
       );
-    } else if (chosen.ms === 0) {
-      void act(() => runNow({ environmentId, input: { id } }), "Could not start the workflow");
+    } else if (delay === 0) {
+      void act(() => runNow({ environmentId, input: { id } }), "Could not start the Auto Agent");
     } else {
-      const runAt = new Date(Date.now() + chosen.ms).toISOString();
-      // The timer counts from this press; the next start is "Now" again unless picked.
-      setDelay("now");
-      void act(
-        () => scheduleRun({ environmentId, input: { id, runAt } }),
-        "Could not set the timer",
-      );
+      const runAt = new Date(Date.now() + delay).toISOString();
+      // The timer counts from this press; the next press starts from the saved delay again.
+      setPicked(null);
+      void act(() => setTimer({ environmentId, input: { id, runAt } }), "Could not set the timer");
     }
   };
 
   const onDelete = async () => {
-    const message = `Delete "${task.title}"?`;
+    const message = `Delete the Auto Agent "${task.title}"?`;
     const confirmed =
       (await requestConfirmDialog(message, { variant: "destructive" })) ?? window.confirm(message);
     if (confirmed) {
-      void act(() => remove({ environmentId, input: { id } }), "Could not delete the workflow");
+      void act(() => remove({ environmentId, input: { id } }), "Could not delete the Auto Agent");
     }
   };
 
   const meta = [
     task.lastRunAt ? `Last ran ${formatRelativeTimeLabel(task.lastRunAt)}` : "Never run",
     task.schedule.type === "manual" ? null : scheduleLabel(task.schedule),
-    !task.enabled
-      ? "Paused"
-      : status.timerAt !== null
-        ? `Runs ${relativeLabel(status.timerAt)}`
-        : task.schedule.type !== "manual" && task.nextRunAt
-          ? `Next ${relativeLabel(task.nextRunAt)}`
-          : null,
+    !task.enabled ? "Paused" : null,
+    status.timerAt !== null ? `Runs in ${formatCountdown(Date.parse(status.timerAt) - now)}` : null,
+    task.enabled && task.schedule.type !== "manual" && task.nextRunAt
+      ? `Next ${formatNextRun(task.nextRunAt, now)}`
+      : null,
   ].filter((part) => part !== null);
   const line = statusLine(status, now);
   const clickable = openThread !== undefined && threadId !== null;
@@ -407,23 +413,19 @@ function WorkflowItem(props: {
       <div className="flex shrink-0 items-center gap-1.5">
         {mode === "start" ? (
           <Select
-            value={delay}
+            value={String(delay)}
             onValueChange={(value) => {
-              const next = START_DELAYS.find((option) => option.value === value);
-              if (next) setDelay(next.value);
+              const next = Number(value);
+              if (Number.isFinite(next)) setPicked(next);
             }}
           >
             <SelectTrigger size="xs" aria-label={`When to run ${task.title}`}>
-              <SelectValue>{chosen.label}</SelectValue>
+              <SelectValue>{delay === 0 ? "Now" : `In ${formatDelay(delay)}`}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              {START_DELAYS.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.ms > 0 && !task.enabled}
-                >
-                  {option.label}
+              {delayOptions(savedDelay).map((ms) => (
+                <SelectItem key={ms} value={String(ms)} disabled={ms > 0 && !task.enabled}>
+                  {ms === 0 ? "Now" : `In ${formatDelay(ms)}`}
                 </SelectItem>
               ))}
             </SelectPopup>
@@ -442,9 +444,9 @@ function WorkflowItem(props: {
               ? `Stop ${task.title}`
               : mode === "cancel"
                 ? `Cancel the timer for ${task.title}`
-                : chosen.ms === 0
+                : delay === 0
                   ? `Run ${task.title} now`
-                  : `Run ${task.title} ${chosen.label.toLowerCase()}`
+                  : `Run ${task.title} in ${formatDelay(delay)}`
           }
           onClick={onPrimary}
         />
@@ -470,7 +472,9 @@ function WorkflowItem(props: {
               onClick={() =>
                 void act(
                   () => setEnabled({ environmentId, input: { id, enabled: !task.enabled } }),
-                  task.enabled ? "Could not pause the workflow" : "Could not resume the workflow",
+                  task.enabled
+                    ? "Could not pause the Auto Agent"
+                    : "Could not resume the Auto Agent",
                 )
               }
             >

@@ -79,6 +79,7 @@ import Migration0062 from "./Migrations/062_ThreadFailureLookupIndex.ts";
 import Migration0063 from "./Migrations/063_Notes.ts";
 import Migration0064 from "./Migrations/064_NoteCategories.ts";
 import Migration0065 from "./Migrations/065_ScheduledTaskLastRunThread.ts";
+import Migration0066 from "./Migrations/066_AutoAgents.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -158,6 +159,7 @@ export const migrationEntries = [
   [63, "Notes", Migration0063],
   [64, "NoteCategories", Migration0064],
   [65, "ScheduledTaskLastRunThread", Migration0065],
+  [66, "AutoAgents", Migration0066],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
