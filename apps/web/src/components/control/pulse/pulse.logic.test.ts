@@ -8,6 +8,8 @@ import {
   modelKey,
   promptDays,
   statusDeltas,
+  toolCallPills,
+  toolLabel,
 } from "./pulse.logic";
 
 const totals = (tokens: number) => ({
@@ -118,5 +120,48 @@ describe("compactTokens", () => {
     expect(compactTokens(12_400)).toBe("12k");
     expect(compactTokens(1_250_000)).toBe("1.3M");
     expect(compactTokens(3_400_000_000)).toBe("3.4B");
+  });
+});
+
+describe("toolLabel", () => {
+  it("names built-in kinds, tools, and MCP servers by server", () => {
+    expect(toolLabel("command_execution", null)).toBe("Shell");
+    expect(toolLabel("dynamic_tool", "Read")).toBe("Read");
+    expect(toolLabel("dynamic_tool", "mcp__t3-code__delegate_task")).toBe("T3-code");
+    expect(toolLabel("dynamic_tool", "Linear MCP")).toBe("Linear");
+    expect(toolLabel("dynamic_tool", null)).toBe("Other");
+  });
+});
+
+describe("toolCallPills", () => {
+  it("merges a server's spellings and folds the long tail into Other", () => {
+    const result = toolCallPills(
+      [
+        { type: "command_execution", name: null, count: 20 },
+        { type: "dynamic_tool", name: "Read", count: 8 },
+        { type: "dynamic_tool", name: "Linear MCP", count: 4 },
+        { type: "dynamic_tool", name: "linear", count: 3 },
+        { type: "dynamic_tool", name: null, count: 1 },
+        { type: "web_search", name: null, count: 2 },
+        { type: "file_change", name: null, count: 1 },
+      ],
+      4,
+    );
+    expect(result).toEqual({
+      total: 39,
+      pills: [
+        { label: "Shell", count: 20 },
+        { label: "Read", count: 8 },
+        { label: "Linear", count: 7 },
+        { label: "Other", count: 4 },
+      ],
+    });
+  });
+
+  it("shows every pill when they fit", () => {
+    expect(toolCallPills([{ type: "subagent", name: null, count: 2 }], 4)).toEqual({
+      total: 2,
+      pills: [{ label: "Subagent", count: 2 }],
+    });
   });
 });

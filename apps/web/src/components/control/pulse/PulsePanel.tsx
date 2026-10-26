@@ -2,11 +2,12 @@ import {
   type EnvironmentId,
   LINEAR_ISSUE_STATUSES,
   LinearError,
+  type ActivityStatsToolCalls,
   type LinearBoardStatsResult,
   UsageDay,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { BotIcon, RefreshCwIcon, TicketIcon, ZapIcon } from "lucide-react";
+import { BotIcon, RefreshCwIcon, TicketIcon, WrenchIcon, ZapIcon } from "lucide-react";
 import { type ReactNode, useEffect, useMemo } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -28,6 +29,7 @@ import {
   localWeekStart,
   promptDays,
   statusDeltas,
+  toolCallPills,
 } from "./pulse.logic";
 
 const isLinearError = Schema.is(LinearError);
@@ -42,7 +44,10 @@ const USAGE_REFRESH_MS = 60_000;
 const ACTIVITY_DAYS = 14;
 const MAX_MOVES_SHOWN = 6;
 const MAX_AGENT_ICONS = 5;
+const MAX_TOOL_PILLS = 8;
 const NO_COLOR = "var(--muted-foreground)";
+/** No provider uses this hue, so a subagent's robot never reads as a thread's. */
+const SUBAGENT_BOT_CLASS = "text-subagent";
 
 function useInterval(callback: () => void, ms: number) {
   useEffect(() => {
@@ -89,7 +94,7 @@ function Pulse({ environmentId }: { environmentId: EnvironmentId }) {
   const activity = useEnvironmentQuery(
     serverEnvironment.activityStats({
       environmentId,
-      input: { since: activitySince, timeZone, weekStartDay },
+      input: { since: activitySince, timeZone, weekStartDay, weekStart },
     }),
   );
   const usage = useEnvironmentQuery(
@@ -151,6 +156,7 @@ function Pulse({ environmentId }: { environmentId: EnvironmentId }) {
           loading={activity.data === null && activity.error === null}
           error={activity.data === null ? activity.error : null}
           tokensUnavailable={usage.data === null && usage.error !== null}
+          toolCalls={activity.data?.toolCalls ?? []}
         />
         {/* Pinned to the bottom when there is spare height; flows normally when the body scrolls. */}
         <PromptActivity
@@ -316,7 +322,9 @@ function AgentTable(props: {
   loading: boolean;
   error: string | null;
   tokensUnavailable: boolean;
+  toolCalls: ReadonlyArray<ActivityStatsToolCalls>;
 }) {
+  const tools = useMemo(() => toolCallPills(props.toolCalls, MAX_TOOL_PILLS), [props.toolCalls]);
   const running = props.rows.reduce((sum, row) => sum + row.threads + row.subagents, 0);
   const maxToday = Math.max(1, ...props.rows.map((row) => row.todayTokens));
   const maxWeek = Math.max(1, ...props.rows.map((row) => row.weekTokens));
@@ -337,59 +345,86 @@ function AgentTable(props: {
         <Note tone="error">{props.error}</Note>
       ) : props.loading ? (
         <Note>Counting agents…</Note>
-      ) : props.rows.length === 0 ? (
-        <Note>No agents running and no tokens used this week.</Note>
       ) : (
-        <table className="w-full table-fixed text-xs">
-          <thead>
-            <tr className="text-2xs text-muted-foreground">
-              <th className="pb-1 text-left font-medium">Model</th>
-              <th className="w-14 pb-1 text-right font-medium">Today</th>
-              <th className="w-14 pb-1 text-right font-medium">Week</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((row) => {
-              const color =
-                row.provider === null ? NO_COLOR : PROVIDER_PRESENTATION[row.provider].color;
-              return (
-                <tr key={row.key} className="border-t border-border/50">
-                  <td className="py-1">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <Dot color={color} />
-                      <span className="truncate">{row.label}</span>
-                      <RunningAgents
-                        threads={row.threads}
-                        subagents={row.subagents}
-                        color={color}
-                      />
-                    </span>
-                  </td>
-                  <TokenCell
-                    tokens={row.todayTokens}
-                    share={row.todayTokens / maxToday}
-                    color={color}
-                    unavailable={props.tokensUnavailable}
-                  />
-                  <TokenCell
-                    tokens={row.weekTokens}
-                    share={row.weekTokens / maxWeek}
-                    color={color}
-                    unavailable={props.tokensUnavailable}
-                  />
+        <>
+          {props.rows.length === 0 ? (
+            <Note>No agents running and no tokens used this week.</Note>
+          ) : (
+            <table className="w-full table-fixed text-xs">
+              <thead>
+                <tr className="text-2xs text-muted-foreground">
+                  <th className="pb-1 text-left font-medium">Model</th>
+                  <th className="w-14 pb-1 text-right font-medium">Today</th>
+                  <th className="w-14 pb-1 text-right font-medium">Week</th>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
+              </thead>
+              <tbody>
+                {props.rows.map((row) => {
+                  const color =
+                    row.provider === null ? NO_COLOR : PROVIDER_PRESENTATION[row.provider].color;
+                  return (
+                    <tr key={row.key} className="border-t border-border/50">
+                      <td className="py-1">
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <Dot color={color} />
+                          <span className="truncate">{row.label}</span>
+                          <RunningAgents
+                            threads={row.threads}
+                            subagents={row.subagents}
+                            color={color}
+                          />
+                        </span>
+                      </td>
+                      <TokenCell
+                        tokens={row.todayTokens}
+                        share={row.todayTokens / maxToday}
+                        color={color}
+                        unavailable={props.tokensUnavailable}
+                      />
+                      <TokenCell
+                        tokens={row.weekTokens}
+                        share={row.weekTokens / maxWeek}
+                        color={color}
+                        unavailable={props.tokensUnavailable}
+                      />
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {tools.total > 0 ? <ToolCallPills total={tools.total} pills={tools.pills} /> : null}
+        </>
       )}
     </Section>
   );
 }
 
+/** This week's tool calls across every thread and subagent: the total, then one pill per tool. */
+function ToolCallPills(props: { total: number; pills: ReturnType<typeof toolCallPills>["pills"] }) {
+  return (
+    <ul className="flex flex-wrap gap-1.5" aria-label="Tool calls this week">
+      <li className="inline-flex h-6 items-center gap-1.5 rounded-full bg-warning/15 px-2.5 text-xs font-semibold text-warning">
+        <WrenchIcon aria-hidden className="size-3" />
+        <span className="tabular-nums">{compactTokens(props.total)}</span>
+        <span>tool calls</span>
+      </li>
+      {props.pills.map((pill) => (
+        <li
+          key={pill.label}
+          className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 text-xs"
+        >
+          <span className="truncate">{pill.label}</span>
+          <span className="shrink-0 font-semibold tabular-nums">{compactTokens(pill.count)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun : `${noun}s`}`;
 
-/** One robot per running agent: threads at full strength, then dimmer subagents, capped with `+N`. */
+/** One robot per running agent: threads in the provider's color, then subagents in their own, capped with `+N`. */
 function RunningAgents(props: { threads: number; subagents: number; color: string }) {
   const total = props.threads + props.subagents;
   if (total === 0) return null;
@@ -405,7 +440,7 @@ function RunningAgents(props: { threads: number; subagents: number; color: strin
           <BotIcon
             key={index}
             aria-hidden
-            className={cn("size-3", index >= props.threads && "opacity-50")}
+            className={cn("size-3", index >= props.threads && SUBAGENT_BOT_CLASS)}
           />
         ))}
         {total > shown ? (

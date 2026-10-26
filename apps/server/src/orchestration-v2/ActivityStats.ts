@@ -21,6 +21,12 @@ const AgentRow = Schema.Struct({
   subagents: Schema.Number,
 });
 
+const ToolCallRow = Schema.Struct({
+  type: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  count: Schema.Number,
+});
+
 const PromptHourRow = Schema.Struct({
   hour: Schema.String,
   threadId: Schema.String,
@@ -70,7 +76,7 @@ export function foldHoursIntoDays(
 /**
  * Agent and prompt activity across the environment's threads, for the
  * Control window's Pulse panel. Reads the V2 projections only, so it costs
- * two indexed queries per call.
+ * three indexed queries per call.
  */
 export class ActivityStats extends Context.Service<
   ActivityStats,
@@ -87,6 +93,8 @@ export const make = Effect.gen(function* () {
 
   // Active means working: queued runs wait behind another run on the same
   // thread. A delegated task's child thread is counted once, as the subagent.
+  // A subagent only counts while its parent run or its own child thread is
+  // working, so one left marked running by an ended run does not linger.
   const agentRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: AgentRow,
@@ -104,6 +112,14 @@ export const make = Effect.gen(function* () {
         LEFT JOIN orchestration_v2_projection_runs AS runs
           ON runs.run_id = subagents.run_id
         WHERE subagents.status IN ('pending', 'running', 'waiting')
+          AND (
+            runs.status IN ('preparing', 'starting', 'running', 'waiting')
+            OR EXISTS (
+              SELECT 1 FROM orchestration_v2_projection_runs AS child_runs
+              WHERE child_runs.thread_id = subagents.child_thread_id
+                AND child_runs.status IN ('preparing', 'starting', 'running', 'waiting')
+            )
+          )
       ),
       active_threads AS (
         SELECT DISTINCT
@@ -132,6 +148,43 @@ export const make = Effect.gen(function* () {
     `,
   });
 
+  // A provider-native subagent records its calls on a child thread with no run
+  // of its own; a delegated task's child thread has runs, so it counts there.
+  const toolCallRows = SqlSchema.findAll({
+    Request: Schema.Struct({ weekStart: Schema.String }),
+    Result: ToolCallRow,
+    execute: ({ weekStart }) => sql`
+      WITH week_runs AS (
+        SELECT run_id FROM orchestration_v2_projection_runs WHERE requested_at >= ${weekStart}
+      ),
+      tool_items AS (
+        SELECT items.type, items.payload_json
+        FROM week_runs
+        JOIN orchestration_v2_projection_turn_items AS items ON items.run_id = week_runs.run_id
+        UNION ALL
+        SELECT items.type, items.payload_json
+        FROM week_runs
+        JOIN orchestration_v2_projection_subagents AS subagents
+          ON subagents.run_id = week_runs.run_id
+        JOIN orchestration_v2_projection_turn_items AS items
+          ON items.thread_id = subagents.child_thread_id AND items.run_id IS NULL
+      )
+      SELECT
+        type,
+        CASE WHEN type = 'dynamic_tool' THEN COALESCE(
+          json_extract(payload_json, '$.toolSource.name'),
+          json_extract(payload_json, '$.toolName')
+        ) END AS name,
+        COUNT(*) AS count
+      FROM tool_items
+      WHERE type IN (
+        'command_execution', 'dynamic_tool', 'file_change', 'file_search', 'web_search', 'subagent'
+      )
+      GROUP BY type, name
+      ORDER BY count DESC, type ASC, name ASC
+    `,
+  });
+
   // Only prompts the user wrote: wakes and agent-sent messages also carry the user role.
   const promptHourRows = SqlSchema.findAll({
     Request: Schema.Struct({ since: Schema.String }),
@@ -151,6 +204,10 @@ export const make = Effect.gen(function* () {
     if (Option.isNone(since)) {
       return yield* new ActivityStatsError({ detail: "Activity stats need a valid start time." });
     }
+    const weekStart = DateTime.make(input.weekStart);
+    if (Option.isNone(weekStart)) {
+      return yield* new ActivityStatsError({ detail: "Activity stats need a valid week start." });
+    }
     const timeZone = input.timeZone;
     const timeZoneValid = yield* Effect.try(
       () => new Intl.DateTimeFormat("en-CA", { timeZone }),
@@ -161,19 +218,24 @@ export const make = Effect.gen(function* () {
     if (!timeZoneValid) {
       return yield* new ActivityStatsError({ detail: `Unknown time zone ${timeZone}.` });
     }
-    // One read transaction, so the two queries see the same snapshot.
-    const [agents, promptHours] = yield* sql
+    // One read transaction, so the queries see the same snapshot.
+    const [agents, promptHours, toolCalls] = yield* sql
       .withTransaction(
         Effect.all([
           agentRows(undefined),
           promptHourRows({ since: DateTime.formatIso(since.value) }),
+          toolCallRows({ weekStart: DateTime.formatIso(weekStart.value) }),
         ]),
       )
       .pipe(
         NodeSqliteClient.readOnly,
         Effect.mapError(() => new ActivityStatsError({ detail: "Could not read activity." })),
       );
-    return { agents, ...foldHoursIntoDays(promptHours, timeZone, input.weekStartDay) };
+    return {
+      agents,
+      ...foldHoursIntoDays(promptHours, timeZone, input.weekStartDay),
+      toolCalls,
+    };
   });
 
   return ActivityStats.of({ read });

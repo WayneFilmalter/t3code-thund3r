@@ -11,6 +11,8 @@ export const ActivityStatsInput = Schema.Struct({
   timeZone: Schema.String,
   /** `YYYY-MM-DD` in `timeZone`; threads prompted on or after it count toward `weekThreads`. */
   weekStartDay: Schema.String,
+  /** ISO instant the week starts; tool calls count from runs requested on or after it. */
+  weekStart: Schema.String,
 });
 export type ActivityStatsInput = typeof ActivityStatsInput.Type;
 
@@ -35,12 +37,23 @@ export const ActivityStatsDay = Schema.Struct({
 });
 export type ActivityStatsDay = typeof ActivityStatsDay.Type;
 
+export const ActivityStatsToolCalls = Schema.Struct({
+  /** Turn item type, such as `command_execution`, `file_change` or `dynamic_tool`. */
+  type: Schema.String,
+  /** For `dynamic_tool`, the integration it came from or else the tool's own name. */
+  name: Schema.NullOr(Schema.String),
+  count: Schema.Number,
+});
+export type ActivityStatsToolCalls = typeof ActivityStatsToolCalls.Type;
+
 export const ActivityStatsResult = Schema.Struct({
   agents: Schema.Array(ActivityStatsAgents),
   /** Prompts the user sent, per day that had any, oldest first. */
   promptsByDay: Schema.Array(ActivityStatsDay),
   /** Distinct threads prompted on or after `weekStartDay`. */
   weekThreads: Schema.Number,
+  /** Tool calls this week, threads and their subagents together, most used first. */
+  toolCalls: Schema.Array(ActivityStatsToolCalls),
 });
 export type ActivityStatsResult = typeof ActivityStatsResult.Type;
 

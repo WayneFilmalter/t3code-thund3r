@@ -2,6 +2,7 @@ import {
   LINEAR_ISSUE_STATUSES,
   type ActivityStatsAgents,
   type ActivityStatsDay,
+  type ActivityStatsToolCalls,
   type LinearBoardMove,
   type LinearIssueStatus,
   type UsageBucket,
@@ -151,6 +152,54 @@ export function agentRows(
       right.weekTokens - left.weekTokens ||
       left.label.localeCompare(right.label),
   );
+}
+
+const TOOL_TYPE_LABELS: Record<string, string> = {
+  command_execution: "Shell",
+  file_change: "Edit",
+  file_search: "Search",
+  web_search: "Web search",
+  subagent: "Subagent",
+};
+
+/** `Shell`, `Read`, or an MCP server's name for any of its tools: `mcp__linear__get_issue` and `Linear MCP` are both `Linear`. */
+export function toolLabel(type: string, name: string | null): string {
+  const label = TOOL_TYPE_LABELS[type];
+  if (label !== undefined) return label;
+  if (name === null) return "Other";
+  const server = /^mcp__(.+?)__/.exec(name)?.[1] ?? name.replace(/\s+MCP$/i, "");
+  return server.charAt(0).toUpperCase() + server.slice(1);
+}
+
+/**
+ * The week's tool calls folded into one pill per label, most used first,
+ * with everything past `max` pills gathered into `Other`.
+ */
+export function toolCallPills(
+  toolCalls: ReadonlyArray<ActivityStatsToolCalls>,
+  max: number,
+): {
+  readonly total: number;
+  readonly pills: ReadonlyArray<{ readonly label: string; readonly count: number }>;
+} {
+  const byKey = new Map<string, { label: string; count: number }>();
+  for (const entry of toolCalls) {
+    const label = toolLabel(entry.type, entry.name);
+    const key = label.toLowerCase();
+    const pill = byKey.get(key) ?? { label, count: 0 };
+    pill.count += entry.count;
+    byKey.set(key, pill);
+  }
+  let other = byKey.get("other")?.count ?? 0;
+  byKey.delete("other");
+  const sorted = [...byKey.values()].toSorted(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
+  const named = Math.min(sorted.length, other > 0 || sorted.length > max ? max - 1 : max);
+  for (const pill of sorted.slice(named)) other += pill.count;
+  const pills = sorted.slice(0, named);
+  const total = pills.reduce((sum, pill) => sum + pill.count, other);
+  return { total, pills: other > 0 ? [...pills, { label: "Other", count: other }] : pills };
 }
 
 /** `845`, `12k`, `1.2M`, `3.4B`: short enough for a table cell. */

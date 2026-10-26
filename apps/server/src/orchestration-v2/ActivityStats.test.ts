@@ -9,14 +9,34 @@ import * as ActivityStats from "./ActivityStats.ts";
 const layerTest = ActivityStats.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory));
 
 let ordinal = 0;
-const insertRun = (runId: string, threadId: string, status: string, model: string) =>
+const insertRun = (
+  runId: string,
+  threadId: string,
+  status: string,
+  model: string,
+  requestedAt = "2026-10-26T00:00:00.000Z",
+) =>
   Effect.flatMap(
     SqlClient.SqlClient,
     (sql) => sql`
       INSERT INTO orchestration_v2_projection_runs
         (run_id, thread_id, ordinal, provider, status, requested_at, payload_json)
-      VALUES (${runId}, ${threadId}, ${(ordinal += 1)}, 'claudeAgent', ${status}, '2026-10-26T00:00:00.000Z',
+      VALUES (${runId}, ${threadId}, ${(ordinal += 1)}, 'claudeAgent', ${status}, ${requestedAt},
         ${JSON.stringify({ modelSelection: { model } })})
+    `,
+  );
+
+const insertTurnItem = (
+  turnItemId: string,
+  input: { threadId: string; runId: string | null; type: string; payload?: object },
+) =>
+  Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql`
+      INSERT INTO orchestration_v2_projection_turn_items
+        (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json)
+      VALUES (${turnItemId}, ${input.threadId}, ${input.runId}, ${(ordinal += 1)}, ${input.type},
+        'completed', '2026-11-10T00:00:00.000Z', ${JSON.stringify(input.payload ?? {})})
     `,
   );
 
@@ -73,12 +93,15 @@ it.layer(layerTest)("ActivityStats", (it) => {
         runId: "run-parent",
         model: "claude-haiku-5-5",
       });
+      // Left marked running after its run ended.
+      yield* insertSubagent("stale", { status: "running", runId: "run-done", model: null });
 
       const stats = yield* ActivityStats.ActivityStats;
       const result = yield* stats.read({
         since: "2026-10-01T00:00:00.000Z",
         timeZone: "UTC",
         weekStartDay: "2026-10-26",
+        weekStart: "2026-10-26T00:00:00.000Z",
       });
       assert.deepStrictEqual(result.agents, [
         { model: "claude-opus-5-5", provider: "claudeAgent", threads: 1, subagents: 1 },
@@ -101,6 +124,7 @@ it.layer(layerTest)("ActivityStats", (it) => {
         since: "2026-10-20T00:00:00.000Z",
         timeZone: "America/New_York",
         weekStartDay: "2026-10-26",
+        weekStart: "2026-10-26T04:00:00.000Z",
       });
       assert.deepStrictEqual(result.promptsByDay, [
         { day: "2026-10-25", count: 1, threads: 1 },
@@ -124,6 +148,7 @@ it.layer(layerTest)("ActivityStats", (it) => {
         since: "2026-10-30T00:00:00.000Z",
         timeZone: "UTC",
         weekStartDay: "2026-11-02",
+        weekStart: "2026-11-02T00:00:00.000Z",
       });
       assert.deepStrictEqual(result.promptsByDay, [
         { day: "2026-11-01", count: 1, threads: 1 },
@@ -131,6 +156,81 @@ it.layer(layerTest)("ActivityStats", (it) => {
         { day: "2026-11-03", count: 1, threads: 1 },
       ]);
       assert.strictEqual(result.weekThreads, 2);
+    }),
+  );
+
+  it.effect("counts the week's tool calls, a native subagent's included", () =>
+    Effect.gen(function* () {
+      yield* insertRun(
+        "run-week",
+        "tools",
+        "completed",
+        "claude-opus-5-5",
+        "2026-11-09T10:00:00.000Z",
+      );
+      yield* insertRun(
+        "run-last-week",
+        "tools",
+        "completed",
+        "claude-opus-5-5",
+        "2026-11-06T10:00:00.000Z",
+      );
+      yield* insertTurnItem("shell-1", {
+        threadId: "tools",
+        runId: "run-week",
+        type: "command_execution",
+      });
+      yield* insertTurnItem("shell-2", {
+        threadId: "tools",
+        runId: "run-week",
+        type: "command_execution",
+      });
+      yield* insertTurnItem("read", {
+        threadId: "tools",
+        runId: "run-week",
+        type: "dynamic_tool",
+        payload: { toolName: "Read" },
+      });
+      yield* insertTurnItem("linear", {
+        threadId: "tools",
+        runId: "run-week",
+        type: "dynamic_tool",
+        payload: { toolName: "mcp__linear__get_issue", toolSource: { name: "Linear MCP" } },
+      });
+      yield* insertTurnItem("reply", {
+        threadId: "tools",
+        runId: "run-week",
+        type: "assistant_message",
+      });
+      yield* insertTurnItem("old-shell", {
+        threadId: "tools",
+        runId: "run-last-week",
+        type: "command_execution",
+      });
+      yield* insertSubagent("explorer", {
+        status: "completed",
+        runId: "run-week",
+        model: null,
+        childThreadId: "explorer-thread",
+      });
+      yield* insertTurnItem("explorer-shell", {
+        threadId: "explorer-thread",
+        runId: null,
+        type: "command_execution",
+      });
+
+      const stats = yield* ActivityStats.ActivityStats;
+      const result = yield* stats.read({
+        since: "2026-11-09T00:00:00.000Z",
+        timeZone: "UTC",
+        weekStartDay: "2026-11-09",
+        weekStart: "2026-11-09T00:00:00.000Z",
+      });
+      assert.deepStrictEqual(result.toolCalls, [
+        { type: "command_execution", name: null, count: 3 },
+        { type: "dynamic_tool", name: "Linear MCP", count: 1 },
+        { type: "dynamic_tool", name: "Read", count: 1 },
+      ]);
     }),
   );
 
@@ -142,6 +242,7 @@ it.layer(layerTest)("ActivityStats", (it) => {
           since: "2026-10-20T00:00:00.000Z",
           timeZone: "Mars/Olympus",
           weekStartDay: "2026-10-19",
+          weekStart: "2026-10-19T00:00:00.000Z",
         }),
       );
       assert.include(error.detail, "Mars/Olympus");
