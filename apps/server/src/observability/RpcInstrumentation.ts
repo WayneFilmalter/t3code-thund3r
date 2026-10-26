@@ -105,6 +105,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.linearTicketDetail]: "linear",
   [WS_METHODS.linearCommentCreate]: "linear",
   [WS_METHODS.linearBoardStats]: "linear",
+  [WS_METHODS.linearCommentsRecent]: "linear",
   [WS_METHODS.notesList]: "notes",
   [WS_METHODS.notesSubscribe]: "notes",
   [WS_METHODS.notesCreate]: "notes",

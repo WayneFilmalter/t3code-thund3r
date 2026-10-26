@@ -128,6 +128,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.linearTicketsSearch]: AuthOrchestrationReadScope,
   [WS_METHODS.linearTicketDetail]: AuthOrchestrationReadScope,
   [WS_METHODS.linearBoardStats]: AuthOrchestrationReadScope,
+  [WS_METHODS.linearCommentsRecent]: AuthOrchestrationReadScope,
   [WS_METHODS.notesList]: AuthOrchestrationReadScope,
   [WS_METHODS.notesSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.slackSubscribe]: AuthOrchestrationReadScope,

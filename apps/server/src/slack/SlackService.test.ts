@@ -152,6 +152,7 @@ const fakeLinear = LinearTickets.LinearTickets.of({
   searchTickets: () => Effect.die("unused"),
   getTicketDetail: () => Effect.die("unused"),
   getBoardStats: () => Effect.die("unused"),
+  getRecentComments: () => Effect.die("unused"),
   createComment: () => Effect.die("unused"),
 });
 

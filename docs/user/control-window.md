@@ -57,15 +57,17 @@ While it works, the Auto Agent shows how long it has been running and a line of 
 
 Auto Agents live only here, not in **Settings → Scheduled tasks**. They run on the server T3 Code is connected to, so a timer or schedule fires even while the Control window is closed.
 
-## Slack feed
+## Slack and Linear feed
 
-The top middle panel lists every Slack message from the last five days in the channels, DMs and group DMs you are in, newest first. Your own messages are left out. Each item shows who sent it and where, with a note when it is a direct message or a reply in a thread. New messages appear as soon as they are posted.
+The top middle panel lists every Slack message from the last five days in the channels, DMs and group DMs you are in, together with every comment left on a Linear ticket in your workspace in the same five days, newest first. Your own messages and comments are left out. Slack items are pink and Linear items are cyan. Each item shows who sent it and where, with a note when it is a direct message or a reply in a thread. New messages appear as soon as they are posted.
 
 Click an item to read the whole message, and press **Back** to return to the list. **Reply** answers the way Slack's own Reply does: a message in a channel gets a reply in its thread, a reply in a thread stays in that thread, and a direct message is answered in the conversation. Press `Enter` to send and `Shift+Enter` for a new line. **Open in Slack** jumps to the message in Slack.
 
 To hide a busy channel, such as one where an app like Linear or GitHub posts updates, press **Channels** at the top of the feed (or look under **Slack** in the Control tab) and switch it off. The list shows the busiest channels first. Switch a channel back on to see its messages again. You can also mute a channel from the **⋯** menu on any of its messages, and unmute from **Settings → Integrations → Slack**.
 
 **Refetch** in the Control tab reconnects to Slack and loads the last five days again.
+
+Linear comments need the Linear API key from **Settings → Integrations** and refresh every couple of minutes. Each one shows who wrote it and on which ticket. Click it to read the whole comment, or press **Open in Linear** to jump to it. **Reply** posts a new comment on the ticket.
 
 ### Connecting Slack
 

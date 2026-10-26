@@ -1,4 +1,4 @@
-import type { SlackFeedMessage } from "@t3tools/contracts";
+import type { LinearRecentComment, SlackFeedMessage } from "@t3tools/contracts";
 
 export const slackMessageKey = (message: Pick<SlackFeedMessage, "channelId" | "ts">) =>
   `${message.channelId}:${message.ts}`;
@@ -60,4 +60,40 @@ export function slackFeedChannels(
     (a, b) => b.count - a.count || a.name.localeCompare(b.name),
   );
   return [...active, ...muted];
+}
+
+export type FeedItem =
+  | {
+      readonly source: "slack";
+      readonly key: string;
+      readonly at: string;
+      readonly message: SlackFeedMessage;
+    }
+  | {
+      readonly source: "linear";
+      readonly key: string;
+      readonly at: string;
+      readonly comment: LinearRecentComment;
+    };
+
+/** Slack messages and Linear comments as one list, newest first. */
+export function feedItems(
+  messages: ReadonlyArray<SlackFeedMessage>,
+  comments: ReadonlyArray<LinearRecentComment>,
+): FeedItem[] {
+  const items: FeedItem[] = [
+    ...messages.map((message) => ({
+      source: "slack" as const,
+      key: `slack:${slackMessageKey(message)}`,
+      at: slackTsToIso(message.ts),
+      message,
+    })),
+    ...comments.map((comment) => ({
+      source: "linear" as const,
+      key: `linear:${comment.id}`,
+      at: new Date(comment.createdAt).toISOString(),
+      comment,
+    })),
+  ];
+  return items.toSorted((left, right) => right.at.localeCompare(left.at));
 }

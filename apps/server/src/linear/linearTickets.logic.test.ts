@@ -5,6 +5,7 @@ import {
   identifierFilter,
   mapBoardCounts,
   mapBoardMoves,
+  mapRecentComments,
   readIssuesPage,
   latestOthersCommentAt,
   mapTicket,
@@ -335,5 +336,62 @@ describe("board stats", () => {
       readIssuesPage({ nodes: [], pageInfo: { hasNextPage: false, endCursor: "abc" } }).nextCursor,
       null,
     );
+  });
+});
+
+describe("mapRecentComments", () => {
+  const issue = {
+    id: "uuid-1",
+    identifier: "ENG-482",
+    title: "Checkout times out",
+    url: "https://linear.app/acme/issue/ENG-482",
+  };
+
+  it("keeps other people's issue comments, newest first", () => {
+    const comments = mapRecentComments([
+      {
+        id: "c1",
+        body: "Older",
+        createdAt: "2026-10-24T08:00:00.000Z",
+        url: "https://linear.app/acme/issue/ENG-482#comment-c1",
+        user: { displayName: "ada", name: "Ada Lovelace", isMe: false },
+        issue,
+      },
+      {
+        id: "c2",
+        body: "Newer",
+        createdAt: "2026-10-25T08:00:00.000Z",
+        botActor: { name: "GitHub" },
+        issue,
+      },
+    ]);
+    assert.deepStrictEqual(
+      comments.map((comment) => [comment.id, comment.authorName, comment.url]),
+      [
+        ["c2", "GitHub", issue.url],
+        ["c1", "ada", "https://linear.app/acme/issue/ENG-482#comment-c1"],
+      ],
+    );
+    assert.strictEqual(comments[0]?.issueIdentifier, "ENG-482");
+  });
+
+  it("drops the viewer's own comments and comments not on an issue", () => {
+    const comments = mapRecentComments([
+      {
+        id: "mine",
+        body: "Mine",
+        createdAt: "2026-10-25T08:00:00.000Z",
+        user: { name: "Me", isMe: true },
+        issue,
+      },
+      {
+        id: "project-update",
+        body: "Not an issue",
+        createdAt: "2026-10-25T09:00:00.000Z",
+        user: { name: "Ada", isMe: false },
+        issue: null,
+      },
+    ]);
+    assert.deepStrictEqual(comments, []);
   });
 });

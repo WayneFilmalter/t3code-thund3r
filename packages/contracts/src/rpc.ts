@@ -12,6 +12,8 @@ import {
   LinearError,
   LinearIssuesListInput,
   LinearIssuesListResult,
+  LinearRecentCommentsInput,
+  LinearRecentCommentsResult,
   LinearTicketDetail,
   LinearTicketDetailInput,
   LinearTicketsGetInput,
@@ -552,6 +554,7 @@ export const WS_METHODS = {
   linearTicketDetail: "linear.ticket.detail",
   linearCommentCreate: "linear.comment.create",
   linearBoardStats: "linear.board.stats",
+  linearCommentsRecent: "linear.comments.recent",
   notesList: "notes.list",
   notesSubscribe: "notes.subscribe",
   notesCreate: "notes.create",
@@ -1003,6 +1006,12 @@ const WsLinearBoardStatsRpc = Rpc.make(WS_METHODS.linearBoardStats, {
   error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
 });
 
+const WsLinearCommentsRecentRpc = Rpc.make(WS_METHODS.linearCommentsRecent, {
+  payload: LinearRecentCommentsInput,
+  success: LinearRecentCommentsResult,
+  error: Schema.Union([LinearError, EnvironmentAuthorizationError]),
+});
+
 const WsNotesListRpc = Rpc.make(WS_METHODS.notesList, {
   payload: NotesListInput,
   success: NotesListResult,
@@ -1083,6 +1092,7 @@ export const LinearWsRpcGroup = RpcGroup.make(
   WsLinearTicketDetailRpc,
   WsLinearCommentCreateRpc,
   WsLinearBoardStatsRpc,
+  WsLinearCommentsRecentRpc,
 );
 
 /**

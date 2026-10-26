@@ -197,3 +197,33 @@ export const LinearBoardStatsResult = Schema.Struct({
   fetchedAt: Schema.String,
 });
 export type LinearBoardStatsResult = typeof LinearBoardStatsResult.Type;
+
+/**
+ * The Control window's Slack and Linear feed: every comment in the workspace
+ * from the last `SLACK_FEED_WINDOW_DAYS`, except the API key owner's own.
+ */
+export const LinearRecentComment = Schema.Struct({
+  id: Schema.String,
+  /** Markdown. */
+  body: Schema.String,
+  createdAt: Schema.String,
+  /** The comment itself in Linear. */
+  url: Schema.String,
+  authorName: Schema.String,
+  /** Linear's issue UUID, for replying with `LinearCommentCreateInput`. */
+  issueId: Schema.String,
+  issueIdentifier: Schema.String,
+  issueTitle: Schema.String,
+  issueUrl: Schema.String,
+});
+export type LinearRecentComment = typeof LinearRecentComment.Type;
+
+export const LinearRecentCommentsInput = Schema.Struct({});
+export type LinearRecentCommentsInput = typeof LinearRecentCommentsInput.Type;
+
+export const LinearRecentCommentsResult = Schema.Struct({
+  /** Newest first. */
+  comments: Schema.Array(LinearRecentComment),
+  fetchedAt: Schema.String,
+});
+export type LinearRecentCommentsResult = typeof LinearRecentCommentsResult.Type;

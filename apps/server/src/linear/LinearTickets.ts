@@ -9,10 +9,12 @@
 import {
   LINEAR_IDENTIFIER_PATTERN,
   LinearError,
+  SLACK_FEED_WINDOW_DAYS,
   type LinearBoardStatsInput,
   type LinearBoardStatsResult,
   type LinearCommentCreateInput,
   type LinearCommentCreateResult,
+  type LinearRecentCommentsResult,
   type LinearTicketDetail,
   type LinearTicketDetailInput,
   type LinearTicketsGetInput,
@@ -31,11 +33,14 @@ import {
   BOARD_COUNTS_QUERY,
   BOARD_MOVES_QUERY,
   COMMENT_MUTATION,
+  RECENT_COMMENTS_QUERY,
   boardCountsFilter,
   boardMovesFilter,
   mapBoardCounts,
   mapBoardMoves,
+  mapRecentComments,
   readIssuesPage,
+  recentCommentsFilter,
   DETAIL_QUERY,
   SEARCH_QUERY,
   TICKETS_QUERY,
@@ -67,6 +72,8 @@ export class LinearTickets extends Context.Service<
     readonly getBoardStats: (
       input: LinearBoardStatsInput,
     ) => Effect.Effect<LinearBoardStatsResult, LinearError>;
+    /** Everyone else's comments from the Slack feed's window, for the Control window feed. */
+    readonly getRecentComments: () => Effect.Effect<LinearRecentCommentsResult, LinearError>;
     /** Posts a comment as the API key's owner. */
     readonly createComment: (
       input: LinearCommentCreateInput,
@@ -79,6 +86,9 @@ export class LinearTickets extends Context.Service<
  * in a week. A runaway backlog stops counting rather than paging forever.
  */
 const MAX_BOARD_PAGES = 20;
+
+/** 500 comments: a busy week for a team, and a bounded cost when it is busier. */
+const MAX_COMMENT_PAGES = 5;
 
 const describeError = (error: unknown): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
@@ -201,13 +211,18 @@ const make = Effect.gen(function* () {
     return { commentId };
   });
 
-  const allIssues = (query: string, filter: Record<string, unknown>) =>
+  const allPages = (
+    query: string,
+    filter: Record<string, unknown>,
+    connection: "issues" | "comments",
+    maxPages: number,
+  ) =>
     Effect.gen(function* () {
       const nodes: Array<Record<string, unknown>> = [];
       let after: string | null = null;
-      for (let page = 0; page < MAX_BOARD_PAGES; page += 1) {
+      for (let page = 0; page < maxPages; page += 1) {
         const data = yield* graphql(query, { filter, after });
-        const result = readIssuesPage(data.issues);
+        const result = readIssuesPage(data[connection]);
         nodes.push(...result.nodes);
         after = result.nextCursor;
         if (after === null) break;
@@ -220,8 +235,8 @@ const make = Effect.gen(function* () {
   ) {
     const [counted, moved] = yield* Effect.all(
       [
-        allIssues(BOARD_COUNTS_QUERY, boardCountsFilter()),
-        allIssues(BOARD_MOVES_QUERY, boardMovesFilter(input.since)),
+        allPages(BOARD_COUNTS_QUERY, boardCountsFilter(), "issues", MAX_BOARD_PAGES),
+        allPages(BOARD_MOVES_QUERY, boardMovesFilter(input.since), "issues", MAX_BOARD_PAGES),
       ],
       { concurrency: 2 },
     );
@@ -232,11 +247,24 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const getRecentComments = Effect.fn("LinearTickets.getRecentComments")(function* () {
+    const now = yield* DateTime.now;
+    const since = DateTime.formatIso(DateTime.subtract(now, { days: SLACK_FEED_WINDOW_DAYS }));
+    const nodes = yield* allPages(
+      RECENT_COMMENTS_QUERY,
+      recentCommentsFilter(since),
+      "comments",
+      MAX_COMMENT_PAGES,
+    );
+    return { comments: mapRecentComments(nodes), fetchedAt: DateTime.formatIso(now) };
+  });
+
   return LinearTickets.of({
     getTickets,
     searchTickets,
     getTicketDetail,
     getBoardStats,
+    getRecentComments,
     createComment,
   });
 });

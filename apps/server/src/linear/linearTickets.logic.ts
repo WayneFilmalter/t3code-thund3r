@@ -4,6 +4,7 @@ import {
   type LinearBoardMove,
   type LinearBoardStatusCount,
   type LinearPullRequestState,
+  type LinearRecentComment,
   type LinearStateType,
   type LinearTicket,
   type LinearTicketComment,
@@ -71,6 +72,25 @@ export const COMMENT_MUTATION = `mutation PriorityComment($input: CommentCreateI
   commentCreate(input: $input) { success comment { id } }
 }`;
 
+export const RECENT_COMMENTS_PAGE_SIZE = 100;
+
+export const RECENT_COMMENTS_QUERY = `query FeedComments($filter: CommentFilter, $after: String) {
+  comments(first: ${RECENT_COMMENTS_PAGE_SIZE}, after: $after, filter: $filter, orderBy: createdAt) {
+    nodes {
+      id body createdAt url
+      user { name displayName isMe }
+      botActor { name }
+      issue { id identifier title url }
+    }
+    pageInfo { hasNextPage endCursor }
+  }
+}`;
+
+/** Every comment in the workspace created since `since`. */
+export function recentCommentsFilter(since: string): Record<string, unknown> {
+  return { createdAt: { gte: since } };
+}
+
 export const BOARD_PAGE_SIZE = 250;
 
 export const BOARD_COUNTS_QUERY = `query PulseBoardCounts($filter: IssueFilter!, $after: String) {
@@ -106,7 +126,7 @@ export function boardMovesFilter(since: string): Record<string, unknown> {
   return { updatedAt: { gte: since } };
 }
 
-/** One page of an `issues` connection: its nodes and the cursor for the next, if any. */
+/** One page of a connection (`issues`, `comments`): its nodes and the cursor for the next, if any. */
 export function readIssuesPage(connection: unknown): {
   readonly nodes: ReadonlyArray<Record<string, unknown>>;
   readonly nextCursor: string | null;
@@ -341,16 +361,64 @@ function mapComment(node: Record<string, unknown>): LinearTicketComment | null {
   const createdAt = readString(node.createdAt);
   if (id === null || createdAt === null) return null;
   const user = isRecord(node.user) ? node.user : null;
-  const bot = isRecord(node.botActor) ? node.botActor : null;
   return {
     id,
     body: typeof node.body === "string" ? node.body : "",
     createdAt,
-    authorName:
-      readString(user?.displayName) ?? readString(user?.name) ?? readString(bot?.name) ?? "Linear",
+    authorName: commentAuthorName(node),
     authorAvatarUrl: readString(user?.avatarUrl),
     isViewer: user?.isMe === true,
   };
+}
+
+/** A comment's author: the person's display name, else an integration's bot name. */
+function commentAuthorName(node: Record<string, unknown>): string {
+  const user = isRecord(node.user) ? node.user : null;
+  const bot = isRecord(node.botActor) ? node.botActor : null;
+  return (
+    readString(user?.displayName) ?? readString(user?.name) ?? readString(bot?.name) ?? "Linear"
+  );
+}
+
+/**
+ * The feed's comments, newest first. The API key owner's own comments and
+ * comments on anything but an issue (project updates, documents) are left out.
+ */
+export function mapRecentComments(
+  nodes: ReadonlyArray<Record<string, unknown>>,
+): ReadonlyArray<LinearRecentComment> {
+  return nodes
+    .flatMap((node): LinearRecentComment | [] => {
+      const user = isRecord(node.user) ? node.user : null;
+      if (user?.isMe === true) return [];
+      const issue = isRecord(node.issue) ? node.issue : null;
+      const id = readString(node.id);
+      const createdAt = readString(node.createdAt);
+      const issueId = readString(issue?.id);
+      const issueIdentifier = readString(issue?.identifier);
+      const issueUrl = readString(issue?.url);
+      if (
+        id === null ||
+        createdAt === null ||
+        issueId === null ||
+        issueIdentifier === null ||
+        issueUrl === null
+      ) {
+        return [];
+      }
+      return {
+        id,
+        body: typeof node.body === "string" ? node.body : "",
+        createdAt,
+        url: readString(node.url) ?? issueUrl,
+        authorName: commentAuthorName(node),
+        issueId,
+        issueIdentifier,
+        issueTitle: readString(issue?.title) ?? issueIdentifier,
+        issueUrl,
+      };
+    })
+    .toSorted((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
 /** The full ticket for the detail view; comments oldest first. */

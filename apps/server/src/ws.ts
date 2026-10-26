@@ -569,6 +569,7 @@ const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.linearTicketDetail,
   WS_METHODS.linearCommentCreate,
   WS_METHODS.linearBoardStats,
+  WS_METHODS.linearCommentsRecent,
   WS_METHODS.scheduledTasksSetTimer,
 );
 const ServerSlackRpcGroup =
@@ -599,6 +600,7 @@ const layerLinearRpc = ServerLinearRpcGroup.toLayer(
       [WS_METHODS.linearTicketDetail]: (input) => linearTickets.getTicketDetail(input),
       [WS_METHODS.linearCommentCreate]: (input) => linearTickets.createComment(input),
       [WS_METHODS.linearBoardStats]: (input) => linearTickets.getBoardStats(input),
+      [WS_METHODS.linearCommentsRecent]: (_input) => linearTickets.getRecentComments(),
     });
   }),
 );

@@ -1,7 +1,8 @@
-import type { SlackFeedMessage } from "@t3tools/contracts";
+import type { LinearRecentComment, SlackFeedMessage } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  feedItems,
   slackFeedChannels,
   slackMessageContext,
   slackMessagePlace,
@@ -54,6 +55,33 @@ describe("slackFeedChannels", () => {
       ["#general", 1, false],
       ["#github", 0, true],
       ["#sentry", 0, true],
+    ]);
+  });
+});
+
+describe("feedItems", () => {
+  const comment = (id: string, createdAt: string): LinearRecentComment => ({
+    id,
+    body: "Looks good",
+    createdAt,
+    url: `https://linear.app/acme/issue/ENG-1#comment-${id}`,
+    authorName: "Ada",
+    issueId: "uuid-1",
+    issueIdentifier: "ENG-1",
+    issueTitle: "Checkout",
+    issueUrl: "https://linear.app/acme/issue/ENG-1",
+  });
+
+  it("interleaves Slack messages and Linear comments, newest first", () => {
+    // 1761400000 is 2025-10-25T13:46:40Z.
+    const items = feedItems(
+      [message({ ts: "1761400000.000100" }), message({ ts: "1761300000.000100" })],
+      [comment("c1", "2025-10-25T00:00:00.000Z")],
+    );
+    expect(items.map((item) => item.key)).toEqual([
+      "slack:C1:1761400000.000100",
+      "linear:c1",
+      "slack:C1:1761300000.000100",
     ]);
   });
 });

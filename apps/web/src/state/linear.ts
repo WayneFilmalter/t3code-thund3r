@@ -46,6 +46,13 @@ export const linearEnvironment = {
     staleTimeMs: 30_000,
     idleTtlMs: 5 * 60_000,
   }),
+  /** The Control window feed's comments; the panel refreshes them on its own interval. */
+  recentComments: createEnvironmentRpcQueryAtomFamily(connectionAtomRuntime, {
+    label: "environment-data:linear:recent-comments",
+    tag: WS_METHODS.linearCommentsRecent,
+    staleTimeMs: 60_000,
+    idleTtlMs: 5 * 60_000,
+  }),
   /** A one-off read for paste resolution and the Done check, which need the current state. */
   resolveTickets: createEnvironmentRpcCommand(connectionAtomRuntime, {
     label: "look up Linear tickets",
