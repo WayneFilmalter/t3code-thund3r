@@ -21,31 +21,50 @@ const AgentRow = Schema.Struct({
   subagents: Schema.Number,
 });
 
-const PromptHourRow = Schema.Struct({ hour: Schema.String, count: Schema.Number });
+const PromptHourRow = Schema.Struct({
+  hour: Schema.String,
+  threadId: Schema.String,
+  count: Schema.Number,
+});
 
 /**
- * Folds `YYYY-MM-DDTHH` UTC hours into days in `timeZone`, oldest first.
- * Hours are whole, so zones with a half-hour offset place a prompt sent in
- * the first half hour after local midnight on the day before.
+ * Folds `YYYY-MM-DDTHH` UTC hours, one row per thread, into days in
+ * `timeZone`, oldest first, with the distinct threads prompted each day.
+ * `weekThreads` counts each thread once across days on or after
+ * `weekStartDay`. Hours are whole, so zones with a half-hour offset place a
+ * prompt sent in the first half hour after local midnight on the day before.
  */
 export function foldHoursIntoDays(
-  hours: ReadonlyArray<{ readonly hour: string; readonly count: number }>,
+  hours: ReadonlyArray<{
+    readonly hour: string;
+    readonly threadId: string;
+    readonly count: number;
+  }>,
   timeZone: string,
-): ReadonlyArray<ActivityStatsDay> {
+  weekStartDay: string,
+): { readonly promptsByDay: ReadonlyArray<ActivityStatsDay>; readonly weekThreads: number } {
   const format = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
-  const days = new Map<string, number>();
-  for (const { hour, count } of hours) {
+  const days = new Map<string, { count: number; threads: Set<string> }>();
+  const weekThreads = new Set<string>();
+  for (const { hour, threadId, count } of hours) {
     const day = format.format(Date.parse(`${hour}:00:00.000Z`));
-    days.set(day, (days.get(day) ?? 0) + count);
+    const entry = days.get(day) ?? { count: 0, threads: new Set<string>() };
+    entry.count += count;
+    entry.threads.add(threadId);
+    days.set(day, entry);
+    if (day >= weekStartDay) weekThreads.add(threadId);
   }
-  return [...days]
-    .map(([day, count]) => ({ day, count }))
-    .toSorted((left, right) => left.day.localeCompare(right.day));
+  return {
+    promptsByDay: [...days]
+      .map(([day, entry]) => ({ day, count: entry.count, threads: entry.threads.size }))
+      .toSorted((left, right) => left.day.localeCompare(right.day)),
+    weekThreads: weekThreads.size,
+  };
 }
 
 /**
@@ -118,12 +137,12 @@ export const make = Effect.gen(function* () {
     Request: Schema.Struct({ since: Schema.String }),
     Result: PromptHourRow,
     execute: ({ since }) => sql`
-      SELECT substr(created_at, 1, 13) AS hour, COUNT(*) AS count
+      SELECT substr(created_at, 1, 13) AS hour, thread_id AS "threadId", COUNT(*) AS count
       FROM orchestration_v2_projection_messages
       WHERE role = 'user'
         AND created_at >= ${since}
         AND json_extract(payload_json, '$.createdBy') = 'user'
-      GROUP BY hour
+      GROUP BY hour, thread_id
     `,
   });
 
@@ -154,7 +173,7 @@ export const make = Effect.gen(function* () {
         NodeSqliteClient.readOnly,
         Effect.mapError(() => new ActivityStatsError({ detail: "Could not read activity." })),
       );
-    return { agents, promptsByDay: foldHoursIntoDays(promptHours, timeZone) };
+    return { agents, ...foldHoursIntoDays(promptHours, timeZone, input.weekStartDay) };
   });
 
   return ActivityStats.of({ read });

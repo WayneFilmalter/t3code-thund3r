@@ -32,18 +32,24 @@ export function localDaysBack(now: Date, days: number): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1));
 }
 
-/** Each of the `days` local days ending today, oldest first, with prompt counts filled in. */
+/** Each of the `days` local days ending today, oldest first, with prompt and thread counts filled in. */
 export function promptDays(
   promptsByDay: ReadonlyArray<ActivityStatsDay>,
   now: Date,
   days: number,
-): ReadonlyArray<{ readonly day: string; readonly date: Date; readonly count: number }> {
-  const counts = new Map(promptsByDay.map((entry) => [entry.day, entry.count]));
+): ReadonlyArray<{
+  readonly day: string;
+  readonly date: Date;
+  readonly count: number;
+  readonly threads: number;
+}> {
+  const byDay = new Map(promptsByDay.map((entry) => [entry.day, entry]));
   const first = localDaysBack(now, days);
   return Array.from({ length: days }, (_, index) => {
     const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + index);
     const day = localDayKey(date);
-    return { day, date, count: counts.get(day) ?? 0 };
+    const entry = byDay.get(day);
+    return { day, date, count: entry?.count ?? 0, threads: entry?.threads ?? 0 };
   });
 }
 

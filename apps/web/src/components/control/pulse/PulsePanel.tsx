@@ -38,6 +38,7 @@ const ACTIVITY_REFRESH_MS = 10_000;
 const USAGE_REFRESH_MS = 60_000;
 const ACTIVITY_DAYS = 14;
 const MAX_MOVES_SHOWN = 6;
+const MAX_AGENT_ICONS = 5;
 const NO_COLOR = "var(--muted-foreground)";
 
 function useInterval(callback: () => void, ms: number) {
@@ -83,7 +84,10 @@ function Pulse({ environmentId }: { environmentId: EnvironmentId }) {
     linearEnvironment.boardStats({ environmentId, input: { since: weekStart } }),
   );
   const activity = useEnvironmentQuery(
-    serverEnvironment.activityStats({ environmentId, input: { since: activitySince, timeZone } }),
+    serverEnvironment.activityStats({
+      environmentId,
+      input: { since: activitySince, timeZone, weekStartDay },
+    }),
   );
   const usage = useEnvironmentQuery(
     serverEnvironment.usageSummary({
@@ -145,10 +149,13 @@ function Pulse({ environmentId }: { environmentId: EnvironmentId }) {
           error={activity.data === null ? activity.error : null}
           tokensUnavailable={usage.data === null && usage.error !== null}
         />
+        {/* Pinned to the bottom when there is spare height; flows normally when the body scrolls. */}
         <PromptActivity
+          className="mt-auto"
           days={days}
           today={today}
           weekStartDay={weekStartDay}
+          weekThreads={activity.data?.weekThreads ?? 0}
           error={activity.data === null ? activity.error : null}
         />
       </div>
@@ -167,10 +174,11 @@ function Section(props: {
   tone: keyof typeof SECTION_TONES;
   title: string;
   aside?: ReactNode;
+  className?: string | undefined;
   children: ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-2">
+    <section className={cn("flex flex-col gap-2", props.className)}>
       <div className="flex items-center gap-2">
         <span
           aria-hidden
@@ -269,24 +277,27 @@ function TicketFlow(props: { data: LinearBoardStatsResult | null; error: string 
           {data.moves.length === 0 ? (
             <Note>No moves since Monday yet.</Note>
           ) : (
-            <ul className="flex flex-wrap gap-1">
+            // Two columns; every row shares its track widths so arrows and counts line up.
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               {data.moves.slice(0, MAX_MOVES_SHOWN).map((move) => (
                 <li
                   key={`${move.from ?? ""}→${move.to}`}
-                  className="inline-flex h-5 items-center gap-1 rounded-full border border-border/70 bg-muted/40 px-2 text-2xs"
+                  className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_2rem] items-center gap-x-1.5 text-xs"
                 >
                   {move.from === null ? (
                     <span className="text-muted-foreground">New</span>
                   ) : (
-                    <>
+                    <span className="flex min-w-0 items-center gap-1.5">
                       <Dot color={move.fromColor} />
-                      {move.from}
-                    </>
+                      <span className="truncate">{move.from}</span>
+                    </span>
                   )}
                   <span className="text-muted-foreground">→</span>
-                  <Dot color={move.toColor} />
-                  {move.to}
-                  <span className="font-semibold tabular-nums">×{move.count}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Dot color={move.toColor} />
+                    <span className="truncate">{move.to}</span>
+                  </span>
+                  <span className="text-right font-semibold tabular-nums">×{move.count}</span>
                 </li>
               ))}
             </ul>
@@ -330,7 +341,6 @@ function AgentTable(props: {
           <thead>
             <tr className="text-2xs text-muted-foreground">
               <th className="pb-1 text-left font-medium">Model</th>
-              <th className="w-16 pb-1 text-center font-medium">Running</th>
               <th className="w-14 pb-1 text-right font-medium">Today</th>
               <th className="w-14 pb-1 text-right font-medium">Week</th>
             </tr>
@@ -339,40 +349,18 @@ function AgentTable(props: {
             {props.rows.map((row) => {
               const color =
                 row.provider === null ? NO_COLOR : PROVIDER_PRESENTATION[row.provider].color;
-              const agents = row.threads + row.subagents;
               return (
                 <tr key={row.key} className="border-t border-border/50">
                   <td className="py-1">
                     <span className="flex min-w-0 items-center gap-1.5">
                       <Dot color={color} />
                       <span className="truncate">{row.label}</span>
+                      <RunningAgents
+                        threads={row.threads}
+                        subagents={row.subagents}
+                        color={color}
+                      />
                     </span>
-                  </td>
-                  <td className="py-1 text-center">
-                    {agents === 0 ? (
-                      <span className="tabular-nums text-muted-foreground/60">0</span>
-                    ) : (
-                      <Tooltip>
-                        <TooltipTrigger
-                          render={
-                            <span
-                              className="inline-flex min-w-5 justify-center rounded-full border px-1.5 text-2xs font-semibold tabular-nums"
-                              style={{
-                                borderColor: `color-mix(in srgb, ${color} 55%, transparent)`,
-                                backgroundColor: `color-mix(in srgb, ${color} 22%, transparent)`,
-                              }}
-                            />
-                          }
-                        >
-                          {agents}
-                        </TooltipTrigger>
-                        <TooltipPopup>
-                          <p>
-                            {plural(row.threads, "thread")} · {plural(row.subagents, "subagent")}
-                          </p>
-                        </TooltipPopup>
-                      </Tooltip>
-                    )}
                   </td>
                   <TokenCell
                     tokens={row.todayTokens}
@@ -397,6 +385,38 @@ function AgentTable(props: {
 }
 
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun : `${noun}s`}`;
+
+/** One robot per running agent: threads at full strength, then dimmer subagents, capped with `+N`. */
+function RunningAgents(props: { threads: number; subagents: number; color: string }) {
+  const total = props.threads + props.subagents;
+  if (total === 0) return null;
+  const shown = Math.min(total, MAX_AGENT_ICONS);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="flex shrink-0 items-center gap-0.5" style={{ color: props.color }} />
+        }
+      >
+        {Array.from({ length: shown }, (_, index) => (
+          <BotIcon
+            key={index}
+            aria-hidden
+            className={cn("size-3", index >= props.threads && "opacity-50")}
+          />
+        ))}
+        {total > shown ? (
+          <span className="text-2xs font-semibold tabular-nums">+{total - shown}</span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipPopup>
+        <p>
+          {plural(props.threads, "thread")} · {plural(props.subagents, "subagent")}
+        </p>
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function TokenCell(props: { tokens: number; share: number; color: string; unavailable: boolean }) {
   return (
@@ -427,22 +447,32 @@ function PromptActivity(props: {
   days: ReturnType<typeof promptDays>;
   today: string;
   weekStartDay: string;
+  weekThreads: number;
   error: string | null;
+  className?: string;
 }) {
-  const todayCount = props.days.find((entry) => entry.day === props.today)?.count ?? 0;
+  const todayEntry = props.days.find((entry) => entry.day === props.today);
   const weekCount = props.days
     .filter((entry) => entry.day >= props.weekStartDay)
     .reduce((sum, entry) => sum + entry.count, 0);
   const max = Math.max(1, ...props.days.map((entry) => entry.count));
   return (
-    <Section icon={<ZapIcon />} tone="primary" title="Prompts">
+    <Section icon={<ZapIcon />} tone="primary" title="Prompts" className={props.className}>
       {props.error !== null ? (
         <Note tone="error">{props.error}</Note>
       ) : (
         <div className="flex items-end gap-4">
           <div className="flex shrink-0 gap-4">
-            <BigNumber label="Today" value={todayCount} />
-            <BigNumber label="This week" value={weekCount} />
+            <BigNumber
+              label="Today"
+              value={todayEntry?.count ?? 0}
+              detail={plural(todayEntry?.threads ?? 0, "thread")}
+            />
+            <BigNumber
+              label="This week"
+              value={weekCount}
+              detail={plural(props.weekThreads, "thread")}
+            />
           </div>
           <div className="flex h-14 min-w-0 flex-1 items-end gap-0.5">
             {props.days.map((entry) => {
@@ -479,7 +509,8 @@ function PromptActivity(props: {
                   </TooltipTrigger>
                   <TooltipPopup>
                     <p>
-                      {DAY_LABEL.format(entry.date)} · {plural(entry.count, "prompt")}
+                      {DAY_LABEL.format(entry.date)} · {plural(entry.count, "prompt")} ·{" "}
+                      {plural(entry.threads, "thread")}
                     </p>
                   </TooltipPopup>
                 </Tooltip>
@@ -492,11 +523,13 @@ function PromptActivity(props: {
   );
 }
 
-function BigNumber({ label, value }: { label: string; value: number }) {
+function BigNumber({ label, value, detail }: { label: string; value: number; detail: string }) {
   return (
     <div className="flex flex-col">
       <span className="text-2xl font-bold leading-none tabular-nums">{value}</span>
-      <span className="mt-1 text-2xs text-muted-foreground">{label}</span>
+      <span className="mt-1 text-2xs text-muted-foreground">
+        {label} · {detail}
+      </span>
     </div>
   );
 }

@@ -30,18 +30,18 @@ describe("promptDays", () => {
   it("fills every day of the window, oldest first, across a month end", () => {
     const days = promptDays(
       [
-        { day: "2026-10-31", count: 3 },
-        { day: "2026-11-02", count: 5 },
-        { day: "2026-10-01", count: 9 },
+        { day: "2026-10-31", count: 3, threads: 2 },
+        { day: "2026-11-02", count: 5, threads: 4 },
+        { day: "2026-10-01", count: 9, threads: 1 },
       ],
       new Date(2026, 10, 2, 12),
       4,
     );
-    expect(days.map((entry) => [entry.day, entry.count])).toEqual([
-      ["2026-10-30", 0],
-      ["2026-10-31", 3],
-      ["2026-11-01", 0],
-      ["2026-11-02", 5],
+    expect(days.map((entry) => [entry.day, entry.count, entry.threads])).toEqual([
+      ["2026-10-30", 0, 0],
+      ["2026-10-31", 3, 2],
+      ["2026-11-01", 0, 0],
+      ["2026-11-02", 5, 4],
     ]);
   });
 });

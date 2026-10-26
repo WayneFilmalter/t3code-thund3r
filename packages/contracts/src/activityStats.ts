@@ -9,6 +9,8 @@ export const ActivityStatsInput = Schema.Struct({
   since: Schema.String,
   /** IANA time zone the prompt days are bucketed in. */
   timeZone: Schema.String,
+  /** `YYYY-MM-DD` in `timeZone`; threads prompted on or after it count toward `weekThreads`. */
+  weekStartDay: Schema.String,
 });
 export type ActivityStatsInput = typeof ActivityStatsInput.Type;
 
@@ -28,6 +30,8 @@ export const ActivityStatsDay = Schema.Struct({
   /** `YYYY-MM-DD` in the requested time zone. */
   day: Schema.String,
   count: Schema.Number,
+  /** Distinct threads prompted that day. */
+  threads: Schema.Number,
 });
 export type ActivityStatsDay = typeof ActivityStatsDay.Type;
 
@@ -35,6 +39,8 @@ export const ActivityStatsResult = Schema.Struct({
   agents: Schema.Array(ActivityStatsAgents),
   /** Prompts the user sent, per day that had any, oldest first. */
   promptsByDay: Schema.Array(ActivityStatsDay),
+  /** Distinct threads prompted on or after `weekStartDay`. */
+  weekThreads: Schema.Number,
 });
 export type ActivityStatsResult = typeof ActivityStatsResult.Type;
 
