@@ -42,12 +42,12 @@ function useControlWindowOpen(bridge: ControlWindowBridge | undefined): boolean 
   return open;
 }
 
-/** Background tint for the This PC block, following CPU load. */
+/** Background and border tint for the This PC block, following CPU load. */
 function cpuLoadTint(cpuUtilization: number | null): string | undefined {
   if (cpuUtilization === null) return undefined;
-  if (cpuUtilization >= 0.8) return "bg-destructive/12";
-  if (cpuUtilization >= 0.5) return "bg-warning/12";
-  return "bg-success/8";
+  if (cpuUtilization >= 0.8) return "border-destructive/60 bg-destructive/30";
+  if (cpuUtilization >= 0.5) return "border-warning/60 bg-warning/30";
+  return "border-success/60 bg-success/25";
 }
 
 function usedOfTotalGb(available: number, total: number): string {
