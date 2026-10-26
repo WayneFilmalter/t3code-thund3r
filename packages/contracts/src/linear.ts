@@ -90,6 +90,8 @@ export const LinearTicket = Schema.Struct({
   pullRequestUrl: Schema.NullOr(Schema.String),
   /** When someone other than the API key's owner last commented. */
   latestOthersCommentAt: Schema.NullOr(Schema.String),
+  /** The API key's owner is @-mentioned in the description or in someone else's comment. */
+  mentionsViewer: Schema.Boolean,
 });
 export type LinearTicket = typeof LinearTicket.Type;
 

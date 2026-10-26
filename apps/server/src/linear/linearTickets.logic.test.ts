@@ -6,6 +6,7 @@ import {
   latestOthersCommentAt,
   mapTicket,
   mapTicketDetail,
+  mentionsHandle,
   pickPullRequestUrl,
   readGraphqlData,
 } from "./linearTickets.logic.ts";
@@ -97,7 +98,29 @@ describe("mapTicket", () => {
       stateColor: "#0f783c",
       pullRequestUrl: "https://github.com/acme/web/pull/12",
       latestOthersCommentAt: "2026-10-22T10:00:00.000Z",
+      mentionsViewer: false,
     });
+  });
+
+  it("flags a mention of the viewer in the description or someone else's comment", () => {
+    const comment = (body: string, isMe: boolean) => ({
+      createdAt: "2026-10-22T10:00:00.000Z",
+      body,
+      user: { isMe },
+    });
+    const withComments = (...nodes: ReturnType<typeof comment>[]) => ({
+      ...issueNode,
+      comments: { nodes },
+    });
+    assert.isTrue(
+      mapTicket(withComments(comment("@wayne can you look?", false)), "wayne")?.mentionsViewer,
+    );
+    assert.isTrue(mapTicket({ ...issueNode, description: "cc @Wayne" }, "wayne")?.mentionsViewer);
+    // Your own comment, someone else's handle, or no known viewer is not a mention.
+    assert.isFalse(
+      mapTicket(withComments(comment("note to self @wayne", true)), "wayne")?.mentionsViewer,
+    );
+    assert.isFalse(mapTicket(withComments(comment("@wayne", false)), null)?.mentionsViewer);
   });
 
   it("reads an unfamiliar state type as unknown and skips nodes without an identifier", () => {
@@ -106,6 +129,17 @@ describe("mapTicket", () => {
       "unknown",
     );
     assert.isNull(mapTicket({ id: "uuid-2", title: "No identifier" }));
+  });
+});
+
+describe("mentionsHandle", () => {
+  it("matches the whole handle only", () => {
+    assert.isTrue(mentionsHandle("@wayne said", "wayne"));
+    assert.isTrue(mentionsHandle("thanks, @wayne.", "wayne"));
+    assert.isFalse(mentionsHandle("@waynes said", "wayne"));
+    assert.isFalse(mentionsHandle("branch wayne/kre-1301", "wayne"));
+    assert.isFalse(mentionsHandle("mail me@wayne.dev", "wayne"));
+    assert.isTrue(mentionsHandle("@j.doe ping", "j.doe"));
   });
 });
 

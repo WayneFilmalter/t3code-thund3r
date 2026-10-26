@@ -28,26 +28,34 @@ const readNumber = (value: unknown): number | null =>
 const readNodes = (value: unknown): ReadonlyArray<Record<string, unknown>> =>
   isRecord(value) && Array.isArray(value.nodes) ? value.nodes.filter(isRecord) : [];
 
-/** Fields every ticket query selects; the comment slice only feeds the unread dot. */
+/**
+ * Fields every ticket query selects. The description and comment slice feed
+ * the unread dot and the mention border; only those two flags leave the server.
+ */
 export const TICKET_FIELDS = `
-  id identifier title url branchName priority estimate
+  id identifier title url branchName priority estimate description
   state { name type color }
   attachments { nodes { url sourceType metadata } }
-  comments(first: 50) { nodes { createdAt user { isMe } } }
+  comments(first: 50) { nodes { createdAt body user { isMe } } }
 `;
 
+/** Every ticket query asks who the key belongs to, so mentions can be matched. */
+const VIEWER_FIELDS = "viewer { displayName }";
+
 export const TICKETS_QUERY = `query PriorityTickets($filter: IssueFilter!) {
+  ${VIEWER_FIELDS}
   issues(first: 100, filter: $filter) { nodes { ${TICKET_FIELDS} } }
 }`;
 
 export const SEARCH_QUERY = `query PrioritySearch($term: String!) {
+  ${VIEWER_FIELDS}
   searchIssues(term: $term, first: 10) { nodes { ${TICKET_FIELDS} } }
 }`;
 
 export const DETAIL_QUERY = `query PriorityTicket($id: String!) {
+  ${VIEWER_FIELDS}
   issue(id: $id) {
     ${TICKET_FIELDS}
-    description
     assignee { name displayName }
     thread: comments(first: 250) {
       nodes { id body createdAt user { name displayName avatarUrl isMe } botActor { name } }
@@ -122,8 +130,31 @@ export function latestOthersCommentAt(comments: unknown): string | null {
   return latest;
 }
 
+/** The key owner's handle from a query's `viewer`, which Linear's markdown writes as `@handle`. */
+export const readViewerHandle = (viewer: unknown): string | null =>
+  isRecord(viewer) ? readString(viewer.displayName) : null;
+
+/** Whether markdown @-mentions `handle`; `@wayne` matches, `@waynes` and `wayne/branch` do not. */
+export function mentionsHandle(markdown: string, handle: string): boolean {
+  const escaped = handle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w@])@${escaped}(?![\\w-])`, "i").test(markdown);
+}
+
+/** The description, or a comment by someone else, mentions the key's owner. */
+export function ticketMentionsViewer(
+  node: Record<string, unknown>,
+  handle: string | null,
+): boolean {
+  if (handle === null) return false;
+  if (mentionsHandle(readString(node.description) ?? "", handle)) return true;
+  return readNodes(node.comments).some((comment) => {
+    const user = isRecord(comment.user) ? comment.user : null;
+    return user?.isMe !== true && mentionsHandle(readString(comment.body) ?? "", handle);
+  });
+}
+
 /** A ticket from one GraphQL issue node, or null when the node lacks an identifier. */
-export function mapTicket(node: unknown): LinearTicket | null {
+export function mapTicket(node: unknown, viewerHandle: string | null = null): LinearTicket | null {
   if (!isRecord(node)) return null;
   const id = readString(node.id);
   const identifier = readString(node.identifier);
@@ -144,11 +175,15 @@ export function mapTicket(node: unknown): LinearTicket | null {
     stateColor: readString(state.color) ?? "#8a8f98",
     pullRequestUrl: pickPullRequestUrl(node.attachments),
     latestOthersCommentAt: latestOthersCommentAt(node.comments),
+    mentionsViewer: ticketMentionsViewer(node, viewerHandle),
   };
 }
 
-export function mapTickets(nodes: unknown): ReadonlyArray<LinearTicket> {
-  return readNodes(nodes).flatMap((node) => mapTicket(node) ?? []);
+export function mapTickets(
+  nodes: unknown,
+  viewerHandle: string | null = null,
+): ReadonlyArray<LinearTicket> {
+  return readNodes(nodes).flatMap((node) => mapTicket(node, viewerHandle) ?? []);
 }
 
 function mapComment(node: Record<string, unknown>): LinearTicketComment | null {
@@ -169,8 +204,11 @@ function mapComment(node: Record<string, unknown>): LinearTicketComment | null {
 }
 
 /** The full ticket for the detail view; comments oldest first. */
-export function mapTicketDetail(node: unknown): LinearTicketDetail | null {
-  const ticket = mapTicket(node);
+export function mapTicketDetail(
+  node: unknown,
+  viewerHandle: string | null = null,
+): LinearTicketDetail | null {
+  const ticket = mapTicket(node, viewerHandle);
   if (ticket === null || !isRecord(node)) return null;
   const assignee = isRecord(node.assignee) ? node.assignee : null;
   const comments = readNodes(node.thread)

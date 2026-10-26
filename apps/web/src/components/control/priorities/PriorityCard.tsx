@@ -11,7 +11,9 @@ import { CommentBox, TicketActions, TicketPriorityBadge, TicketStateChip } from 
  * One priority. The border takes the ticket's priority colour, or its
  * workflow state's when it has none, and a strip down the left edge always
  * carries the state colour, so the list reads at a glance. A red dot means
- * someone else commented since the ticket was last opened.
+ * someone else commented since the ticket was last opened, and a blue glowing
+ * border that you are @-mentioned in it. The glow is a static shadow, not an
+ * animation, so it costs nothing per frame.
  */
 export function PriorityCard(props: {
   environmentId: EnvironmentId;
@@ -28,17 +30,18 @@ export function PriorityCard(props: {
   const { ticket } = props;
   const tone = PRIORITY_TONES[ticket.priority];
   const tintedBorder =
-    ticket.priority === "none"
+    ticket.priority === "none" && !ticket.mentionsViewer
       ? { borderColor: `color-mix(in srgb, ${ticket.stateColor} 45%, transparent)` }
       : undefined;
   return (
     <li
       className={cn(
         "relative overflow-hidden rounded-lg border bg-card/60 transition-colors hover:bg-card",
-        tone.bubble,
+        ticket.mentionsViewer ? "border-info shadow-mention-glow" : tone.bubble,
       )}
       style={tintedBorder}
     >
+      {ticket.mentionsViewer ? <span className="sr-only">Mentions you.</span> : null}
       <span
         aria-hidden
         className="absolute inset-y-0 left-0 w-[3px]"

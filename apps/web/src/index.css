@@ -202,6 +202,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      by the composer, its context strip and attached banners. */
   --shadow-composer: 0 12px 28px -18px rgb(0 0 0 / 40%);
   --shadow-composer-dark: 0 14px 32px -18px rgb(0 0 0 / 75%);
+  /* A static neon glow in the info blue: Control window cards that mention you. */
+  --shadow-mention-glow:
+    0 0 4px color-mix(in srgb, var(--info) 70%, transparent),
+    0 0 10px color-mix(in srgb, var(--info) 35%, transparent);
   /* Dark-mode shade where an attached surface meets the composer: 10px of
      shadow fading away from the seam. Inline, so the offsets resolve on the
      element. below: the context strip under the composer (1rem seam, faint

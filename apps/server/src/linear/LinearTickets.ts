@@ -32,6 +32,7 @@ import {
   identifierFilter,
   mapTicketDetail,
   mapTickets,
+  readViewerHandle,
   readGraphqlData,
 } from "./linearTickets.logic.ts";
 
@@ -121,7 +122,7 @@ const make = Effect.gen(function* () {
     const identifiers = [...new Set(input.identifiers)];
     if (identifiers.length === 0) return { tickets: [], missing: [] };
     const data = yield* graphql(TICKETS_QUERY, { filter: identifierFilter(identifiers) });
-    const found = mapTickets(data.issues);
+    const found = mapTickets(data.issues, readViewerHandle(data.viewer));
     const byIdentifier = new Map(found.map((ticket) => [ticket.identifier, ticket]));
     // Requested order, so a pasted list keeps its order in the confirm dialog.
     return {
@@ -141,14 +142,14 @@ const make = Effect.gen(function* () {
       if (exact.tickets.length > 0) return { tickets: exact.tickets };
     }
     const data = yield* graphql(SEARCH_QUERY, { term });
-    return { tickets: mapTickets(data.searchIssues) };
+    return { tickets: mapTickets(data.searchIssues, readViewerHandle(data.viewer)) };
   });
 
   const getTicketDetail = Effect.fn("LinearTickets.getTicketDetail")(function* (
     input: LinearTicketDetailInput,
   ) {
     const data = yield* graphql(DETAIL_QUERY, { id: input.identifier });
-    const detail = mapTicketDetail(data.issue);
+    const detail = mapTicketDetail(data.issue, readViewerHandle(data.viewer));
     if (detail === null) {
       return yield* new LinearError({
         kind: "rejected",
