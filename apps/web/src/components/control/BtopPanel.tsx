@@ -11,8 +11,9 @@ import { BTOP_TERMINAL_ID, CONTROL_THREAD_ID, useBtopSession } from "./btopSessi
 const noop = () => {};
 
 /**
- * Control window panel running btop on this machine. Each mount starts a fresh
- * btop; the main window stops it when the Control window closes.
+ * Control window panel running btop on this machine. Each mount, and each
+ * reconnect to the server, starts a fresh btop; the main window stops it when
+ * the Control window closes.
  */
 export function BtopPanel() {
   const btop = useBtopSession();
@@ -23,8 +24,9 @@ export function BtopPanel() {
   );
   const [status, setStatus] = useState<"starting" | "ready" | "failed">("starting");
   const startQueueRef = useRef(Promise.resolve());
-  const { environmentId, cwd, keybindings, canOperate } = btop;
-  const ready = environmentId !== null && cwd !== null && keybindings !== null && canOperate;
+  const { environmentId, cwd, keybindings, canOperate, connected } = btop;
+  const ready =
+    environmentId !== null && cwd !== null && keybindings !== null && canOperate && connected;
   const startBtop = useEffectEvent(() => btop.start());
   const threadRef = useMemo(
     () => (environmentId === null ? null : scopeThreadRef(environmentId, CONTROL_THREAD_ID)),
@@ -37,6 +39,7 @@ export function BtopPanel() {
     let active = true;
     startQueueRef.current = startQueueRef.current.then(async () => {
       if (!active) return;
+      setStatus("starting");
       const started = await startBtop();
       if (active) setStatus(started ? "ready" : "failed");
     });
@@ -50,9 +53,11 @@ export function BtopPanel() {
       ? "No local server."
       : cwd !== null && keybindings !== null && !canOperate
         ? "This connection cannot control terminals."
-        : status === "failed"
-          ? "Could not start btop."
-          : "Starting btop…";
+        : !connected
+          ? "Waiting for the server…"
+          : status === "failed"
+            ? "Could not start btop."
+            : "Starting btop…";
 
   return (
     <div data-thread-terminal-drawer className="relative h-full w-full">

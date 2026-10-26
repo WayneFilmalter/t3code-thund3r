@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { AuthTerminalOperateScope, type EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { useCallback } from "react";
 
-import { usePrimaryEnvironmentId } from "~/state/environments";
+import { useConnectedEnvironmentIds, usePrimaryEnvironmentId } from "~/state/environments";
 import { serverEnvironment } from "~/state/server";
 import { useEnvironmentScope } from "~/state/session";
 import { terminalEnvironment } from "~/state/terminal";
@@ -24,6 +24,7 @@ export function useBtopSession() {
   const environmentId = usePrimaryEnvironmentId();
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const canOperate = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
+  const connected = useConnectedEnvironmentIds().some((id) => id === environmentId);
   const restartTerminal = useAtomCommand(terminalEnvironment.restart, { reportFailure: false });
   const writeTerminal = useAtomCommand(terminalEnvironment.write, { reportFailure: false });
   const closeTerminal = useAtomCommand(terminalEnvironment.close, { reportFailure: false });
@@ -65,6 +66,7 @@ export function useBtopSession() {
     cwd,
     keybindings: serverConfig?.keybindings ?? null,
     canOperate,
+    connected,
     start,
     stop,
   };
