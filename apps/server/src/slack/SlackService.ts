@@ -1,8 +1,8 @@
 /**
- * SlackService — the Control window's Slack feed and the priority slash
- * commands. One server-lifetime instance owns the only Slack connection and
- * keeps it open while Slack is connected, so `/add-priority` works when no
- * Control window is open. Slack spreads events across an app's sockets, so a
+ * SlackService — the Control window's Slack feed and the priority requests
+ * (see `slackCommands`). One server-lifetime instance owns the only Slack
+ * connection and keeps it open while Slack is connected, so requests work
+ * when no Control window is open. Slack spreads events across an app's sockets, so a
  * second connection would split the feed; there is only ever this one.
  *
  * A connection opens a Socket Mode websocket with the app-level token, then
@@ -27,6 +27,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import { HttpClient, HttpClientRequest } from "effect/http";
@@ -34,7 +35,15 @@ import * as Socket from "effect/socket/Socket";
 
 import { LinearTickets } from "../linear/LinearTickets.ts";
 import * as Settings from "../serverSettings.ts";
-import { readSlashCommand, runPriorityCommand, type SlackSlashCommand } from "./slackCommands.ts";
+import {
+  isSlackTsAfter,
+  PRIORITY_CHANNEL_NAME,
+  type PriorityRequest,
+  readPriorityMessage,
+  readSlashCommand,
+  runPriorityCommand,
+  type SlackSlashCommand,
+} from "./slackCommands.ts";
 import {
   buildPermalink,
   escapeSlackText,
@@ -52,6 +61,8 @@ import {
 
 const SLACK_API = "https://slack.com/api/";
 const REQUEST_TIMEOUT = "20 seconds";
+/** Requests missed while the server was off, oldest first; more than a busy week brings. */
+const PRIORITY_CATCH_UP_LIMIT = 200;
 /** Search pages of 100; five covers a busy week without a long backfill. */
 const SEARCH_PAGE_SIZE = 100;
 const SEARCH_MAX_PAGES = 5;
@@ -305,12 +316,16 @@ const make = Effect.gen(function* () {
       if (!muted.has(message.channelId)) yield* publish({ _tag: "upsert", message });
     });
 
-  /** Answers through the command's response URL, so a slow Linear call never holds up the socket. */
-  const answerCommand = (command: SlackSlashCommand) =>
-    runPriorityCommand(command).pipe(
+  const runRequest = (request: PriorityRequest) =>
+    runPriorityCommand(request).pipe(
       Effect.provideService(Settings.ServerSettingsService, settingsService),
       Effect.provideService(LinearTickets, linearTickets),
       Effect.catch((error) => Effect.succeed(`Could not update priorities: ${describe(error)}`)),
+    );
+
+  /** Answers through the command's response URL, so a slow Linear call never holds up the socket. */
+  const answerCommand = (command: SlackSlashCommand) =>
+    runRequest(command).pipe(
       Effect.flatMap((text) =>
         httpClient.execute(
           HttpClientRequest.post(command.responseUrl).pipe(
@@ -321,6 +336,77 @@ const make = Effect.gen(function* () {
       Effect.timeout(REQUEST_TIMEOUT),
       Effect.ignore,
     );
+
+  type ChannelRequest = PriorityRequest & { readonly ts: string; readonly channelId: string };
+  // One at a time and in order, so the cursor only ever moves forward.
+  const channelRequests = yield* Queue.unbounded<ChannelRequest>();
+
+  const readSettings = settingsService.getSettings.pipe(
+    Effect.mapError(
+      () => new SlackError({ kind: "unreachable", detail: "Could not read Slack settings." }),
+    ),
+  );
+  const saveCursor = (ts: string) =>
+    settingsService.updateSettings({ slack: { priorityCursor: ts } }).pipe(Effect.ignore);
+
+  /**
+   * Handles one #priorities request, unless the cursor shows it was handled
+   * already, and answers in its thread as Thund3rBot (as the user without a
+   * bot token). The cursor moves even when the answer fails, so a broken
+   * reply never repeats a change.
+   */
+  const handleChannelRequest = (request: ChannelRequest) =>
+    Effect.gen(function* () {
+      const settings = yield* readSettings;
+      const cursor = settings.slack.priorityCursor;
+      if (cursor.length > 0 && !isSlackTsAfter(request.ts, cursor)) return;
+      const text = yield* runRequest(request);
+      yield* saveCursor(request.ts);
+      const token = settings.slack.botToken || settings.slack.userToken;
+      yield* api(token, "chat.postMessage", {
+        channel: request.channelId,
+        thread_ts: request.ts,
+        text,
+        unfurl_links: "false",
+      });
+    }).pipe(Effect.ignore);
+
+  /** #priorities by name among the user's conversations; null when they are not in it. */
+  const findPriorityChannel = (token: string) =>
+    api(token, "users.conversations", {
+      types: "public_channel,private_channel",
+      exclude_archived: "true",
+      limit: "1000",
+    }).pipe(
+      Effect.map((body) => {
+        const list = Array.isArray(body.channels) ? body.channels.filter(isRecord) : [];
+        const channel = list.find((entry) => entry.name === PRIORITY_CHANNEL_NAME);
+        return typeof channel?.id === "string" ? channel.id : null;
+      }),
+      // The feed must not depend on the channel existing.
+      Effect.orElseSucceed(() => null),
+    );
+
+  /** Queues the requests posted since the cursor; the first connection only sets it. */
+  const catchUpPriorityRequests = (token: string, channelId: string) =>
+    Effect.gen(function* () {
+      const cursor = (yield* readSettings).slack.priorityCursor;
+      if (cursor.length === 0) {
+        const now = yield* Clock.currentTimeMillis;
+        return yield* saveCursor((now / 1000).toFixed(6));
+      }
+      const body = yield* api(token, "conversations.history", {
+        channel: channelId,
+        oldest: cursor,
+        limit: String(PRIORITY_CATCH_UP_LIMIT),
+      });
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      // Newest first from Slack; handled oldest first.
+      for (const message of messages.toReversed()) {
+        const request = readPriorityMessage(message);
+        if (request !== null) yield* Queue.offer(channelRequests, { ...request, channelId });
+      }
+    }).pipe(Effect.ignore);
 
   /**
    * One Socket Mode connection: open it, backfill while its events buffer,
@@ -362,6 +448,8 @@ const make = Effect.gen(function* () {
         );
 
         const messages = yield* backfill(userToken, self);
+        const priorityChannel = yield* findPriorityChannel(userToken);
+        if (priorityChannel !== null) yield* catchUpPriorityRequests(userToken, priorityChannel);
         feed.clear();
         for (const message of messages) feed.set(feedKey(message.channelId, message.ts), message);
         status = {
@@ -394,7 +482,15 @@ const make = Effect.gen(function* () {
             }
             if (envelope.type === "disconnect") return;
             if (envelope.type === "events_api" && isRecord(envelope.payload)) {
-              yield* applyEvent(userToken, self, envelope.payload.event);
+              const event = envelope.payload.event;
+              const request =
+                isRecord(event) && event.channel === priorityChannel
+                  ? readPriorityMessage(event)
+                  : null;
+              if (request !== null && priorityChannel !== null) {
+                yield* Queue.offer(channelRequests, { ...request, channelId: priorityChannel });
+              }
+              yield* applyEvent(userToken, self, event);
             }
             if (envelope.type === "slash_commands") {
               const command = readSlashCommand(envelope.payload);
@@ -483,6 +579,7 @@ const make = Effect.gen(function* () {
     yield* Effect.all(
       [
         followMutes,
+        Effect.forever(Queue.take(channelRequests).pipe(Effect.flatMap(handleChannelRequest))),
         restarts.pipe(
           Stream.switchMap(() => Stream.fromEffect(supervise)),
           Stream.runDrain,

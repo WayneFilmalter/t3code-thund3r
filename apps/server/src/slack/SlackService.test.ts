@@ -37,10 +37,17 @@ const makeFakeSocket = () => {
   return { ws, sent, closed, deliver };
 };
 
-/** Slack's Web API, answering each method the service calls. Command answers go to `answers`. */
+/**
+ * Slack's Web API, answering each method the service calls. Command answers
+ * and #priorities replies go to `answers`; `history` is #priorities' history.
+ */
 const fakeSlackApi = (
   posted: Array<URLSearchParams>,
-  commands?: { answers: Queue.Queue<string>; connected: Deferred.Deferred<void> },
+  commands?: {
+    answers: Queue.Queue<string>;
+    connected: Deferred.Deferred<void>;
+    history?: ReadonlyArray<unknown>;
+  },
 ) =>
   HttpClient.make((request) => {
     if (request.url.startsWith(RESPONSE_URL)) {
@@ -79,8 +86,14 @@ const fakeSlackApi = (
               paging: { pages: 1 },
             },
           };
+        case "users.conversations":
+          return { ok: true, channels: [{ id: "CPRI", name: "priorities" }] };
+        case "conversations.history":
+          return { ok: true, messages: commands?.history ?? [] };
         case "chat.postMessage":
+          params.set("token", request.headers.authorization ?? "");
           posted.push(params);
+          if (commands !== undefined) Queue.offerUnsafe(commands.answers, params.get("text") ?? "");
           return { ok: true, ts: "9.000900" };
         default:
           return { ok: false, error: "unknown_method" };
@@ -130,14 +143,14 @@ const fakeLinear = LinearTickets.LinearTickets.of({
 const makeLayer = (
   socket: ReturnType<typeof makeFakeSocket>,
   posted: Array<URLSearchParams>,
-  mutedChannels: Record<string, string> = {},
+  slack: { mutedChannels?: Record<string, string>; priorityCursor?: string } = {},
   commands?: Parameters<typeof fakeSlackApi>[1],
 ) =>
   SlackService.layer.pipe(
     Layer.provideMerge(
       ServerSettings.ServerSettingsService.layerTest({
         linear: { teamKey: "ENG" },
-        slack: { userToken: "xoxp-test", appToken: "xapp-test", mutedChannels },
+        slack: { userToken: "xoxp-test", appToken: "xapp-test", botToken: "xoxb-test", ...slack },
       }),
     ),
     Layer.provide(Layer.succeed(LinearTickets.LinearTickets, fakeLinear)),
@@ -236,7 +249,7 @@ it.effect("keeps muted channels out of snapshots and live updates", () => {
     assert.equal(upsert._tag === "upsert" ? upsert.message.channelId : null, "C2");
     // Muted or not, Slack still gets its acknowledgement.
     assert.lengthOf(socket.sent, 2);
-  }).pipe(Effect.provide(makeLayer(socket, [], { C1: "#general" })));
+  }).pipe(Effect.provide(makeLayer(socket, [], { mutedChannels: { C1: "#general" } })));
 });
 
 it.effect("adds, lists and removes priorities from slash commands without a subscriber", () => {
@@ -291,4 +304,76 @@ it.effect("adds, lists and removes priorities from slash commands without a subs
       assert.lengthOf(socket.sent, 4);
     });
   }
+});
+
+it.effect("catches up on #priorities requests missed while off, then answers live ones", () => {
+  const socket = makeFakeSocket();
+  const posted: Array<URLSearchParams> = [];
+  // Newest first, as Slack returns history.
+  const history = [
+    { type: "message", user: "U1", ts: "103.000000", text: "remove ENG-9" },
+    { type: "message", user: "U1", ts: "102.000000", text: "lunch anyone?" },
+    { type: "message", bot_id: "B1", ts: "101.500000", text: "add ENG-2" },
+    { type: "message", user: "U1", ts: "101.000000", text: "add ENG-1" },
+  ];
+  return Effect.gen(function* () {
+    const answers = yield* Queue.unbounded<string>();
+    const connected = Deferred.makeUnsafe<void>();
+    yield* Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+
+      assert.include(yield* Queue.take(answers), "Added to the priority list:");
+      assert.equal(yield* Queue.take(answers), "Not on the list: ENG-9.");
+      assert.deepEqual(
+        posted.map((params) => [
+          params.get("thread_ts"),
+          params.get("channel"),
+          params.get("token"),
+        ]),
+        [
+          ["101.000000", "CPRI", "Bearer xoxb-test"],
+          ["103.000000", "CPRI", "Bearer xoxb-test"],
+        ],
+      );
+
+      yield* Deferred.await(connected);
+      const live = {
+        envelope_id: "env-1",
+        type: "events_api",
+        payload: {
+          event: {
+            type: "message",
+            channel: "CPRI",
+            channel_type: "channel",
+            user: "U2",
+            text: "Add ENG-2",
+            ts: "104.000000",
+          },
+        },
+      };
+      socket.deliver(live);
+      assert.include(yield* Queue.take(answers), "ENG-2");
+      // A redelivered event is already behind the cursor; the next answer is the list.
+      socket.deliver({ ...live, envelope_id: "env-2" });
+      socket.deliver({
+        ...live,
+        envelope_id: "env-3",
+        payload: { event: { ...live.payload.event, text: "list", ts: "105.000000" } },
+      });
+      assert.include(yield* Queue.take(answers), "*Priorities* (2)");
+
+      const current = yield* settings.getSettings;
+      assert.deepEqual(Object.keys(current.linear.priorities), ["ENG-1", "ENG-2"]);
+      assert.equal(current.slack.priorityCursor, "105.000000");
+    }).pipe(
+      Effect.provide(
+        makeLayer(
+          socket,
+          posted,
+          { priorityCursor: "100.000000" },
+          { answers, connected, history },
+        ),
+      ),
+    );
+  });
 });

@@ -159,7 +159,8 @@ export function mapSettingsSecrets(
   const slack = mapFields(
     settings.slack,
     slackSecretFields,
-    (field) => `slack-${field === "appToken" ? "app" : "user"}-token`,
+    (field) =>
+      `slack-${field === "appToken" ? "app" : field === "botToken" ? "bot" : "user"}-token`,
   ) as ServerSettings["slack"];
 
   return { ...settings, providerInstances, sourceControlHosts, usageLimitSources, linear, slack };

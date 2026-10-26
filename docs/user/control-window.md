@@ -22,9 +22,16 @@ Once Slack is connected, anyone in your workspace can look at and change the lis
 - `/add-priority ENG-482 #490` adds tickets. It reads ticket numbers, `#482`, bare numbers and Linear links, just like pasting into the Control tab.
 - `/remove-priority ENG-482` takes tickets off.
 
-Only the person who ran the command sees the answer. Changes show up in the Priorities panel straight away. The commands work while T3 Code's server is running, even with the Control window closed.
+Only the person who ran the command sees the answer. Changes show up in the Priorities panel straight away. Slash commands only work while T3 Code's server is running; one sent while it is off fails and is not kept.
 
-If you connected Slack before these commands existed, copy the app manifest again, paste it over the old one under **App Manifest** on your Slack app's page, then reinstall the app to your workspace so it gets the new permission.
+Requests posted as messages in a `#priorities` channel are never lost. Start a message with `add`, `remove` or `list`, such as `add ENG-482 #490`. Other messages in the channel are ignored. Thund3rBot answers in the message's thread. If T3 Code was off, it handles everything posted since it last ran as soon as it starts again, and answers each one then.
+
+For `#priorities` to work:
+
+- Create a channel named `priorities` and join it yourself; T3 Code reads it through your account.
+- Paste the **Bot User OAuth Token** (it starts with `xoxb-`) into the Slack settings so the answers come from Thund3rBot. Without it they are posted as you. In a private channel, also invite Thund3rBot.
+
+If you connected Slack before these features existed, copy the app manifest again, paste it over the old one under **App Manifest** on your Slack app's page, then reinstall the app to your workspace so it gets the new permissions.
 
 ## Slack feed
 

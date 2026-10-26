@@ -15,15 +15,16 @@ const NEW_APP_URL = "https://api.slack.com/apps?new_app=1";
 
 /**
  * Pasted into Slack's "From a manifest" flow: user scopes to read every
- * conversation and reply as the user, the priority slash commands, and Socket
- * Mode so new messages and commands arrive without a public URL.
+ * conversation and reply as the user, the priority slash commands, the
+ * Thund3rBot user that answers in #priorities, and Socket Mode so new
+ * messages and commands arrive without a public URL.
  */
 const SLACK_APP_MANIFEST = JSON.stringify(
   {
     display_information: { name: "T3 Code" },
     features: {
       // Slack only accepts slash commands and the `commands` scope on an app with a bot user.
-      bot_user: { display_name: "T3 Code", always_online: false },
+      bot_user: { display_name: "Thund3rBot", always_online: false },
       slash_commands: [
         { command: "/priorities", description: "List the priority tickets" },
         {
@@ -40,7 +41,8 @@ const SLACK_APP_MANIFEST = JSON.stringify(
     },
     oauth_config: {
       scopes: {
-        bot: ["commands"],
+        // chat:write.public lets Thund3rBot answer in a public #priorities without an invite.
+        bot: ["commands", "chat:write", "chat:write.public"],
         user: [
           "channels:history",
           "groups:history",
@@ -71,8 +73,9 @@ const SLACK_APP_MANIFEST = JSON.stringify(
 
 /**
  * Slack access for the Control window's feed: the user token reads messages
- * and replies as the user, the app-level token opens the live stream. Both are
- * kept in the server's secret store and are write-only, like the Linear key.
+ * and replies as the user, the app-level token opens the live stream, and the
+ * optional bot token lets Thund3rBot answer in #priorities. All are kept in
+ * the server's secret store and are write-only, like the Linear key.
  */
 export function SlackSettings({ environmentId }: { readonly environmentId: EnvironmentId }) {
   const slack = useEnvironmentSettings(environmentId, (settings) => settings.slack);
@@ -82,19 +85,26 @@ export function SlackSettings({ environmentId }: { readonly environmentId: Envir
   const { copyToClipboard, isCopied } = useCopyToClipboard();
   const [userToken, setUserToken] = useState("");
   const [appToken, setAppToken] = useState("");
+  const [botToken, setBotToken] = useState("");
   const [saving, setSaving] = useState(false);
   const userSaved = slack.userToken.length > 0;
   const appSaved = slack.appToken.length > 0;
-  const canSave = userToken.trim().length > 0 || appToken.trim().length > 0;
+  const botSaved = slack.botToken.length > 0;
+  const canSave = [userToken, appToken, botToken].some((token) => token.trim().length > 0);
 
-  const save = async (patch: { readonly userToken?: string; readonly appToken?: string }) => {
+  const save = async (patch: {
+    readonly userToken?: string;
+    readonly appToken?: string;
+    readonly botToken?: string;
+  }) => {
     setSaving(true);
     try {
       const result = await updateSettings({ environmentId, input: { patch: { slack: patch } } });
       if (result._tag === "Success") {
         setUserToken("");
         setAppToken("");
-        const removed = patch.userToken === "" && patch.appToken === "";
+        setBotToken("");
+        const removed = patch.userToken === "" && patch.appToken === "" && patch.botToken === "";
         toastManager.add({
           type: "success",
           title: removed ? "Slack disconnected" : "Slack tokens saved",
@@ -114,6 +124,7 @@ export function SlackSettings({ environmentId }: { readonly environmentId: Envir
         void save({
           ...(userToken.trim() ? { userToken: userToken.trim() } : {}),
           ...(appToken.trim() ? { appToken: appToken.trim() } : {}),
+          ...(botToken.trim() ? { botToken: botToken.trim() } : {}),
         });
       }}
     >
@@ -138,7 +149,10 @@ export function SlackSettings({ environmentId }: { readonly environmentId: Envir
             </InlineButton>
             .
           </li>
-          <li>Install it to your workspace and copy the User OAuth Token (xoxp-).</li>
+          <li>
+            Install it to your workspace and copy the User OAuth Token (xoxp-), and the Bot User
+            OAuth Token (xoxb-) for Thund3rBot&apos;s replies in #priorities.
+          </li>
           <li>
             Under Basic Information, generate an app-level token with connections:write (xapp-).
           </li>
@@ -166,6 +180,17 @@ export function SlackSettings({ environmentId }: { readonly environmentId: Envir
               onChange={(event) => setAppToken(event.target.value)}
             />
           </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor={`slack-bot-token-${environmentId}`}>Bot token (optional)</Label>
+            <SecretInput
+              id={`slack-bot-token-${environmentId}`}
+              size="sm"
+              placeholder="xoxb-…"
+              configured={botSaved}
+              value={botToken}
+              onChange={(event) => setBotToken(event.target.value)}
+            />
+          </div>
         </div>
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground">
@@ -176,12 +201,12 @@ export function SlackSettings({ environmentId }: { readonly environmentId: Envir
                 : "No tokens saved."}
           </p>
           <div className="flex shrink-0 gap-2">
-            {userSaved || appSaved ? (
+            {userSaved || appSaved || botSaved ? (
               <Button
                 size="xs"
                 variant="outline"
                 disabled={saving}
-                onClick={() => void save({ userToken: "", appToken: "" })}
+                onClick={() => void save({ userToken: "", appToken: "", botToken: "" })}
               >
                 Disconnect
               </Button>

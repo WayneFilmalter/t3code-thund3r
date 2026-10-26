@@ -853,14 +853,22 @@ export const LinearSettings = Schema.Struct({
 export type LinearSettings = typeof LinearSettings.Type;
 
 /**
- * Slack access for the Control window's feed. Both tokens come from a Slack
+ * Slack access for the Control window's feed. The tokens come from a Slack
  * app the user installs in their own workspace: the user token (`xoxp-`)
  * reads messages and posts replies as them, the app-level token (`xapp-`)
- * opens the Socket Mode stream that delivers new messages live.
+ * opens the Socket Mode stream that delivers new messages live, and the
+ * optional bot token (`xoxb-`) lets Thund3rBot answer in #priorities.
  */
 export const SlackSettings = Schema.Struct({
   userToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
   appToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  botToken: TrimmedString.pipe(Schema.withDecodingDefault(Effect.succeed("")), secretSetting),
+  /**
+   * The ts of the newest #priorities message handled, so requests posted
+   * while the server was off are handled when it comes back. Empty until the
+   * first connection, which starts from then rather than replaying history.
+   */
+  priorityCursor: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
   /** Conversations left out of the feed, by channel id, with the name to list them under. */
   mutedChannels: Schema.Record(Schema.String, Schema.String).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1699,6 +1707,8 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       userToken: Schema.optionalKey(TrimmedString),
       appToken: Schema.optionalKey(TrimmedString),
+      botToken: Schema.optionalKey(TrimmedString),
+      priorityCursor: Schema.optionalKey(Schema.String),
       mutedChannels: Schema.optionalKey(Schema.Record(Schema.String, Schema.NullOr(Schema.String))),
     }),
   ),

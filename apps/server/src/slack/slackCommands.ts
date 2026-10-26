@@ -1,9 +1,10 @@
 /**
- * Slack slash commands for the Control window's priority list:
- * `/priorities` lists it, `/add-priority` and `/remove-priority` change it.
- * Anyone in the workspace who can see the app can run them; the answer is
- * shown only to them. The list is the one in the server's Linear settings,
- * so a change shows up in every open Priorities panel straight away.
+ * Slack requests for the Control window's priority list. Slash commands
+ * (`/priorities`, `/add-priority`, `/remove-priority`) answer privately but
+ * are lost when the server is off. Messages in #priorities (`add ENG-482`,
+ * `remove ENG-482`, `list`) stay in Slack's history, so a restart catches up
+ * on them and Thund3rBot answers in their thread. Both change the list in the
+ * server's Linear settings, so every open Priorities panel updates at once.
  *
  * @module slack/slackCommands
  */
@@ -28,11 +29,56 @@ export interface SlackSlashCommand {
   readonly responseUrl: string;
 }
 
+/** A request: which command, and the text after it. */
+export type PriorityRequest = Pick<SlackSlashCommand, "command" | "text">;
+
 export const readSlashCommand = (payload: unknown): SlackSlashCommand | null => {
   if (typeof payload !== "object" || payload === null) return null;
   const { command, text, response_url: responseUrl } = payload as Record<string, unknown>;
   if (typeof command !== "string" || typeof responseUrl !== "string") return null;
   return { command, text: typeof text === "string" ? text : "", responseUrl };
+};
+
+/** The channel whose messages are priority requests. */
+export const PRIORITY_CHANNEL_NAME = "priorities";
+
+const MESSAGE_VERBS: Record<string, string> = {
+  add: "/add-priority",
+  remove: "/remove-priority",
+  list: "/priorities",
+};
+
+/**
+ * The request in a #priorities message, or null for ordinary chat. Only
+ * top-level messages from people count, so Thund3rBot's thread replies and
+ * other apps' posts never trigger anything.
+ */
+export const readPriorityMessage = (
+  message: unknown,
+): (PriorityRequest & { ts: string }) | null => {
+  if (typeof message !== "object" || message === null) return null;
+  const {
+    type,
+    subtype,
+    bot_id: botId,
+    ts,
+    thread_ts: threadTs,
+    text,
+  } = message as Record<string, unknown>;
+  if (type !== "message" || subtype !== undefined || botId !== undefined) return null;
+  if (typeof ts !== "string" || typeof text !== "string") return null;
+  if (threadTs !== undefined && threadTs !== ts) return null;
+  const match = /^\s*(\w+)\b(.*)$/s.exec(text);
+  const command = match === null ? undefined : MESSAGE_VERBS[match[1]!.toLowerCase()];
+  return command === undefined ? null : { ts, command, text: match![2]!.trim() };
+};
+
+/** Slack timestamps (`seconds.micros`) in order, without float rounding. */
+export const isSlackTsAfter = (ts: string, other: string): boolean => {
+  const [seconds = "", micros = ""] = ts.split(".");
+  const [otherSeconds = "", otherMicros = ""] = other.split(".");
+  if (Number(seconds) !== Number(otherSeconds)) return Number(seconds) > Number(otherSeconds);
+  return micros.padEnd(6, "0") > otherMicros.padEnd(6, "0");
 };
 
 /** More than a priority list ever holds; a runaway paste stops here. */
@@ -85,14 +131,13 @@ export const formatPriorityList = (
 };
 
 const USAGE: Record<string, string> = {
-  "/add-priority":
-    "Name the tickets to add, like `/add-priority ENG-482 #490` or paste a Linear link.",
-  "/remove-priority": "Name the tickets to remove, like `/remove-priority ENG-482`.",
+  "/add-priority": "Name the tickets to add, like `ENG-482 #490` or a Linear link.",
+  "/remove-priority": "Name the tickets to remove, like `ENG-482`.",
 };
 
 /** Runs one command and answers in Slack mrkdwn. Unknown commands get a short note. */
 export const runPriorityCommand = Effect.fn("slackCommands.runPriorityCommand")(function* (
-  command: SlackSlashCommand,
+  command: PriorityRequest,
 ) {
   const settingsService = yield* ServerSettingsService;
   const linearTickets = yield* LinearTickets;
