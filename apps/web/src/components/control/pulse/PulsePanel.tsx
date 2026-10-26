@@ -277,12 +277,12 @@ function TicketFlow(props: { data: LinearBoardStatsResult | null; error: string 
           {data.moves.length === 0 ? (
             <Note>No moves since Monday yet.</Note>
           ) : (
-            // Two columns of full-width pills; every pill shares its track widths so arrows and counts line up.
+            // Two columns of pills, each only as wide as its move.
             <ul className="grid grid-cols-2 gap-x-2 gap-y-1.5">
               {data.moves.slice(0, MAX_MOVES_SHOWN).map((move) => (
                 <li
                   key={`${move.from ?? ""}→${move.to}`}
-                  className="grid h-6 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_2rem] items-center gap-x-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 text-xs"
+                  className="inline-flex h-6 w-fit max-w-full items-center gap-1.5 rounded-full border border-border/70 bg-muted/40 px-2.5 text-xs"
                 >
                   {move.from === null ? (
                     <span className="text-muted-foreground">New</span>
@@ -292,12 +292,12 @@ function TicketFlow(props: { data: LinearBoardStatsResult | null; error: string 
                       <span className="truncate">{move.from}</span>
                     </span>
                   )}
-                  <span className="text-muted-foreground">→</span>
+                  <span className="shrink-0 text-muted-foreground">→</span>
                   <span className="flex min-w-0 items-center gap-1.5">
                     <Dot color={move.toColor} />
                     <span className="truncate">{move.to}</span>
                   </span>
-                  <span className="text-right font-semibold tabular-nums">×{move.count}</span>
+                  <span className="shrink-0 font-semibold tabular-nums">×{move.count}</span>
                 </li>
               ))}
             </ul>
