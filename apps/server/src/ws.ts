@@ -101,6 +101,7 @@ import {
   type PullRequestRef,
   RpcScopeAuthorization,
   LinearWsRpcGroup,
+  ScheduledTaskTimerWsRpcGroup,
   SlackWsRpcGroup,
   WS_METHODS,
   WsRpcGroup,
@@ -557,7 +558,7 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
-// Slack's and Linear's methods get their own handler layers; see SlackWsRpcGroup for why.
+// Slack's, Linear's and the task timer's methods get their own handler layers; see SlackWsRpcGroup for why.
 const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.slackSubscribe,
   WS_METHODS.slackRefetch,
@@ -568,6 +569,7 @@ const ServerCoreRpcGroup = ServerWsRpcGroup.omit(
   WS_METHODS.linearTicketDetail,
   WS_METHODS.linearCommentCreate,
   WS_METHODS.linearBoardStats,
+  WS_METHODS.scheduledTasksScheduleRun,
 );
 const ServerSlackRpcGroup =
   SlackWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
@@ -597,6 +599,21 @@ const layerLinearRpc = ServerLinearRpcGroup.toLayer(
       [WS_METHODS.linearTicketDetail]: (input) => linearTickets.getTicketDetail(input),
       [WS_METHODS.linearCommentCreate]: (input) => linearTickets.createComment(input),
       [WS_METHODS.linearBoardStats]: (input) => linearTickets.getBoardStats(input),
+    });
+  }),
+);
+
+const ServerScheduledTaskTimerRpcGroup =
+  ScheduledTaskTimerWsRpcGroup.middleware(RpcScopeAuthorization).middleware(RpcInstrumentation);
+
+const layerScheduledTaskTimerRpc = ServerScheduledTaskTimerRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+    return ServerScheduledTaskTimerRpcGroup.of({
+      [WS_METHODS.scheduledTasksScheduleRun]: (input) =>
+        Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
+          Effect.andThen(scheduledTasks.scheduleRun(input)),
+        ),
     });
   }),
 );
@@ -3291,7 +3308,7 @@ export const layer = Layer.unwrap(
                 previewAutomationBroker,
                 serverBrowser,
               ),
-              Layer.merge(layerSlackRpc, layerLinearRpc),
+              Layer.mergeAll(layerSlackRpc, layerLinearRpc, layerScheduledTaskTimerRpc),
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

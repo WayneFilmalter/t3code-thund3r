@@ -53,7 +53,8 @@ export interface TaskItem {
 /** Finished tasks stay listed this long after settling; older ones belong to the thread list. */
 export const TASK_DONE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function taskStatus(shell: TaskShell): {
+/** Where a thread's latest turn stands; also how the Control window's Workflows read a run. */
+export function taskStatus(shell: TaskShell): {
   status: TaskStatus;
   attention: TaskAttention | null;
 } {

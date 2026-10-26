@@ -45,7 +45,7 @@ export function validateScheduledTasksSearch(raw: Record<string, unknown>) {
   };
 }
 
-export type ScheduleMode = "fixed" | "interval" | "webhook";
+export type ScheduleMode = "fixed" | "interval" | "webhook" | "manual";
 export type WorkspaceMode = "root" | "worktree" | "existing_worktree";
 
 export interface DraftState {
@@ -92,6 +92,7 @@ export const WEBHOOK_SIGNATURE_DEFAULTS = {
 
 /** Null when the draft's webhook age limit is invalid; the caller reports it and does not save. */
 export function scheduleFromDraft(draft: DraftState): ScheduledTaskUpsertSchedule | null {
+  if (draft.scheduleMode === "manual") return { type: "manual" };
   if (draft.scheduleMode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
@@ -133,7 +134,11 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     prompt: task.prompt,
     enabled: task.enabled,
     scheduleMode:
-      schedule.type === "interval" ? "interval" : schedule.type === "webhook" ? "webhook" : "fixed",
+      schedule.type === "interval"
+        ? "interval"
+        : schedule.type === "webhook" || schedule.type === "manual"
+          ? schedule.type
+          : "fixed",
     intervalMinutes:
       schedule.type === "interval" ? String(Math.max(1, schedule.everyMs / 60_000)) : "15",
     timeOfDay: schedule.type === "fixed_time" ? schedule.timeOfDay : "09:00",

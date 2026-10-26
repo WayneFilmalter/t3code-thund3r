@@ -20,6 +20,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
+  CONTROL_WINDOW_OPEN_THREAD_CHANNEL,
   CONTROL_WINDOW_STATE_CHANNEL,
   MENU_ACTION_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
@@ -156,6 +157,11 @@ export class DesktopWindow extends Context.Service<
     readonly openControlWindow: Effect.Effect<void, DesktopWindowError>;
     readonly closeControlWindow: Effect.Effect<void>;
     readonly isControlWindowOpen: Effect.Effect<boolean>;
+    /** Brings the main window forward on a thread the Control window picked. */
+    readonly openThreadInMain: (ref: {
+      readonly environmentId: string;
+      readonly threadId: string;
+    }) => Effect.Effect<void, DesktopWindowError>;
   }
 >()("@t3tools/desktop/window/DesktopWindow") {}
 
@@ -1178,6 +1184,9 @@ export const make = Effect.gen(function* () {
     }).pipe(Effect.withSpan("desktop.window.syncAppearance")),
     openControlWindow,
     closeControlWindow,
+    openThreadInMain: Effect.fn("desktop.window.openThreadInMain")(function* (ref) {
+      yield* dispatchRendererEvent(CONTROL_WINDOW_OPEN_THREAD_CHANNEL, ref);
+    }),
     isControlWindowOpen: liveControlWindow.pipe(Effect.map(Option.isSome)),
   });
 });

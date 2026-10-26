@@ -20,6 +20,7 @@ export const CONTROL_WINDOW_OPEN_CHANNEL = "desktop:control-window-open";
 export const CONTROL_WINDOW_CLOSE_CHANNEL = "desktop:control-window-close";
 export const CONTROL_WINDOW_IS_OPEN_CHANNEL = "desktop:control-window-is-open";
 export const CONTROL_WINDOW_STATE_CHANNEL = "desktop:control-window-state";
+export const CONTROL_WINDOW_OPEN_THREAD_CHANNEL = "desktop:control-window-open-thread";
 export const DESKTOP_APP_ACTIVATION_READY_CHANNEL = "desktop:app-activation-ready";
 export const DESKTOP_APP_ACTIVATION_COMPLETE_CHANNEL = "desktop:app-activation-complete";
 export const DESKTOP_APP_ACTIVATION_REQUEST_CHANNEL = "desktop:app-activation-request";

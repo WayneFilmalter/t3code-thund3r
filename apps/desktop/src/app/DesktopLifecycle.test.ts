@@ -101,6 +101,7 @@ function layerDesktopWindow(
     openControlWindow: Effect.void,
     closeControlWindow: Effect.void,
     isControlWindowOpen: Effect.succeed(false),
+    openThreadInMain: () => Effect.void,
   });
 }
 

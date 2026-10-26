@@ -56,6 +56,15 @@ const ScheduledTaskFixedTimeSchedule = Schema.Struct({
   description: "Run at a fixed local wall-clock time on selected weekdays.",
 });
 
+const ScheduledTaskManualSchedule = Schema.Struct({
+  type: Schema.Literal("manual").annotate({
+    description: "Select on-demand running.",
+  }),
+}).annotate({
+  description:
+    "Run only when started by hand (run now) or at a one-off time set with a timer; never on its own.",
+});
+
 const ScheduledTaskWebhookSignatureFields = {
   header: TrimmedNonEmptyString.annotate({
     description: "Request header carrying the signature, such as x-hub-signature-256.",
@@ -130,9 +139,10 @@ export const ScheduledTaskSchedule = Schema.Union([
   ScheduledTaskIntervalSchedule,
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskWebhookSchedule,
+  ScheduledTaskManualSchedule,
 ]).annotate({
   description:
-    "Structured trigger. Pass an object with type 'interval', 'fixed_time' or 'webhook'.",
+    "Structured trigger. Pass an object with type 'interval', 'fixed_time', 'webhook' or 'manual'.",
 });
 export type ScheduledTaskSchedule = typeof ScheduledTaskSchedule.Type;
 
@@ -152,8 +162,10 @@ export const ScheduledTaskUpsertSchedule = Schema.Union([
   }),
   ScheduledTaskFixedTimeSchedule,
   ScheduledTaskUpsertWebhookSchedule,
+  ScheduledTaskManualSchedule,
 ]).annotate({
-  description: "Writable trigger. Pass an object with type 'interval', 'fixed_time' or 'webhook'.",
+  description:
+    "Writable trigger. Pass an object with type 'interval', 'fixed_time', 'webhook' or 'manual'.",
 });
 export type ScheduledTaskUpsertSchedule = typeof ScheduledTaskUpsertSchedule.Type;
 
@@ -191,6 +203,8 @@ export const ScheduledTask = Schema.Struct({
   lastRunStatus: ScheduledTaskRunStatus,
   lastRunError: Schema.NullOr(Schema.String),
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** The thread the last successful run sent its prompt to. Omitted by older servers. */
+  lastRunThreadId: Schema.optional(Schema.NullOr(ThreadId)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
 });
 export type ScheduledTask = typeof ScheduledTask.Type;
@@ -242,6 +256,16 @@ export const ScheduledTaskRunNowInput = Schema.Struct({
   id: ScheduledTaskId,
 });
 export type ScheduledTaskRunNowInput = typeof ScheduledTaskRunNowInput.Type;
+
+/**
+ * Arms a one-off run at `runAt`, a timer. Null disarms it and goes back to the
+ * schedule's own next slot, which an on-demand task does not have.
+ */
+export const ScheduledTaskScheduleRunInput = Schema.Struct({
+  id: ScheduledTaskId,
+  runAt: Schema.NullOr(IsoDateTime),
+});
+export type ScheduledTaskScheduleRunInput = typeof ScheduledTaskScheduleRunInput.Type;
 
 export const ScheduledTaskRotateWebhookTokenInput = Schema.Struct({
   id: ScheduledTaskId,

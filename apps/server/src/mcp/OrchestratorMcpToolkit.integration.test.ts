@@ -515,6 +515,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
     setEnabled: () => Effect.die("ScheduledTaskService.setEnabled is unused in this test"),
     delete: () => Effect.die("ScheduledTaskService.delete is unused in this test"),
     runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
+    scheduleRun: () => Effect.die("ScheduledTaskService.scheduleRun is unused in this test"),
     rotateWebhookToken: () => Effect.die("unused in this test"),
     listWebhookDeliveries: () => Effect.die("unused in this test"),
     getWebhookDelivery: () => Effect.die("unused in this test"),
@@ -682,6 +683,8 @@ describe("orchestrator MCP toolkit", () => {
                   all.filter((candidate) => candidate.id !== input.id),
                 ).pipe(Effect.as({ id: input.id })),
               runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
+              scheduleRun: () =>
+                Effect.die("ScheduledTaskService.scheduleRun is unused in this test"),
               rotateWebhookToken: () => Effect.die("unused in this test"),
               listWebhookDeliveries: () => Effect.die("unused in this test"),
               getWebhookDelivery: () => Effect.die("unused in this test"),

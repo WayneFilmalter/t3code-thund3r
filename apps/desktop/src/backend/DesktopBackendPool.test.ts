@@ -107,6 +107,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           openControlWindow: Effect.void,
           closeControlWindow: Effect.void,
           isControlWindowOpen: Effect.succeed(false),
+          openThreadInMain: () => Effect.void,
         } satisfies DesktopWindow.DesktopWindow["Service"]),
       ),
     ),

@@ -46,6 +46,7 @@ import {
   getWindowFullscreenState,
   isControlWindowOpen,
   openControlWindow,
+  openThreadFromControlWindow,
   openExternal,
   openSystemSettings,
   checkSystemPermission,
@@ -100,6 +101,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handleSync(getSystemLocale);
   yield* ipc.handleSync(getWindowFullscreenState);
   yield* ipc.handle(openControlWindow);
+  yield* ipc.handle(openThreadFromControlWindow);
   yield* ipc.handle(closeControlWindow);
   yield* ipc.handle(isControlWindowOpen);
   yield* ipc.handleSync(getLocalEnvironmentBootstraps);

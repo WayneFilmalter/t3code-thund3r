@@ -93,6 +93,7 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     openControlWindow: Effect.void,
     closeControlWindow: Effect.void,
     isControlWindowOpen: Effect.succeed(false),
+    openThreadInMain: () => Effect.void,
   } satisfies DesktopWindow.DesktopWindow["Service"]);
 
 const layerElectronMenu = (

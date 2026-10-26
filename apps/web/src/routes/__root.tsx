@@ -29,6 +29,7 @@ import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
 import { ControlWindowBtopCoordinator } from "../components/control/ControlWindowBtopCoordinator";
+import { ControlWindowThreadOpener } from "../components/control/ControlWindowThreadOpener";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { WorkflowRunnerBootstrap } from "../components/WorkflowRunnerBootstrap";
@@ -256,6 +257,7 @@ function RootRouteView() {
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopWebLinkCoordinator /> : null}
           {isElectron && primaryEnvironmentAuthenticated ? <ControlWindowBtopCoordinator /> : null}
+          {isElectron && primaryEnvironmentAuthenticated ? <ControlWindowThreadOpener /> : null}
           {isElectron ? <RunningThreadKeepAlive /> : null}
           <RelayClientInstallDialog />
           <ConnectOnboardingDialog />

@@ -104,6 +104,7 @@ const DAYS = [
 
 function describeSchedule(task: ScheduledTask): string {
   if (task.schedule.type === "webhook") return "On webhook";
+  if (task.schedule.type === "manual") return "On demand";
   if (task.schedule.type === "interval") return formatScheduledTaskInterval(task.schedule.everyMs);
   const days = task.schedule.weekdays?.length ? repeatLabel(task.schedule.weekdays) : "Every day";
   return `${days} at ${formatTime(task.schedule.timeOfDay)}`;
@@ -863,6 +864,7 @@ function TaskForm({
               { value: "fixed_time", label: "At a time" },
               { value: "interval", label: "Interval" },
               { value: "webhook", label: "On webhook" },
+              { value: "manual", label: "On demand" },
             ]}
             selected={draft.schedule.mode}
             onSelect={(mode) => {
@@ -974,7 +976,7 @@ function TaskForm({
               }
             />
           </>
-        ) : (
+        ) : draft.schedule.mode === "interval" ? (
           <>
             <FormField
               label="Minutes between runs"
@@ -997,6 +999,10 @@ function TaskForm({
               </Text>
             ) : null}
           </>
+        ) : (
+          <Text className="border-t border-border-subtle px-4 py-3 text-sm text-foreground-muted">
+            Runs only when you start it.
+          </Text>
         )}
         <View className="min-h-14 flex-row items-center gap-3 border-t border-border-subtle px-4 py-3">
           <Text className="min-w-0 flex-1 text-lg text-foreground">Enabled</Text>

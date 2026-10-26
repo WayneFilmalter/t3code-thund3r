@@ -68,6 +68,14 @@ describe("scheduled task schedule calculation", () => {
     );
   });
 
+  it("never schedules an on-demand task by itself", () => {
+    const from = DateTime.makeUnsafe("2026-07-01T16:00:00.000Z");
+    expect(nextScheduledRunAt({ type: "manual" }, from)).toBeNull();
+    expect(isSameSchedule({ type: "manual" }, { type: "manual" })).toBe(true);
+    expect(isSameSchedule({ type: "manual" }, { type: "interval", everyMs: 60_000 })).toBe(false);
+    expect(isMissedFixedTimeRun({ type: "manual" }, from, from)).toBe(false);
+  });
+
   it("compares schedules structurally", () => {
     expect(
       isSameSchedule({ type: "interval", everyMs: 60_000 }, { type: "interval", everyMs: 60_000 }),

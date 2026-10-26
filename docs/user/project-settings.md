@@ -68,6 +68,8 @@ list by environment or project. Each task runs on the environment you choose,
 using its project, model, and workspace settings. Fixed-time schedules use that
 environment's time zone, which may differ from your phone's.
 
+Choose **On demand** as the schedule for a task that runs only when you start
+it, such as from the desktop [Control window](control-window.md#workflows).
 You can edit, pause, resume, run immediately, or delete a task from the list.
 Webhook tasks only run when their URL is called, so they can't be run
 immediately.

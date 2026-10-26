@@ -121,6 +121,16 @@ export const isControlWindowOpen = DesktopIpc.makeIpcMethod({
   }),
 });
 
+export const openThreadFromControlWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.CONTROL_WINDOW_OPEN_THREAD_CHANNEL,
+  payload: Schema.Struct({ environmentId: Schema.String, threadId: Schema.String }),
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.openThreadFromControlWindow")(function* (ref) {
+    const desktopWindow = yield* DesktopWindow.DesktopWindow;
+    yield* desktopWindow.openThreadInMain(ref);
+  }),
+});
+
 export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL,
   result: Schema.Array(DesktopEnvironmentBootstrapSchema),

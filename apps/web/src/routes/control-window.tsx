@@ -4,13 +4,11 @@ import { BtopPanel } from "../components/control/BtopPanel";
 import { PrioritiesPanel } from "../components/control/priorities/PrioritiesPanel";
 import { PulsePanel } from "../components/control/pulse/PulsePanel";
 import { SlackFeedPanel } from "../components/control/SlackFeedPanel";
+import { WorkflowsPanel } from "../components/control/workflows/WorkflowsPanel";
 
 export const Route = createFileRoute("/control-window")({
   component: ControlWindowGrid,
 });
-
-const PLACEHOLDER_CLASS =
-  "flex min-h-0 min-w-0 items-center justify-center bg-background text-sm text-muted-foreground";
 
 /**
  * The desktop Control window's content: one tall panel on the left, then two
@@ -27,7 +25,9 @@ function ControlWindowGrid() {
       <section className="min-h-0 min-w-0 overflow-hidden bg-background">
         <SlackFeedPanel />
       </section>
-      <section className={PLACEHOLDER_CLASS}>Panel 3</section>
+      <section className="min-h-0 min-w-0 overflow-hidden bg-background">
+        <WorkflowsPanel />
+      </section>
       <section className="min-h-0 min-w-0 overflow-hidden bg-background">
         <PulsePanel />
       </section>

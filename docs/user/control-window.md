@@ -1,6 +1,6 @@
 # Control window
 
-The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets and tasks, your Slack messages, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, places to add priorities and tasks, and the state of the Slack connection.
+The Control window is a separate desktop window for keeping an eye on things while you work: your priority list of Linear tickets and tasks, your Slack messages, workflows you can start with one press, and btop showing what this machine is doing. Open the **Control** tab in the right panel and press **Open window**. The tab also shows this PC's CPU and memory, places to add priorities and tasks, and the state of the Slack connection.
 
 The window is desktop-only. On the web the Control tab still shows the Priorities, Tasks and Slack blocks, so you can add tickets and tasks and connect Slack from anywhere.
 
@@ -39,6 +39,16 @@ For `#priorities` to work:
 - Paste the **Bot User OAuth Token** (it starts with `xoxb-`) into the Slack settings so the answers come from Thund3rBot. Without it they are posted as you. In a private channel, also invite Thund3rBot.
 
 If you connected Slack before these features existed, copy the app manifest again, paste it over the old one under **App Manifest** on your Slack app's page, then reinstall the app to your workspace so it gets the new permissions.
+
+## Workflows
+
+The bottom middle panel holds prompts you run over and over, such as "triage ten backlog tickets". Press **New**, give the workflow a title and a prompt, and save. The project, model, checkout and permissions are filled in for you; change them in the same dialog if you need to.
+
+Press the big **▶** on a workflow to run it. Each run starts a new thread in the workflow's project, so you can watch it or step in as usual; click the workflow to open its latest thread in the main window. The dropdown beside **▶** picks when: **Now**, or a timer of 5 minutes up to 8 hours that counts from the moment you press **▶**.
+
+While it works, the workflow shows how long it has been running and a line of what the agent is doing or saying, and **▶** becomes **■**, which stops the agent. A set timer shows when the workflow will run, and **✕** cancels it. Each workflow also shows when it last ran and how that run ended.
+
+Workflows are scheduled tasks that only run when you start them, so they also appear under **Settings → Scheduled tasks** as **On demand**. Give one a schedule there to run it at a set time or interval as well; scheduled tasks also appear in this panel. **⋯** on a workflow edits, pauses or deletes it. A paused workflow can still run now, but not on a timer.
 
 ## Slack feed
 

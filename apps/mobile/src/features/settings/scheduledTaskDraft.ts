@@ -44,7 +44,7 @@ export function scheduledTaskDefaultModel(
 }
 
 export type ScheduleDraft = {
-  readonly mode: "fixed_time" | "interval" | "webhook";
+  readonly mode: "fixed_time" | "interval" | "webhook" | "manual";
   readonly timeOfDay: string;
   readonly weekdays: ReadonlyArray<number>;
   readonly intervalMinutes: string;
@@ -79,6 +79,8 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
         mode: "interval",
         intervalMinutes: String(Math.max(1, task.schedule.everyMs / 60_000)),
       };
+    case "manual":
+      return { ...DEFAULT_SCHEDULE, mode: "manual" };
     case "webhook":
       return {
         ...DEFAULT_SCHEDULE,
@@ -93,6 +95,7 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
 }
 
 export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSchedule | null {
+  if (draft.mode === "manual") return { type: "manual" };
   if (draft.mode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;

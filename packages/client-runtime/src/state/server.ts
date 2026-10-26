@@ -1391,6 +1391,12 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:scheduled-task:run-now",
       tag: WS_METHODS.scheduledTasksRunNow,
     }),
+    scheduleScheduledTaskRun: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:scheduled-task:schedule-run",
+      tag: WS_METHODS.scheduledTasksScheduleRun,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     rotateScheduledTaskWebhookToken: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:rotate-webhook-token",
       tag: WS_METHODS.scheduledTasksRotateWebhookToken,

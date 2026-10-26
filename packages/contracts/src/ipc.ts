@@ -1122,6 +1122,12 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
+/** A thread as it crosses between desktop windows: plain ids, branded again on arrival. */
+export interface ControlWindowThreadRef {
+  readonly environmentId: string;
+  readonly threadId: string;
+}
+
 export interface DesktopBridge {
   getAppBranding: () => DesktopAppBranding | null;
   /** Absolute path of a dropped or picked file; absent on desktop builds predating it. */
@@ -1249,6 +1255,10 @@ export interface DesktopBridge {
     close: () => Promise<void>;
     isOpen: () => Promise<boolean>;
     onStateChange: (listener: (open: boolean) => void) => () => void;
+    /** Shows a thread in the main window, bringing it forward. Optional: older builds lack it. */
+    openThread?: (ref: ControlWindowThreadRef) => Promise<void>;
+    /** Main window: a thread the Control window asked to show. */
+    onOpenThread?: (listener: (ref: ControlWindowThreadRef) => void) => () => void;
   };
   getUpdateState: () => Promise<DesktopUpdateState>;
   setUpdateChannel: (channel: DesktopUpdateChannel) => Promise<DesktopUpdateState>;

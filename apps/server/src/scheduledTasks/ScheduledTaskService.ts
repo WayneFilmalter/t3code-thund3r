@@ -18,6 +18,7 @@ import {
   type ScheduledTaskListResult,
   type ScheduledTaskMutationResult,
   type ScheduledTaskRunNowInput,
+  type ScheduledTaskScheduleRunInput,
   type ScheduledTaskRunNowResult,
   type ScheduledTaskSetEnabledInput,
   type ScheduledTaskUpsertInput,
@@ -195,6 +196,7 @@ interface ScheduledTaskRow {
   readonly last_run_status: string;
   readonly last_run_error: string | null;
   readonly run_count: number;
+  readonly last_run_thread_id: string | null;
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
 }
@@ -235,6 +237,10 @@ export class ScheduledTaskService extends Context.Service<
     readonly runNow: (
       input: ScheduledTaskRunNowInput,
     ) => Effect.Effect<ScheduledTaskRunNowResult, ScheduledTaskError>;
+    /** Arms a one-off run at a time (a timer), or with null puts the task back on its schedule. */
+    readonly scheduleRun: (
+      input: ScheduledTaskScheduleRunInput,
+    ) => Effect.Effect<ScheduledTaskMutationResult, ScheduledTaskError>;
     /** Issues a new URL token for a webhook task; the old URL stops working at once. */
     readonly rotateWebhookToken: (
       input: ScheduledTaskRotateWebhookTokenInput,
@@ -337,6 +343,7 @@ const decodeRow = (row: ScheduledTaskRow, origin: WebhookOrigin | null = null) =
       lastRunStatus: row.last_run_status,
       lastRunError: row.last_run_error,
       runCount: row.run_count,
+      lastRunThreadId: row.last_run_thread_id,
       ...(webhook === undefined ? {} : { webhook }),
     });
   }).pipe(
@@ -435,6 +442,7 @@ export const layer = Layer.effect(
         last_run_status,
         last_run_error,
         run_count,
+        last_run_thread_id,
         webhook_token,
         webhook_secret
       FROM scheduled_tasks
@@ -470,6 +478,7 @@ export const layer = Layer.effect(
         last_run_status,
         last_run_error,
         run_count,
+        last_run_thread_id,
         webhook_token,
         webhook_secret
       FROM scheduled_tasks
@@ -657,6 +666,8 @@ export const layer = Layer.effect(
       readonly status: "succeeded" | "failed";
       readonly error: string | null;
       readonly startedAtIso: string;
+      /** The thread the run sent its prompt to; null keeps the previous run's. */
+      readonly threadId: string | null;
     }) =>
       sql`
         UPDATE scheduled_tasks
@@ -664,6 +675,7 @@ export const layer = Layer.effect(
             next_run_at = ${input.nextRunAtIso},
             last_run_status = ${input.status},
             last_run_error = ${input.error},
+            last_run_thread_id = COALESCE(${input.threadId}, last_run_thread_id),
             run_count = run_count + 1
         WHERE task_id = ${input.id}
           AND last_run_status = 'running'
@@ -791,49 +803,54 @@ export const layer = Layer.effect(
 
         // Effect.exit (not Effect.result) so defects and interruptions in the
         // dispatch are also captured and recorded as a failed run instead of
-        // aborting before markCompleted.
+        // aborting before markCompleted. Success carries the run's thread.
         const result =
           active.threadId === null
             ? yield* Effect.exit(
-                threadLaunch.launch({
-                  commandId,
-                  projectId: active.projectId,
-                  title: active.title,
-                  modelSelection: active.modelSelection,
-                  runtimeMode: active.runtimeMode,
-                  interactionMode: active.interactionMode,
-                  workspaceStrategy: active.workspaceStrategy,
-                  initialMessage: {
+                threadLaunch
+                  .launch({
+                    commandId,
+                    projectId: active.projectId,
+                    title: active.title,
+                    modelSelection: active.modelSelection,
+                    runtimeMode: active.runtimeMode,
+                    interactionMode: active.interactionMode,
+                    workspaceStrategy: active.workspaceStrategy,
+                    initialMessage: {
+                      messageId,
+                      scheduledTaskId: active.id,
+                      text: prompt,
+                      attachments: [],
+                    },
+                    createdBy: active.createdBy,
+                    creationSource: active.creationSource,
+                  })
+                  .pipe(Effect.map((launched) => launched.threadId)),
+              )
+            : yield* Effect.exit(
+                threadManagement
+                  .sendToThread({
+                    projectId: active.projectId,
+                    commandId,
+                    threadId: ThreadId.make(active.threadId),
                     messageId,
                     scheduledTaskId: active.id,
                     text: prompt,
                     attachments: [],
-                  },
-                  createdBy: active.createdBy,
-                  creationSource: active.creationSource,
-                }),
-              )
-            : yield* Effect.exit(
-                threadManagement.sendToThread({
-                  projectId: active.projectId,
-                  commandId,
-                  threadId: ThreadId.make(active.threadId),
-                  messageId,
-                  scheduledTaskId: active.id,
-                  text: prompt,
-                  attachments: [],
-                  modelSelection: active.modelSelection,
-                  // Scheduled prompts must not interrupt tools in the bound thread.
-                  mode: "queue",
-                  createdBy: active.createdBy,
-                  creationSource: active.creationSource,
-                }),
+                    modelSelection: active.modelSelection,
+                    // Scheduled prompts must not interrupt tools in the bound thread.
+                    mode: "queue",
+                    createdBy: active.createdBy,
+                    creationSource: active.creationSource,
+                  })
+                  .pipe(Effect.as(ThreadId.make(active.threadId))),
               );
 
         const completedAt = yield* localNow;
         const runSucceeded = result._tag === "Success";
         const lastRunStatus = runSucceeded ? ("succeeded" as const) : ("failed" as const);
         const lastRunError = runSucceeded ? null : errorMessage(result.cause);
+        const runThreadId = result._tag === "Success" ? result.value : null;
         // Re-read the task so the next run is computed from the schedule as it
         // is *now* (the user may have edited or deleted it while we ran).
         const current = yield* findTask(task.id);
@@ -846,6 +863,7 @@ export const layer = Layer.effect(
           lastRunStatus,
           lastRunError,
           runCount: scheduleSource.runCount + 1,
+          lastRunThreadId: runThreadId ?? scheduleSource.lastRunThreadId ?? null,
         };
         if (current !== null) {
           // startedAtIso in the guard ensures this writes only to the row this
@@ -858,6 +876,7 @@ export const layer = Layer.effect(
             status: lastRunStatus,
             error: lastRunError,
             startedAtIso,
+            threadId: runThreadId,
           });
           yield* notifyChanged;
         }
@@ -1103,6 +1122,7 @@ export const layer = Layer.effect(
           lastRunStatus: existingTask?.lastRunStatus ?? "never",
           lastRunError: existingTask?.lastRunError ?? null,
           runCount: existingTask?.runCount ?? 0,
+          lastRunThreadId: existingTask?.lastRunThreadId ?? null,
         };
         yield* saveTask(task, input.requireExisting === true, webhook);
         yield* notifyChanged;
@@ -1173,6 +1193,38 @@ export const layer = Layer.effect(
           ),
         );
         return { task: next };
+      });
+
+    const scheduleRun: ScheduledTaskService["Service"]["scheduleRun"] = (input) =>
+      Effect.gen(function* () {
+        const task = yield* loadTask(input.id);
+        if (task.schedule.type === "webhook") {
+          return yield* taskError("Webhook tasks run when their URL receives a request.", {
+            taskId: input.id,
+          });
+        }
+        // The poller only fires enabled tasks, so a timer on a paused one would never go off.
+        if (input.runAt !== null && !task.enabled) {
+          return yield* taskError("Resume the task to set a timer.", { taskId: input.id });
+        }
+        const now = yield* localNow;
+        const next = input.runAt ?? nextRunAt(task, now);
+        const updated = yield* sql<{ task_id: string }>`
+          UPDATE scheduled_tasks
+          SET next_run_at = ${next},
+              updated_at = ${iso(now)}
+          WHERE task_id = ${input.id} AND created_at = ${task.createdAt}
+          RETURNING task_id
+        `.pipe(
+          Effect.mapError((cause) =>
+            taskError("Could not set the task's timer.", { taskId: input.id, cause }),
+          ),
+        );
+        if (updated.length === 0) {
+          return yield* taskError("Schedule task was deleted or replaced.", { taskId: input.id });
+        }
+        yield* notifyChanged;
+        return { task: { ...task, nextRunAt: next, updatedAt: iso(now) } };
       });
 
     const rotateWebhookToken: ScheduledTaskService["Service"]["rotateWebhookToken"] = (input) =>
@@ -1672,6 +1724,7 @@ export const layer = Layer.effect(
       setEnabled,
       delete: deleteTask,
       runNow,
+      scheduleRun,
       rotateWebhookToken,
       listWebhookDeliveries,
       getWebhookDelivery,

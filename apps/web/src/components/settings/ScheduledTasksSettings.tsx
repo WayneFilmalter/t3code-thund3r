@@ -174,6 +174,7 @@ function splitModelKey(value: string): ModelSelection | null {
 
 export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
   if (schedule.type === "webhook") return "On webhook";
+  if (schedule.type === "manual") return "On demand";
   if (schedule.type === "interval") {
     const minutes = schedule.everyMs / 60_000;
     return Number.isInteger(minutes)
@@ -458,7 +459,9 @@ function ScheduledTaskRow({
                 ? "Listening"
                 : task.nextRunAt
                   ? `Next run ${relativeLabel(task.nextRunAt)}`
-                  : "Not scheduled"}
+                  : task.schedule.type === "manual"
+                    ? "Runs when started"
+                    : "Not scheduled"}
           </span>
           {task.lastRunStatus !== "never" ? (
             <Badge variant={statusVariant(task.lastRunStatus)}>{task.lastRunStatus}</Badge>
@@ -768,13 +771,16 @@ function WebhookDeliveryMode({ environmentId }: { readonly environmentId: Enviro
   );
 }
 
-function ScheduledTaskEditorDialog({
+/** Creates or edits one task. New tasks start with `initialScheduleMode`, "At a time" by default. */
+export function ScheduledTaskEditorDialog({
   initialEnvironmentId,
   task,
+  initialScheduleMode,
   onClose,
 }: {
   readonly initialEnvironmentId: EnvironmentId;
   readonly task: ScheduledTask | null;
+  readonly initialScheduleMode?: ScheduleMode;
   readonly onClose: () => void;
 }) {
   const { scope, connectedEnvironments } = useSettingsScope();
@@ -805,7 +811,13 @@ function ScheduledTaskEditorDialog({
     label: "scheduled task upsert",
   });
   const [draft, setDraft] = useState<DraftState>(() =>
-    task ? taskToDraft(task) : { ...EMPTY_DRAFT, projectId: projects[0]?.id ?? "" },
+    task
+      ? taskToDraft(task)
+      : {
+          ...EMPTY_DRAFT,
+          projectId: projects[0]?.id ?? "",
+          scheduleMode: initialScheduleMode ?? EMPTY_DRAFT.scheduleMode,
+        },
   );
   const [saving, setSaving] = useState(false);
   const submissionPending = useRef(false);
@@ -969,7 +981,7 @@ function ScheduledTaskEditorDialog({
           <DialogTitle>{draft.editingId ? "Edit task" : "New task"}</DialogTitle>
           <DialogDescription>
             Run a prompt automatically — on an interval, at a fixed time, or when a webhook is
-            called.
+            called — or keep it to start by hand.
           </DialogDescription>
         </DialogHeader>
 
@@ -1163,7 +1175,12 @@ function ScheduledTaskEditorDialog({
                   value={[draft.scheduleMode]}
                   onValueChange={(values) => {
                     const mode = values[0] as ScheduleMode | undefined;
-                    if (mode === "fixed" || mode === "interval" || mode === "webhook")
+                    if (
+                      mode === "fixed" ||
+                      mode === "interval" ||
+                      mode === "webhook" ||
+                      mode === "manual"
+                    )
                       setDraft((current) => ({
                         ...current,
                         scheduleMode: mode,
@@ -1177,6 +1194,7 @@ function ScheduledTaskEditorDialog({
                   <Toggle value="fixed">At a time</Toggle>
                   <Toggle value="interval">Every interval</Toggle>
                   <Toggle value="webhook">On webhook</Toggle>
+                  <Toggle value="manual">On demand</Toggle>
                 </ToggleGroup>
               </div>
 
@@ -1329,6 +1347,11 @@ function ScheduledTaskEditorDialog({
                     ))}
                   </ToggleGroup>
                 </div>
+              ) : draft.scheduleMode === "manual" ? (
+                <p className="text-xs text-muted-foreground">
+                  Runs only when you start it, now or on a timer, from the Control window or Run
+                  now.
+                </p>
               ) : (
                 <div className="flex items-center gap-2">
                   <Label htmlFor="scheduled-task-interval">Run every</Label>
