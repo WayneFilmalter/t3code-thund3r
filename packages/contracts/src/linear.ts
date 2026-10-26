@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 /**
@@ -91,12 +92,17 @@ export const LinearTicket = Schema.Struct({
   stateColor: Schema.String,
   /** The ticket's linked GitHub pull request, preferring an open one. */
   pullRequestUrl: Schema.NullOr(Schema.String),
-  /** That pull request's state, or null without one. */
-  pullRequestState: Schema.NullOr(LinearPullRequestState),
+  /**
+   * That pull request's state, or null without one. Defaults when absent so a
+   * newer client still reads tickets from a server built before the field.
+   */
+  pullRequestState: Schema.NullOr(LinearPullRequestState).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
   /** When someone other than the API key's owner last commented. */
   latestOthersCommentAt: Schema.NullOr(Schema.String),
   /** The API key's owner is @-mentioned in the description or in someone else's comment. */
-  mentionsViewer: Schema.Boolean,
+  mentionsViewer: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type LinearTicket = typeof LinearTicket.Type;
 
