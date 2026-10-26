@@ -71,9 +71,6 @@ export const COMMENT_MUTATION = `mutation PriorityComment($input: CommentCreateI
   commentCreate(input: $input) { success comment { id } }
 }`;
 
-/** The API key owner's tickets, for the Pulse panel's board counts and moves. */
-const ASSIGNED_TO_VIEWER = { assignee: { isMe: { eq: true } } };
-
 export const BOARD_PAGE_SIZE = 250;
 
 export const BOARD_COUNTS_QUERY = `query PulseBoardCounts($filter: IssueFilter!, $after: String) {
@@ -99,17 +96,14 @@ export const BOARD_MOVES_QUERY = `query PulseBoardMoves($filter: IssueFilter!, $
   }
 }`;
 
+/** Every ticket in the workspace sitting in a board status, whoever it is assigned to. */
 export function boardCountsFilter(): Record<string, unknown> {
-  return {
-    and: [
-      ASSIGNED_TO_VIEWER,
-      { state: { name: { in: LINEAR_ISSUE_STATUSES.map((status) => status.linearState) } } },
-    ],
-  };
+  return { state: { name: { in: LINEAR_ISSUE_STATUSES.map((status) => status.linearState) } } };
 }
 
+/** Every ticket in the workspace touched since `since`; the history decides what moved. */
 export function boardMovesFilter(since: string): Record<string, unknown> {
-  return { and: [ASSIGNED_TO_VIEWER, { updatedAt: { gte: since } }] };
+  return { updatedAt: { gte: since } };
 }
 
 /** One page of an `issues` connection: its nodes and the cursor for the next, if any. */

@@ -32,8 +32,11 @@ import {
 
 const isLinearError = Schema.is(LinearError);
 
-/** Linear changes slowly and costs a request; agents and prompts are a cheap local read. */
-const TICKETS_REFRESH_MS = 60_000;
+/**
+ * Linear changes slowly and a workspace board costs several paged requests
+ * against the API key's hourly budget; agents and prompts are a cheap local read.
+ */
+const TICKETS_REFRESH_MS = 5 * 60_000;
 const ACTIVITY_REFRESH_MS = 10_000;
 const USAGE_REFRESH_MS = 60_000;
 const ACTIVITY_DAYS = 14;
@@ -238,7 +241,7 @@ function TicketFlow(props: { data: LinearBoardStatsResult | null; error: string 
     <Section
       icon={<TicketIcon />}
       tone="info"
-      title="My tickets"
+      title="Tickets"
       aside={
         data !== null ? (
           <span className="text-2xs tabular-nums text-muted-foreground">{total} on the board</span>

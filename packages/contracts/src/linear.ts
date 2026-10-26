@@ -164,8 +164,8 @@ export const LinearCommentCreateResult = Schema.Struct({ commentId: Schema.Strin
 export type LinearCommentCreateResult = typeof LinearCommentCreateResult.Type;
 
 /**
- * The Control window's Pulse panel: how many of the API key owner's tickets
- * sit in each board status, and how tickets moved between states since a
+ * The Control window's Pulse panel: how many of the workspace's tickets sit
+ * in each board status, and how tickets moved between states since a
  * point in time (the client's local Monday). Counts are tickets, not points.
  */
 export const LinearBoardStatsInput = Schema.Struct({ since: Schema.String });

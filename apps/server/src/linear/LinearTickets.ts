@@ -63,7 +63,7 @@ export class LinearTickets extends Context.Service<
     readonly getTicketDetail: (
       input: LinearTicketDetailInput,
     ) => Effect.Effect<LinearTicketDetail, LinearError>;
-    /** The API key owner's tickets per board status, and their state changes since `since`. */
+    /** The workspace's tickets per board status, and their state changes since `since`. */
     readonly getBoardStats: (
       input: LinearBoardStatsInput,
     ) => Effect.Effect<LinearBoardStatsResult, LinearError>;
@@ -74,8 +74,11 @@ export class LinearTickets extends Context.Service<
   }
 >()("t3/linear/LinearTickets") {}
 
-/** Enough for a personal board; a runaway backlog stops counting rather than paging forever. */
-const MAX_BOARD_PAGES = 4;
+/**
+ * Enough for a workspace board: 5,000 counted tickets and 1,000 tickets moved
+ * in a week. A runaway backlog stops counting rather than paging forever.
+ */
+const MAX_BOARD_PAGES = 20;
 
 const describeError = (error: unknown): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : String(error);
