@@ -45,9 +45,9 @@ function useControlWindowOpen(bridge: ControlWindowBridge | undefined): boolean 
 /** Background and border tint for the This PC block, following CPU load. */
 function cpuLoadTint(cpuUtilization: number | null): string | undefined {
   if (cpuUtilization === null) return undefined;
-  if (cpuUtilization >= 0.8) return "border-destructive/60 bg-destructive/30";
-  if (cpuUtilization >= 0.5) return "border-warning/60 bg-warning/30";
-  return "border-success/60 bg-success/25";
+  if (cpuUtilization >= 0.8) return "border-red-500 bg-red-500/45";
+  if (cpuUtilization >= 0.5) return "border-yellow-400 bg-yellow-400/50";
+  return "border-green-500 bg-green-500/45";
 }
 
 function usedOfTotalGb(available: number, total: number): string {
